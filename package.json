@@ -21,7 +21,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node scripts/workflow-smoke.mjs && node scripts/result-normalization-smoke.mjs && node scripts/install-progress-smoke.mjs",
+    "test": "tsx scripts/workflow-smoke.mjs && tsx scripts/result-normalization-smoke.mjs && node scripts/install-progress-smoke.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
@@ -53,6 +53,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "^1.71.0",
+    "tsx": "^4.23.11",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
   }
