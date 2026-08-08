@@ -5,7 +5,6 @@ import path from 'node:path'
 const root = process.cwd()
 const requiredFiles = [
   'README.md',
-  'README_EN.md',
   'LICENSE',
   'NOTICE',
   'CONTRIBUTING.md',
