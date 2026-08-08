@@ -1,0 +1,113 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "QwenAudio Toolkits",
+  "version": "0.1.0",
+  "identifier": "org.qwenaudio.toolkits",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "QwenAudio Toolkits",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700,
+      "center": true,
+      "transparent": true,
+      "backgroundColor": "#00000000",
+      "windowEffects": {
+        "effects": ["menu"],
+        "state": "active"
+      },
+      "titleBarStyle": "Overlay",
+      "hiddenTitle": true,
+      "trafficLightPosition": {
+        "x": 13,
+        "y": 20
+      },
+        "resizable": true,
+        "fullscreen": false
+      },
+      {
+        "label": "captions",
+        "title": "实时字幕",
+        "url": "index.html?view=captions",
+        "width": 780,
+        "height": 74,
+        "minWidth": 420,
+        "minHeight": 74,
+        "center": true,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": true,
+        "shadow": false,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": {
+        "default-src": "'self' customprotocol: asset:",
+        "connect-src": "ipc: http://ipc.localhost",
+        "img-src": "'self' asset: http://asset.localhost blob: data:",
+        "media-src": "'self' asset: http://asset.localhost blob: data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:"
+      },
+      "devCsp": {
+        "default-src": "'self' customprotocol: asset: http://localhost:1420",
+        "connect-src": "ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420",
+        "img-src": "'self' asset: http://asset.localhost blob: data:",
+        "media-src": "'self' asset: http://asset.localhost blob: data:",
+        "style-src": "'self' 'unsafe-inline'",
+        "font-src": "'self' data:"
+      },
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$APPDATA/harness/source-audio/**",
+          "$APPDATA/generated/**",
+          "$APPDATA/processed/**",
+          "$APPDATA/recordings/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "14.2",
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
+    },
+    "android": {
+      "debugApplicationIdSuffix": ".debug"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0RDI3NkY5QUMzMzBBQTMKUldTakNqT3MrWGJTUkc3cTJ6dlJ4L0M2T1JqTXF3dVhvaE9Sai85bG9PNGhtczF0UVZhaGR2VEIK",
+      "endpoints": [
+        "https://github.com/QwenAudio/qwen-audio-toolkits/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose a product, model, or plugin improvement
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user workflow is difficult or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: textarea
+    id: model
+    attributes:
+      label: Model or runtime information
+      description: For model requests, include upstream URL, license, architecture, size, and supported platforms.
+

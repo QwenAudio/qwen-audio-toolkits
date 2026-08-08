@@ -1,0 +1,70 @@
+name: Release desktop app
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag, for example v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish-tauri:
+    name: Build Apple Silicon DMG
+    runs-on: macos-14
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.19
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.77.2
+          targets: aarch64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify release tag matches package version
+        run: |
+          expected_tag="v$(node -p "require('./package.json').version")"
+          test "${RELEASE_TAG}" = "${expected_tag}"
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v0.6.2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: QwenAudio Toolkits ${{ env.RELEASE_TAG }}
+          releaseBody: |
+            Apple Silicon macOS release for QwenAudio Toolkits.
+
+            Download the DMG below. The updater metadata and signed updater
+            artifacts are also attached to this release.
+          releaseDraft: true
+          prerelease: false
+          releaseCommitish: ${{ github.sha }}
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
+          args: '--target aarch64-apple-darwin --config src-tauri/tauri.release.conf.json'

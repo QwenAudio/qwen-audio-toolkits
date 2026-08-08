@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible problem in QwenAudio Toolkits
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, private audio, transcripts, or security exploit details. Use private vulnerability reporting for security issues.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: 0.1.20 or commit SHA
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS Apple Silicon
+        - macOS Intel
+        - Windows
+        - Linux
+        - Browser preview
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and runtime
+      placeholder: SenseVoice Small / sherpa-onnx / INT8
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: Describe the smallest reliable reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Additional diagnostics
+      description: Remove credentials, private file paths, audio, and transcript content before posting.

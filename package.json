@@ -1,0 +1,59 @@
+{
+  "name": "qwenaudio-toolkits",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A local-first AI audio workstation",
+  "author": "Zhendong Peng <pengzhendong.pzd@alibaba-inc.com>",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/QwenAudio/qwen-audio-toolkits#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/QwenAudio/qwen-audio-toolkits.git"
+  },
+  "bugs": {
+    "url": "https://github.com/QwenAudio/qwen-audio-toolkits/issues"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "test": "node scripts/workflow-smoke.mjs && node scripts/result-normalization-smoke.mjs && node scripts/install-progress-smoke.mjs",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:release": "tauri build --config src-tauri/tauri.release.conf.json",
+    "version:set": "node scripts/set-version.mjs",
+    "catalog:export": "node scripts/export-model-catalog.mjs",
+    "catalog:repository": "node scripts/export-model-repository-catalog.mjs",
+    "open-source:check": "node scripts/open-source-check.mjs",
+    "models:smoke": "node scripts/smoke-local-models.mjs",
+    "workflow:smoke": "node scripts/workflow-execution-smoke.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-dialog": "^2.7.2",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
+    "@xyflow/react": "^12.11.2",
+    "lucide-react": "^1.27.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "wavesurfer.js": "^7.12.11"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.0",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1"
+  }
+}
