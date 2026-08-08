@@ -17,8 +17,9 @@ manual approval under **System Settings → Privacy & Security**.
 The app checks the GitHub Release updater manifest in the background and
 automatically downloads signed updates. You can restart from **Settings** to
 install a downloaded update; installed models and application data are
-preserved during an app update. On macOS, the menu bar icon also includes
-**检查更新**.
+preserved during an app update. On macOS, choose **QwenAudio Toolkits →
+检查更新…** from the application menu at the upper-left of the screen to check
+manually.
 
 ## Run from source
 
