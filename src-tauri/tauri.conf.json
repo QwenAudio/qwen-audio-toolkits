@@ -104,7 +104,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0RDI3NkY5QUMzMzBBQTMKUldTakNqT3MrWGJTUkc3cTJ6dlJ4L0M2T1JqTXF3dVhvaE9Sai85bG9PNGhtczF0UVZhaGR2VEIK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM5MzI1NDZFRkFBNzgyMDEKUldRQmdxZjZibFF5eVM1aVp0WThqZ2hRc3ZvQTFDcEVVWGJaT3d3eHVpcGtZQ0NzUi9rSFE1dE8K",
       "endpoints": [
         "https://github.com/QwenAudio/qwen-audio-toolkits/releases/latest/download/latest.json"
       ]
