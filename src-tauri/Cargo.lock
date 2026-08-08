@@ -727,7 +727,7 @@ dependencies = [
  "flate2",
  "itertools 0.10.5",
  "log",
- "ndarray",
+ "ndarray 0.15.6",
  "num-complex",
  "realfft",
  "rubato",
@@ -2378,6 +2378,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ndarray"
+version = "0.17.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
+dependencies = [
+ "matrixmultiply",
+ "num-complex",
+ "num-integer",
+ "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
+ "rawpointer",
+]
+
+[[package]]
 name = "ndk"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2960,6 +2975,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "portable-atomic"
+version = "1.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d20d5497ef88037a52ff98267d066e7f11fcc5e99bbfbd58a42336193aacec3"
+
+[[package]]
+name = "portable-atomic-util"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618"
+dependencies = [
+ "portable-atomic",
+]
+
+[[package]]
 name = "potential_utf"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3171,7 +3201,7 @@ dependencies = [
  "futures-util",
  "hound",
  "log",
- "ndarray",
+ "ndarray 0.17.2",
  "nnnoiseless",
  "reqwest 0.12.28",
  "serde",
@@ -5033,7 +5063,7 @@ dependencies = [
  "lazy_static",
  "log",
  "maplit",
- "ndarray",
+ "ndarray 0.15.6",
  "num-integer",
  "num-traits",
  "rustfft",
@@ -5054,7 +5084,7 @@ dependencies = [
  "itertools 0.10.5",
  "lazy_static",
  "maplit",
- "ndarray",
+ "ndarray 0.15.6",
  "nom",
  "num-complex",
  "num-integer",
