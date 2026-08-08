@@ -40,7 +40,7 @@ uuid = { version = "1", features = ["v4"] }
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 tar = "0.4"
-bzip2 = "0.5"
+bzip2 = "0.6"
 flate2 = "1"
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
