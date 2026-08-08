@@ -1,0 +1,73 @@
+[package]
+name = "qwenaudio-toolkits"
+version = "0.1.0"
+description = "A local-first AI audio workstation"
+authors = ["Zhendong Peng <pengzhendong.pzd@alibaba-inc.com>"]
+license = "Apache-2.0"
+edition = "2021"
+rust-version = "1.77.2"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "qwenaudio_toolkits_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+cc = "1"
+cmake = "0.1"
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+axum = "0.8"
+base64 = "0.22"
+futures-util = "0.3"
+hound = "3.5"
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet.git", tag = "v0.5.6", default-features = false, features = ["tract"] }
+ndarray = "0.15"
+nnnoiseless = { version = "0.5.2", default-features = false }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+sherpa-onnx = "1.13.4"
+log = "0.4"
+tauri = { version = "2.11.3", features = ["protocol-asset", "macos-private-api"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
+tokio = { version = "1", features = ["net", "time"] }
+tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+uuid = { version = "1", features = ["v4"] }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+sha2 = "0.10"
+tar = "0.4"
+bzip2 = "0.5"
+flate2 = "1"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.deep_filter]
+opt-level = 3
+
+[profile.dev.package.tract-core]
+opt-level = 3
+
+[profile.dev.package.tract-hir]
+opt-level = 3
+
+[profile.dev.package.tract-linalg]
+opt-level = 3
+
+[profile.dev.package.tract-onnx]
+opt-level = 3
+
+[profile.dev.package.tract-onnx-opl]
+opt-level = 3
+
+[profile.dev.package.tract-pulse]
+opt-level = 3
+
+[profile.dev.package.tract-pulse-opl]
+opt-level = 3

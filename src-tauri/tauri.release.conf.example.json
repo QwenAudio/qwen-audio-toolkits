@@ -1,0 +1,9 @@
+{
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/QwenAudio/qwen-audio-toolkits/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

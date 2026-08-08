@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>QwenAudio Toolkits 需要访问麦克风，以便录制参考音频并运行语音模型。</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>QwenAudio Toolkits 需要捕获电脑音频，以便实时运行本地音频模型。</string>
+</dict>
+</plist>

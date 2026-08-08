@@ -1,0 +1,627 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "schemaVersion": 2,
+      "id": "funaudiollm.fsmn-vad-gguf",
+      "name": "FSMN-VAD GGUF",
+      "version": "official-0.1.9",
+      "publisher": "FunAudioLLM",
+      "license": "Apache-2.0",
+      "description": "FunASR 官方 GGUF 语音活动检测模型，输出毫秒级语音区间，可独立运行。",
+      "adapter": "funasr-fsmn-vad-gguf",
+      "capabilities": [
+        "speech.vad"
+      ],
+      "displayCapabilities": [
+        "VAD",
+        "长音频",
+        "GGUF"
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "llama-funasr-vad",
+        "package": "funasr-llamacpp-0.1.9"
+      },
+      "models": [
+        {
+          "id": "fsmn-vad-gguf",
+          "name": "FSMN-VAD",
+          "precision": "F32",
+          "source": "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf",
+          "sha256": "1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479",
+          "files": [
+            "fsmn-vad.gguf"
+          ],
+          "estimatedSizeMb": 2
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "yellow"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "funaudiollm.paraformer-gguf",
+      "name": "Paraformer GGUF",
+      "version": "official-0.1.9",
+      "publisher": "FunAudioLLM",
+      "license": "Apache-2.0",
+      "description": "Paraformer 官方 GGUF 本地识别模型，面向中英文音频与高吞吐离线转写。",
+      "adapter": "funasr-paraformer-gguf",
+      "capabilities": [
+        "speech.asr"
+      ],
+      "displayCapabilities": [
+        "语音识别",
+        "中英文",
+        "GGUF"
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "llama-funasr-paraformer",
+        "package": "funasr-llamacpp-0.1.9"
+      },
+      "models": [
+        {
+          "id": "paraformer-gguf-q8",
+          "name": "Paraformer",
+          "precision": "Q8",
+          "source": "https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer-q8.gguf",
+          "sha256": "42bf76ea1575a336aaca4c1b7c01a82b79113e6d04d0d6b799561bfcf07ee011",
+          "files": [
+            "paraformer-q8.gguf"
+          ],
+          "estimatedSizeMb": 226
+        },
+        {
+          "id": "paraformer-gguf-f16",
+          "name": "Paraformer",
+          "precision": "F16",
+          "source": "https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer-f16.gguf",
+          "sha256": "5d1fda4e132f003faeb3a0e34dd19601fb6d0a82b3fe8292326b86ac35eba803",
+          "files": [
+            "paraformer-f16.gguf"
+          ],
+          "estimatedSizeMb": 415
+        },
+        {
+          "id": "paraformer-gguf-f32",
+          "name": "Paraformer",
+          "precision": "F32",
+          "source": "https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer.gguf",
+          "sha256": "f81e32c3541fa274e456a8954b9e6d786b3fa8bcd532a8287bfeb04c4b4307ce",
+          "files": [
+            "paraformer.gguf"
+          ],
+          "estimatedSizeMb": 824
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "blue"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "funaudiollm.sensevoice-small-gguf",
+      "name": "SenseVoice Small GGUF",
+      "version": "official-0.1.9",
+      "publisher": "FunAudioLLM",
+      "license": "Apache-2.0",
+      "description": "SenseVoice Small 官方 GGUF 运行时，支持中英日韩粤识别以及语种、情感和音频事件标签。",
+      "adapter": "funasr-sensevoice-gguf",
+      "capabilities": [
+        "speech.asr"
+      ],
+      "displayCapabilities": [
+        "语音识别",
+        "语种与情感",
+        "GGUF"
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "llama-funasr-sensevoice",
+        "package": "funasr-llamacpp-0.1.9"
+      },
+      "models": [
+        {
+          "id": "sensevoice-small-gguf-q8",
+          "name": "SenseVoice Small",
+          "precision": "Q8",
+          "source": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf",
+          "sha256": "4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5",
+          "files": [
+            "sensevoice-small-q8.gguf"
+          ],
+          "estimatedSizeMb": 243
+        },
+        {
+          "id": "sensevoice-small-gguf-f16",
+          "name": "SenseVoice Small",
+          "precision": "F16",
+          "source": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-f16.gguf",
+          "sha256": "2389039651f4574dbd674f1f1e296b8b1147b2e19a5fd9c2cd69e82669c78d8e",
+          "files": [
+            "sensevoice-small-f16.gguf"
+          ],
+          "estimatedSizeMb": 449
+        },
+        {
+          "id": "sensevoice-small-gguf-f32",
+          "name": "SenseVoice Small",
+          "precision": "F32",
+          "source": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small.gguf",
+          "sha256": "62bbbd6bc97bdb55a53957c768f9e7f38e6b818fb720ba46d6ff52d4cc200ff0",
+          "files": [
+            "sensevoice-small.gguf"
+          ],
+          "estimatedSizeMb": 893
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "blue"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "k2-fsa.funasr-nano",
+      "name": "FunASR Nano",
+      "version": "2512-official-0.1.9",
+      "publisher": "FunAudioLLM",
+      "license": "Apache-2.0",
+      "description": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。搭配 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
+      "adapter": "funasr-nano",
+      "capabilities": [
+        "speech.asr"
+      ],
+      "displayCapabilities": [
+        "语音识别",
+        "中英日方言",
+        "VAD 分段"
+      ],
+      "recommendedDependencies": [
+        {
+          "role": "speech-segmentation",
+          "label": "FSMN-VAD 分段",
+          "pluginId": "funaudiollm.fsmn-vad-gguf",
+          "capability": "speech.detect",
+          "default": true,
+          "optional": false
+        }
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "llama-funasr-cli",
+        "package": "funasr-llamacpp-0.1.9"
+      },
+      "models": [
+        {
+          "id": "funasr-nano-2512-official-q4km",
+          "name": "Fun-ASR-Nano-2512",
+          "precision": "Q4_K_M",
+          "source": "",
+          "files": [
+            "funasr-encoder-f16.gguf",
+            "qwen3-0.6b-q4km.gguf"
+          ],
+          "assets": [
+            {
+              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf",
+              "path": "funasr-encoder-f16.gguf",
+              "sha256": "f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"
+            },
+            {
+              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q4km.gguf",
+              "path": "qwen3-0.6b-q4km.gguf",
+              "sha256": "cc5057552aa9dddedcda73ea8889854e8a257eb07d0a561b7234465c1e856f22"
+            }
+          ],
+          "estimatedSizeMb": 928
+        },
+        {
+          "id": "funasr-nano-2512-official-q5km",
+          "name": "Fun-ASR-Nano-2512",
+          "precision": "Q5_K_M",
+          "source": "",
+          "files": [
+            "funasr-encoder-f16.gguf",
+            "qwen3-0.6b-q5km.gguf"
+          ],
+          "assets": [
+            {
+              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf",
+              "path": "funasr-encoder-f16.gguf",
+              "sha256": "f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"
+            },
+            {
+              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q5km.gguf",
+              "path": "qwen3-0.6b-q5km.gguf",
+              "sha256": "dc2e6e195c534cbaea208c030d3ab55be4d3385ae4b726966cff8639a69aa2a2"
+            }
+          ],
+          "estimatedSizeMb": 993
+        },
+        {
+          "id": "funasr-nano-2512-official-q8",
+          "name": "Fun-ASR-Nano-2512",
+          "precision": "Q8",
+          "source": "",
+          "files": [
+            "funasr-encoder-f16.gguf",
+            "qwen3-0.6b-q8_0.gguf"
+          ],
+          "assets": [
+            {
+              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf",
+              "path": "funasr-encoder-f16.gguf",
+              "sha256": "f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"
+            },
+            {
+              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q8_0.gguf",
+              "path": "qwen3-0.6b-q8_0.gguf",
+              "sha256": "819f385dc0e035dccc3d9e7edaf6b7b044b8ba7ace63cbcbf84c7e397eecbf27"
+            }
+          ],
+          "estimatedSizeMb": 1218
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "blue"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "lourdle.fun-cosyvoice3-local",
+      "name": "Fun-CosyVoice3-0.5B-2512",
+      "version": "2512",
+      "publisher": "FunAudioLLM",
+      "license": "Apache-2.0",
+      "description": "本地多语言零样本语音合成与音色克隆。使用 CosyVoice.cpp 和 GGUF 在 CPU 上运行，不需要 Python 或云端接口。",
+      "adapter": "cosyvoice-local",
+      "capabilities": [
+        "speech.tts"
+      ],
+      "displayCapabilities": [
+        "音频生成",
+        "音色克隆",
+        "本地"
+      ],
+      "recommendedDependencies": [
+        {
+          "role": "reference-transcription",
+          "label": "参考文本识别",
+          "pluginId": "sensevoice-small",
+          "capability": "speech.transcribe",
+          "default": true,
+          "optional": true
+        }
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "cosyvoice.cpp",
+        "package": "cosyvoice-cpp-0aaa9ef-b9837"
+      },
+      "models": [
+        {
+          "id": "fun-cosyvoice3-q5-k-m",
+          "name": "Fun-CosyVoice3-0.5B-2512",
+          "precision": "Q5_K_M",
+          "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/CosyVoice3-2512_Q5_K_M.gguf",
+          "sha256": "702b54d4e5d2d6c8d855081a5a2dc1acf046544291899f674295dc17a4f89f16",
+          "files": [
+            "CosyVoice3-2512_Q5_K_M.gguf",
+            "frontend-onnx/speech_tokenizer_v3.int8.onnx",
+            "frontend-onnx/campplus.int8.onnx"
+          ],
+          "assets": [
+            {
+              "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/frontend-onnx/speech_tokenizer_v3.int8.onnx",
+              "path": "frontend-onnx/speech_tokenizer_v3.int8.onnx",
+              "sha256": "d7caa04fbc2f54af196906469471b607ce2594b7e92ac07dddfb315103a74c72"
+            },
+            {
+              "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/frontend-onnx/campplus.int8.onnx",
+              "path": "frontend-onnx/campplus.int8.onnx",
+              "sha256": "96b05369863f6cad4a3905206bb376915c2d61af0db16508eeaf2910a0c8a80a"
+            }
+          ],
+          "estimatedSizeMb": 970
+        },
+        {
+          "id": "fun-cosyvoice3-q8-0",
+          "name": "Fun-CosyVoice3-0.5B-2512",
+          "precision": "Q8_0",
+          "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/CosyVoice3-2512_Q8_0.gguf",
+          "sha256": "be133cb6154ca73cd1d213b1c9496def99ba9c1f7c14cd99f6b350af2eb7963d",
+          "files": [
+            "CosyVoice3-2512_Q8_0.gguf",
+            "frontend-onnx/speech_tokenizer_v3.int8.onnx",
+            "frontend-onnx/campplus.int8.onnx"
+          ],
+          "assets": [
+            {
+              "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/frontend-onnx/speech_tokenizer_v3.int8.onnx",
+              "path": "frontend-onnx/speech_tokenizer_v3.int8.onnx",
+              "sha256": "d7caa04fbc2f54af196906469471b607ce2594b7e92ac07dddfb315103a74c72"
+            },
+            {
+              "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/frontend-onnx/campplus.int8.onnx",
+              "path": "frontend-onnx/campplus.int8.onnx",
+              "sha256": "96b05369863f6cad4a3905206bb376915c2d61af0db16508eeaf2910a0c8a80a"
+            }
+          ],
+          "estimatedSizeMb": 1230
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "coral"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "rikorose.deepfilternet3",
+      "name": "DeepFilterNet3",
+      "version": "3.0",
+      "publisher": "Rikorose",
+      "license": "MIT OR Apache-2.0",
+      "description": "面向全频带语音的本地深度降噪，安装时下载当前平台的官方运行时，适合录音清理和语音前处理。",
+      "adapter": "deepfilternet",
+      "capabilities": [
+        "audio.enhance"
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "deep-filter",
+        "package": "deepfilter-0.5.6"
+      },
+      "models": [
+        {
+          "id": "deepfilternet3-onnx",
+          "name": "DeepFilterNet3",
+          "precision": "FP32",
+          "source": "https://raw.githubusercontent.com/Rikorose/DeepFilterNet/main/models/DeepFilterNet3_onnx.tar.gz",
+          "sha256": "c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616",
+          "files": [
+            "DeepFilterNet3_onnx.tar.gz"
+          ],
+          "estimatedSizeMb": 36
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "green"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "wenet-e2e.wenetspeech-yue-u2pp-ctc",
+      "name": "WeNetSpeech Yue U2++ CTC",
+      "version": "2025.09.10",
+      "publisher": "WeNet",
+      "license": "Apache-2.0",
+      "description": "基于 WeNet U2++ Conformer 的中英粤本地识别模型。使用 sherpa-onnx 运行，适合粤语内容、离线转写和 VAD 分段后的准实时识别。",
+      "adapter": "wenet-ctc",
+      "capabilities": [
+        "speech.asr"
+      ],
+      "displayCapabilities": [
+        "语音识别",
+        "中英粤",
+        "时间戳"
+      ],
+      "runtime": {
+        "kind": "onnx",
+        "entry": "sherpa-onnx"
+      },
+      "models": [
+        {
+          "id": "wenetspeech-yue-u2pp-conformer-ctc-int8-2025-09-10",
+          "name": "WeNetSpeech Yue U2++ CTC",
+          "precision": "INT8",
+          "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-wenetspeech-yue-u2pp-conformer-ctc-zh-en-cantonese-int8-2025-09-10.tar.bz2",
+          "sha256": "8636295785a43538a1b4620f167bcb89c10ce5ebdcee61c72a388738b783f992",
+          "files": [
+            "model.int8.onnx",
+            "tokens.txt"
+          ],
+          "estimatedSizeMb": 112
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "blue"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "wetext.text-normalization",
+      "name": "WeText TN / ITN",
+      "version": "0.1.6",
+      "publisher": "WeNet",
+      "license": "Apache-2.0",
+      "description": "基于 WFST 的中英日文本归一化与逆文本归一化。本地运行，适合 TTS 前处理和 ASR 数字、日期、金额后处理。",
+      "adapter": "wetext",
+      "capabilities": [
+        "text.normalize"
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "kaldifst"
+      },
+      "models": [
+        {
+          "id": "wetext-fsts-0.1.6",
+          "name": "WeText 中英日规则",
+          "precision": "WFST",
+          "source": "",
+          "files": [
+            "wetext/fsts/zh/tn/tagger.fst",
+            "wetext/fsts/zh/tn/verbalizer.fst",
+            "wetext/fsts/zh/itn/tagger.fst",
+            "wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
+            "wetext/fsts/zh/itn/verbalizer.fst",
+            "wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
+            "wetext/fsts/en/tn/tagger.fst",
+            "wetext/fsts/en/tn/verbalizer.fst",
+            "wetext/fsts/en/itn/tagger.fst",
+            "wetext/fsts/en/itn/verbalizer.fst",
+            "wetext/fsts/ja/tn/tagger.fst",
+            "wetext/fsts/ja/tn/verbalizer.fst",
+            "wetext/fsts/ja/itn/tagger.fst",
+            "wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
+            "wetext/fsts/ja/itn/verbalizer.fst",
+            "wetext/fsts/full_to_half.fst",
+            "wetext/fsts/remove_interjections.fst",
+            "wetext/fsts/remove_puncts.fst",
+            "wetext/fsts/tag_oov.fst",
+            "wetext/fsts/traditional_to_simple.fst"
+          ],
+          "assets": [
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/itn/tagger.fst",
+              "path": "wetext/fsts/en/itn/tagger.fst",
+              "sha256": "d33019ac11e5ce41f0bdec16d50696823105e0882da92c2c75c44c980eb9c2ae"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/itn/verbalizer.fst",
+              "path": "wetext/fsts/en/itn/verbalizer.fst",
+              "sha256": "89db991f319cd1e5f27e3b33dc69642e97c83bc5df0333e6a53cafeae806e121"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/tn/tagger.fst",
+              "path": "wetext/fsts/en/tn/tagger.fst",
+              "sha256": "245e2dc9174cdd007a8e9e50f3339773d1adbbc7535b71cf67478dc1683cc3ec"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/tn/verbalizer.fst",
+              "path": "wetext/fsts/en/tn/verbalizer.fst",
+              "sha256": "03155c88f317b2795969e264c19f87faf98b9853d5ac631e419bacdc3b3ee15a"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/tagger.fst",
+              "path": "wetext/fsts/ja/itn/tagger.fst",
+              "sha256": "cb0ec2a70b5e9c61d6532b5146ea5676ed9cdd808c8c737be8e5b3abe7002b23"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/tagger_enable_0_to_9.fst",
+              "path": "wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
+              "sha256": "e6c63f48e7156ec99bd6080f682945ddb67bd4d89c69df354c6af86aa603abab"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/verbalizer.fst",
+              "path": "wetext/fsts/ja/itn/verbalizer.fst",
+              "sha256": "4f4deac5ce1c5af61ca359dfb13289aed506eba22979c4a9ceaae238d9c86acc"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/tn/tagger.fst",
+              "path": "wetext/fsts/ja/tn/tagger.fst",
+              "sha256": "4e07b61a391df366ed8e2d249a36fa16fdbed9cbb505c186e12352429187aa88"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/tn/verbalizer.fst",
+              "path": "wetext/fsts/ja/tn/verbalizer.fst",
+              "sha256": "34d9cc3a219f23052273e00e2f8810f6f24614f291794914d2ba52ecc39a6cfc"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/tagger.fst",
+              "path": "wetext/fsts/zh/itn/tagger.fst",
+              "sha256": "1b57d35fa33030b50f2699d77b3c2cf2c3d5961c45d450322f5cf9aa729b810c"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/tagger_enable_0_to_9.fst",
+              "path": "wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
+              "sha256": "a29dad112b1725e79f96f5a84e8b7f2ceb9dc3d88ffc785ebf994899701ccc9f"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/verbalizer.fst",
+              "path": "wetext/fsts/zh/itn/verbalizer.fst",
+              "sha256": "440ac75aaeda3dd81f91b42abec4c08e84b7b0186462cc536a3a74d3ad1f13c4"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/tagger.fst",
+              "path": "wetext/fsts/zh/tn/tagger.fst",
+              "sha256": "cf341314c51f7ce59049f3b2c42f0ce8fd71e6d08d4d6969613aad384a5e2ae8"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/verbalizer.fst",
+              "path": "wetext/fsts/zh/tn/verbalizer.fst",
+              "sha256": "5a13cd679dd54637d12d2bd1bd33ee2165d91c867e14468c93195af02256e5da"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/verbalizer_remove_erhua.fst",
+              "path": "wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
+              "sha256": "4ecdea636b97cb7dff2637499713815836ec703d29cf044f17106d428f258ee5"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/full_to_half.fst",
+              "path": "wetext/fsts/full_to_half.fst",
+              "sha256": "3ac164703b7e83133a8864c8d5dd3cd44ea398c74f49480258e6d986c73b21ad"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/remove_interjections.fst",
+              "path": "wetext/fsts/remove_interjections.fst",
+              "sha256": "70f36aa8071968f72278fb8db9f17a060e8f8ac73a5e4161a009e33c688fedc1"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/remove_puncts.fst",
+              "path": "wetext/fsts/remove_puncts.fst",
+              "sha256": "0d69853648848ddad69e0b7a6398e5bc15be39b5559aa0119938aa6e60632538"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/tag_oov.fst",
+              "path": "wetext/fsts/tag_oov.fst",
+              "sha256": "7d58b861760f691b24f095ca17dcac6ccb79de1871282847895380249f2b034b"
+            },
+            {
+              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/traditional_to_simple.fst",
+              "path": "wetext/fsts/traditional_to_simple.fst",
+              "sha256": "01ff345b2416ac19b20bbc46236ed6a6923cf2a430a96411ae3b4f60ea9bf01d"
+            }
+          ],
+          "estimatedSizeMb": 3
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "violet"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "xiph.rnnoise",
+      "name": "RNNoise",
+      "version": "0.5.2",
+      "publisher": "Xiph.Org",
+      "license": "BSD-3-Clause",
+      "description": "轻量实时语音降噪，使用纯 Rust RNNoise 推理，适合通话、麦克风和低延迟语音前处理。",
+      "adapter": "rnnoise",
+      "capabilities": [
+        "audio.enhance"
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "nnnoiseless"
+      },
+      "models": [
+        {
+          "id": "rnnoise-default",
+          "name": "RNNoise Default",
+          "precision": "FP32",
+          "source": "",
+          "files": [],
+          "estimatedSizeMb": 1
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "green"
+    }
+  ],
+  "apiModels": []
+}

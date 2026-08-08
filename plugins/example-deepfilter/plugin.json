@@ -1,0 +1,73 @@
+{
+  "$schema": "../../docs/plugin-manifest.schema.json",
+  "schemaVersion": 1,
+  "id": "org.qwenaudio.toolkits.deepfilter",
+  "name": "DeepFilterNet",
+  "version": "0.1.0",
+  "publisher": "QwenAudio Toolkits",
+  "description": "Local speech enhancement for files and real-time streams.",
+  "license": "MIT",
+  "capabilities": [
+    "audio.denoise",
+    "audio.enhance",
+    "stream.processor"
+  ],
+  "runtime": {
+    "kind": "python",
+    "entry": "worker/main.py",
+    "protocol": "cosy-rpc-v1",
+    "isolation": "worker",
+    "python": ">=3.11"
+  },
+  "models": [
+    {
+      "id": "deepfilternet3",
+      "source": "huggingface:Rikorose/DeepFilterNet3",
+      "revision": "main",
+      "files": [
+        "config.ini",
+        "model.tar.gz"
+      ],
+      "estimatedSizeMb": 18
+    }
+  ],
+  "permissions": {
+    "filesystem": [
+      "project",
+      "model-cache",
+      "export"
+    ],
+    "network": false,
+    "audioInput": true,
+    "gpu": false
+  },
+  "platforms": {
+    "windows": {
+      "architectures": [
+        "x86_64"
+      ],
+      "accelerators": [
+        "cpu"
+      ]
+    },
+    "macos": {
+      "architectures": [
+        "x86_64",
+        "aarch64"
+      ],
+      "accelerators": [
+        "cpu",
+        "metal"
+      ]
+    },
+    "linux": {
+      "architectures": [
+        "x86_64"
+      ],
+      "accelerators": [
+        "cpu",
+        "cuda"
+      ]
+    }
+  }
+}

@@ -1,0 +1,136 @@
+:root {
+  font-family:
+    "OpenAI Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  font-weight: 445;
+  color: var(--ink);
+  background: var(--app-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --app-bg: #f3f3f3;
+  --ink: #1a1c1f;
+  --ink-soft: color-mix(in srgb, #1a1c1f 85%, transparent);
+  --muted: color-mix(in srgb, #1a1c1f 65%, transparent);
+  --muted-2: color-mix(in srgb, #1a1c1f 50%, transparent);
+  --line: color-mix(in oklab, #1a1c1f 5%, transparent);
+  --line-strong: color-mix(in oklab, #1a1c1f 12%, transparent);
+  --surface: #ffffff;
+  --surface-soft: #ffffff;
+  --surface-raised: #ffffff;
+  --sidebar: color-mix(in srgb, #ffffff 62%, transparent);
+  --sidebar-soft: color-mix(in srgb, #1a1c1f 6%, transparent);
+  --list-hover: color-mix(in srgb, #1a1c1f 6%, transparent);
+  --list-active: color-mix(in srgb, #1a1c1f 9%, transparent);
+  --input-bg: #ffffff;
+  --primary: #0078d4;
+  --primary-hover: #006cbe;
+  --primary-soft: #e8f3fb;
+  --primary-muted: #3794ff;
+  --primary-ring: rgba(0, 120, 212, 0.22);
+  --green: var(--primary-muted);
+  --green-dark: var(--primary);
+  --coral: #f0715f;
+  --yellow: #d8a82f;
+  --blue: #5e87e4;
+  --violet: #9b83f8;
+  --danger: #db554d;
+  --shadow:
+    0 16px 42px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="dark"] {
+  --app-bg: #181818;
+  --ink: #f0f0f0;
+  --ink-soft: #dcdcdc;
+  --muted: #b3b3b3;
+  --muted-2: #8c8c8c;
+  --line: #454545;
+  --line-strong: #5a5a5a;
+  --surface: #1e1e1e;
+  --surface-soft: #252526;
+  --surface-raised: #252526;
+  --sidebar: #181818;
+  --sidebar-soft: #242424;
+  --list-hover: #2a2d2e;
+  --list-active: #37373d;
+  --input-bg: #282828;
+  --primary: #3794ff;
+  --primary-hover: #4da1ff;
+  --primary-soft: #17395c;
+  --primary-muted: #75beff;
+  --primary-ring: rgba(55, 148, 255, 0.28);
+  --shadow:
+    0 16px 42px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+:root,
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  overflow: hidden;
+  background: transparent;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  color: var(--ink);
+  background-color: var(--input-bg);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+}
+
+button {
+  color: inherit;
+}
+
+button,
+input[type="range"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+::selection {
+  color: var(--ink);
+  background: var(--primary-ring);
+}
+
+* {
+  scrollbar-color: var(--muted-2) transparent;
+}

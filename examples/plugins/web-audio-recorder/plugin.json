@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "id": "org.qwenaudio.toolkits.web-audio-recorder-example",
+  "name": "Web Audio Recorder Example",
+  "version": "1.0.0",
+  "publisher": "QwenAudio Toolkits",
+  "license": "Apache-2.0",
+  "description": "A minimal executable plugin package for the Web Audio harness adapter.",
+  "adapter": "web-audio",
+  "capabilities": [
+    "stream.processor"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "sherpa-onnx"
+  },
+  "models": [],
+  "acceleration": [
+    "CPU"
+  ],
+  "featured": false,
+  "tone": "violet"
+}
