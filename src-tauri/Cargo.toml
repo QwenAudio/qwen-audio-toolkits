@@ -1,6 +1,6 @@
 [package]
 name = "qwenaudio-toolkits"
-version = "0.1.1"
+version = "0.1.2"
 description = "A local-first AI audio workstation"
 authors = ["Zhendong Peng <pengzhendong.pzd@alibaba-inc.com>"]
 license = "Apache-2.0"
@@ -31,7 +31,7 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sherpa-onnx = "1.13.4"
 log = "0.4"
-tauri = { version = "2.11.3", features = ["protocol-asset", "macos-private-api", "tray-icon"] }
+tauri = { version = "2.11.3", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
 tokio = { version = "1", features = ["net", "time"] }

@@ -6,6 +6,7 @@ import {
 
 interface AudioAssetPreviewProps {
   src: string
+  spectrogramSrc?: string
   peaks?: number[]
   duration?: number
   role: 'input' | 'output' | 'timeline'
@@ -25,6 +26,7 @@ interface AudioAssetPreviewProps {
 
 export function AudioAssetPreview({
   src,
+  spectrogramSrc,
   peaks,
   duration,
   role,
@@ -70,6 +72,7 @@ export function AudioAssetPreview({
       {visible && (
         <AudioPreview
           src={src}
+          spectrogramSrc={spectrogramSrc}
           peaks={peaks}
           durationHint={duration}
           regions={regions}

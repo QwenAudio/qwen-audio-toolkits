@@ -83,6 +83,14 @@ function isApiPlugin(plugin: ModelPlugin): boolean {
   )
 }
 
+function displayPluginVersion(plugin: ModelPlugin, apiPlugin: boolean): string {
+  const version = plugin.version.trim()
+  if (apiPlugin || !version || version.startsWith('v') || !/^\d/.test(version)) {
+    return version
+  }
+  return `v${version}`
+}
+
 function compareCatalogModels(left: ModelPlugin, right: ModelPlugin): number {
   return left.name.localeCompare(right.name, 'zh-CN', {
     numeric: true,
@@ -892,7 +900,7 @@ export function PluginsView({
                     </div>
                     <span className="plugin-author">
                       模型：{plugin.author} ·{' '}
-                      {apiPlugin ? plugin.version : `v${plugin.version}`}
+                      {displayPluginVersion(plugin, apiPlugin)}
                     </span>
                     <p>{plugin.description}</p>
                     <div className="plugin-capabilities">
@@ -1064,9 +1072,7 @@ export function PluginsView({
                 <div>
                   <h2>{selectedPlugin.name}</h2>
                   <small>
-                    {selectedIsApi
-                      ? selectedPlugin.version
-                      : `v${selectedPlugin.version}`}{' '}
+                    {displayPluginVersion(selectedPlugin, selectedIsApi)}{' '}
                     · {selectedPlugin.author}
                   </small>
                 </div>

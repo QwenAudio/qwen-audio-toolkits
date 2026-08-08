@@ -10612,6 +10612,8 @@ body.detail-resizing .model-workspace {
 }
 
 .audio-preview {
+  width: 100%;
+  min-width: 0;
   overflow: hidden;
   background: #080a09;
   border: 1px solid var(--line);
@@ -10619,8 +10621,16 @@ body.detail-resizing .model-workspace {
 }
 
 .audio-preview-waveform {
+  width: 100%;
+  min-width: 0;
   padding: 8px 0 0;
   background: #080a09;
+}
+
+.audio-preview-waveform > div {
+  display: block;
+  width: 100%;
+  min-width: 0;
 }
 
 .audio-preview-timeline {

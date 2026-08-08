@@ -2,6 +2,7 @@ export interface NormalizedAudioAsset {
   id: string
   name: string
   dataUrl: string
+  filePath?: string
   duration?: number
   sampleRate?: number
   channels?: number
@@ -120,6 +121,7 @@ export function normalizeHarnessResult(value: object): NormalizedHarnessResult {
       id: 'output',
       name: stringValue(raw.fileName) ?? '音频输出',
       dataUrl,
+      filePath: stringValue(raw.filePath),
       duration: finiteNumber(raw.duration),
       sampleRate: finiteNumber(raw.sampleRate),
       channels: finiteNumber(raw.channels),
@@ -136,6 +138,7 @@ export function normalizeHarnessResult(value: object): NormalizedHarnessResult {
         id: stringValue(item.id) ?? `track-${index}`,
         name: stringValue(item.name) ?? `音轨 ${index + 1}`,
         dataUrl: trackUrl,
+        filePath: stringValue(item.filePath),
         duration: finiteNumber(item.duration),
         sampleRate: finiteNumber(item.sampleRate),
         channels: finiteNumber(item.channels),

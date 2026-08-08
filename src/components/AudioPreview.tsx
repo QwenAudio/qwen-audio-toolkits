@@ -18,6 +18,12 @@ export interface AudioPreviewRegion {
 
 interface AudioPreviewProps {
   src: string
+  spectrogramSrc?: string
+  /**
+   * Backend-generated amplitude envelopes are intentionally supplied as a
+   * single pre-decoded channel for WaveSurfer's visual renderer. They are not
+   * used as the playback source; `src` remains the media URL.
+   */
   peaks?: number[]
   durationHint?: number
   regions?: AudioPreviewRegion[]
@@ -64,6 +70,7 @@ function addRegions(
 
 export function AudioPreview({
   src,
+  spectrogramSrc,
   peaks,
   durationHint,
   regions = EMPTY_REGIONS,
@@ -84,6 +91,17 @@ export function AudioPreview({
   const regionsRef = useRef(regions)
   const onTimeChangeRef = useRef(onTimeChange)
   const lastTimeUpdateRef = useRef(0)
+  const normalizedPeaks = useMemo(
+    () =>
+      peaks?.length
+        ? [
+            Float32Array.from(
+              peaks.map((value) => Math.min(1, Math.max(0, value))),
+            ),
+          ]
+        : undefined,
+    [peaks],
+  )
   const [ready, setReady] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -99,11 +117,6 @@ export function AudioPreview({
         .join('|'),
     [regions],
   )
-  const normalizedPeaks = useMemo(
-    () => (peaks?.length ? [Float32Array.from(peaks)] : undefined),
-    [peaks],
-  )
-
   useEffect(() => {
     onTimeChangeRef.current = onTimeChange
   }, [onTimeChange])
@@ -164,7 +177,12 @@ export function AudioPreview({
       url: src,
       backend: 'MediaElement',
       peaks: normalizedPeaks,
-      duration: durationHint,
+      duration: normalizedPeaks ? durationHint : undefined,
+      fillParent: true,
+      barWidth: 2,
+      barGap: 1,
+      barRadius: 2,
+      barMinHeight: 2,
       height: waveformHeight,
       waveColor: '#2fcf78',
       progressColor: '#8af2b8',
@@ -237,7 +255,7 @@ export function AudioPreview({
       timeout: 500,
     })
     return () => cancel(handle)
-  }, [ready, showSpectrogram, src])
+  }, [ready, showSpectrogram, src, spectrogramSrc])
 
   useEffect(() => {
     const plugin = regionPluginRef.current
@@ -270,7 +288,7 @@ export function AudioPreview({
         >
           {showDeferredSpectrogram && (
             <MelSpectrogram
-              audioUrl={src}
+              audioUrl={spectrogramSrc ?? src}
               progress={duration ? currentTime / duration : 0}
               onSeek={(ratio) =>
                 waveSurferRef.current?.setTime(ratio * duration)

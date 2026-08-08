@@ -231,6 +231,25 @@ pub fn rms_dbfs(samples: &[f32]) -> f32 {
     amplitude_to_db(mean_square.sqrt())
 }
 
+pub fn normalize_generated_speech(audio: &mut PcmAudio) -> f32 {
+    let current_rms = rms_dbfs(&audio.samples);
+    let current_peak = peak_dbfs(&audio.samples);
+    if !current_rms.is_finite() || !current_peak.is_finite() || current_peak <= -120.0 {
+        return 0.0;
+    }
+
+    let desired_gain = (-22.0 - current_rms).clamp(0.0, 42.0);
+    let peak_limited_gain = (-3.0 - current_peak).max(0.0).min(desired_gain);
+    if peak_limited_gain <= 0.05 {
+        return 0.0;
+    }
+    let gain = 10.0_f32.powf(peak_limited_gain / 20.0);
+    for sample in &mut audio.samples {
+        *sample = (*sample * gain).clamp(-1.0, 1.0);
+    }
+    peak_limited_gain
+}
+
 fn amplitude_to_db(amplitude: f32) -> f32 {
     if amplitude <= 1e-6 {
         -120.0

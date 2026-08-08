@@ -8,8 +8,8 @@ use crate::{
         AsrProgressCallback, AsrRuntime, AsrTranscribeRequest,
     },
     audio_io::{
-        decode_wav_bytes, decode_wav_data_url, encode_wav_bytes, peak_dbfs, resample_audio,
-        rms_dbfs, wav_data_url, waveform_envelope, webview_safe_wav_bytes, PcmAudio,
+        decode_wav_bytes, decode_wav_data_url, encode_wav_bytes, normalize_generated_speech,
+        resample_audio, wav_data_url, waveform_envelope, webview_safe_wav_bytes, PcmAudio,
     },
     audio_processing::{
         process_audio_with_runtime, AudioProcessRequest, AudioProcessingRuntime, StreamingEnhancer,
@@ -3549,25 +3549,6 @@ async fn execute_official_fsmn_vad(
     .map_err(|error| format!("FSMN-VAD 官方运行时异常结束: {error}"))?
 }
 
-fn normalize_generated_speech(audio: &mut PcmAudio) -> f32 {
-    let current_rms = rms_dbfs(&audio.samples);
-    let current_peak = peak_dbfs(&audio.samples);
-    if !current_rms.is_finite() || !current_peak.is_finite() || current_peak <= -120.0 {
-        return 0.0;
-    }
-
-    let desired_gain = (-22.0 - current_rms).clamp(0.0, 42.0);
-    let peak_limited_gain = (-3.0 - current_peak).max(0.0).min(desired_gain);
-    if peak_limited_gain <= 0.05 {
-        return 0.0;
-    }
-    let gain = 10.0_f32.powf(peak_limited_gain / 20.0);
-    for sample in &mut audio.samples {
-        *sample = (*sample * gain).clamp(-1.0, 1.0);
-    }
-    peak_limited_gain
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn execute_request(
     app: AppHandle,
@@ -4289,8 +4270,9 @@ fn persist_api_tts_output(
     file_prefix: &str,
 ) -> Result<Value, String> {
     let bytes = repair_streaming_wav_lengths(bytes);
-    let audio =
+    let mut audio =
         decode_wav_bytes(&bytes).map_err(|error| format!("API 必须返回 WAV 音频: {error}"))?;
+    normalize_generated_speech(&mut audio);
     let bytes = encode_wav_bytes(&audio)?;
     let duration = audio.duration();
     let output_dir = app
@@ -5599,6 +5581,7 @@ fn emit_run(app: &AppHandle, run: &HarnessRun) {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
+    use crate::audio_io::{peak_dbfs, rms_dbfs};
 
     fn provider(base_url: &str, api_key: &str) -> ApiProviderConfig {
         ApiProviderConfig {

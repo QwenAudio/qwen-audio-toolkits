@@ -1,4 +1,6 @@
-use crate::audio_io::{decode_wav_data_url, encode_wav_bytes, PcmAudio};
+use crate::audio_io::{
+    decode_wav_data_url, encode_wav_bytes, normalize_generated_speech, PcmAudio,
+};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use sherpa_onnx::{
@@ -434,7 +436,7 @@ pub(crate) async fn generate_speech_with_runtime(
         let callback_app = progress_app.clone();
         let callback_cancel = cancel.clone();
         let generation_progress = progress_callback.clone();
-        let audio = engine
+        let generated_audio = engine
             .generate_with_config(
                 request.text.trim(),
                 &generation,
@@ -454,6 +456,13 @@ pub(crate) async fn generate_speech_with_runtime(
                     format!("{} 没有生成音频，请检查输入参数", family.label())
                 }
             })?;
+
+        let mut audio = PcmAudio {
+            samples: generated_audio.samples().to_vec(),
+            sample_rate: generated_audio.sample_rate() as u32,
+            channels: 1,
+        };
+        normalize_generated_speech(&mut audio);
 
         if is_canceled(cancel.as_deref()) {
             return Err("任务已取消".to_string());
@@ -475,15 +484,11 @@ pub(crate) async fn generate_speech_with_runtime(
         // sherpa-onnx's own audio.save() writes 32-bit float PCM, which some WebKit builds
         // fail to decode for the in-app Mel spectrogram/waveform preview. Re-encode through
         // the shared 16-bit int WAV writer instead, for both the saved file and the data URL.
-        let bytes = encode_wav_bytes(&PcmAudio {
-            samples: audio.samples().to_vec(),
-            sample_rate: audio.sample_rate() as u32,
-            channels: 1,
-        })?;
+        let bytes = encode_wav_bytes(&audio)?;
         fs::write(&file_path, &bytes)
             .map_err(|error| format!("生成成功，但 WAV 文件写入失败: {error}"))?;
         let inference_seconds = started.elapsed().as_secs_f32();
-        let duration = audio.samples().len() as f32 / audio.sample_rate() as f32;
+        let duration = audio.duration();
         let real_time_factor = if duration > 0.0 {
             inference_seconds / duration
         } else {
@@ -496,10 +501,10 @@ pub(crate) async fn generate_speech_with_runtime(
             file_path: file_path_string,
             data_url: format!("data:audio/wav;base64,{}", STANDARD.encode(&bytes)),
             duration,
-            sample_rate: audio.sample_rate(),
+            sample_rate: audio.sample_rate as i32,
             channels: 1,
             size_bytes: bytes.len() as u64,
-            waveform: waveform_envelope(audio.samples(), 240),
+            waveform: waveform_envelope(&audio.samples, 240),
             inference_seconds,
             real_time_factor,
             sid: request.sid,

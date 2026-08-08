@@ -563,7 +563,8 @@ function AdvancedResultDetail({
           <section key={track.id}>
             <strong>{track.name}</strong>
             <AudioAssetPreview
-              src={track.dataUrl}
+              src={track.filePath ? convertFileSrc(track.filePath) : track.dataUrl}
+              spectrogramSrc={track.dataUrl}
               peaks={track.peaks}
               duration={track.duration}
               role="output"
@@ -3561,7 +3562,8 @@ export function ModelWorkspaceView({
                   {isAudioOutput(execution.output) && (
                     <div className="detail-audio-output">
                       <AudioAssetPreview
-                        src={execution.output.dataUrl}
+                        src={convertFileSrc(execution.output.filePath)}
+                        spectrogramSrc={execution.output.dataUrl}
                         peaks={execution.output.waveform}
                         duration={execution.output.duration}
                         role="output"
