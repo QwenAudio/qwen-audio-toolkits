@@ -65,6 +65,5 @@ jobs:
           releaseDraft: true
           prerelease: false
           releaseCommitish: ${{ github.sha }}
-          uploadUpdaterJson: true
-          uploadUpdaterSignatures: true
+          includeUpdaterJson: true
           args: '--target aarch64-apple-darwin --config src-tauri/tauri.release.conf.json'
