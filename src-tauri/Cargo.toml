@@ -20,7 +20,7 @@ tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 axum = "0.8"
-base64 = "0.22"
+base64 = "0.23"
 futures-util = "0.3"
 hound = "3.5"
 deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet.git", tag = "v0.5.6", default-features = false, features = ["tract"] }
