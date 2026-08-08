@@ -19,6 +19,7 @@ export type AppUpdateCheck =
   | { status: 'unavailable'; message: string }
 
 let pendingUpdate: Update | null = null
+let updateDownloaded = false
 
 export async function checkForAppUpdate(): Promise<AppUpdateCheck> {
   if (!isTauriRuntime()) {
@@ -30,6 +31,7 @@ export async function checkForAppUpdate(): Promise<AppUpdateCheck> {
 
   await pendingUpdate?.close()
   pendingUpdate = await check({ timeout: 15_000 })
+  updateDownloaded = false
   if (!pendingUpdate) return { status: 'current' }
   return {
     status: 'available',
@@ -42,10 +44,11 @@ export async function checkForAppUpdate(): Promise<AppUpdateCheck> {
   }
 }
 
-export async function installAppUpdate(
+export async function downloadAppUpdate(
   onProgress: (downloaded: number, total?: number) => void,
 ): Promise<void> {
   if (!pendingUpdate) throw new Error('没有可安装的软件更新')
+  if (updateDownloaded) return
   let downloaded = 0
   let total: number | undefined
   const handleEvent = (event: DownloadEvent) => {
@@ -59,6 +62,15 @@ export async function installAppUpdate(
       onProgress(total ?? downloaded, total)
     }
   }
-  await pendingUpdate.downloadAndInstall(handleEvent, { timeout: 10 * 60_000 })
+  await pendingUpdate.download(handleEvent, { timeout: 10 * 60_000 })
+  updateDownloaded = true
+}
+
+export async function installAppUpdate(
+  onProgress: (downloaded: number, total?: number) => void,
+): Promise<void> {
+  if (!pendingUpdate) throw new Error('没有可安装的软件更新')
+  await downloadAppUpdate(onProgress)
+  await pendingUpdate.install()
   await relaunch()
 }

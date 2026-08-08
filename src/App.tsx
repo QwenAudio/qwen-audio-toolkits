@@ -10,6 +10,7 @@ import {
   type SetStateAction,
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   AudioLines,
@@ -59,6 +60,7 @@ import {
 } from './modelDependencies'
 import {
   checkForAppUpdate,
+  downloadAppUpdate,
   installAppUpdate,
   type AppUpdateInfo,
 } from './services/updater'
@@ -114,6 +116,8 @@ type AppUpdateState = {
     | 'current'
     | 'available'
     | 'downloading'
+    | 'downloaded'
+    | 'installing'
     | 'unavailable'
     | 'error'
   update?: AppUpdateInfo
@@ -899,11 +903,53 @@ function App() {
 
   const notify = (message: string) => setToast(message)
 
+  const downloadApplicationUpdate = async (silent = false) => {
+    if (
+      appUpdateStatusRef.current === 'downloading' ||
+      appUpdateStatusRef.current === 'downloaded' ||
+      appUpdateStatusRef.current === 'installing'
+    ) {
+      return
+    }
+    appUpdateStatusRef.current = 'downloading'
+    setAppUpdate((current) => ({
+      ...current,
+      status: 'downloading',
+      progress: 0,
+    }))
+    try {
+      await downloadAppUpdate((downloaded, total) => {
+        setAppUpdate((current) => ({
+          ...current,
+          status: 'downloading',
+          progress: total
+            ? Math.min(100, (downloaded / total) * 100)
+            : undefined,
+        }))
+      })
+      appUpdateStatusRef.current = 'downloaded'
+      setAppUpdate((current) => ({
+        ...current,
+        status: 'downloaded',
+        progress: 100,
+      }))
+      if (!silent) notify('更新已下载，点击“重启安装”完成更新')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      appUpdateStatusRef.current = 'error'
+      setAppUpdate((current) => ({ ...current, status: 'error', message }))
+      if (!silent) notify(`下载更新失败：${message}`)
+    }
+  }
+
   const checkApplicationUpdate = async (silent = false) => {
     if (
       appUpdateStatusRef.current === 'checking' ||
       appUpdateStatusRef.current === 'downloading' ||
-      (silent && appUpdateStatusRef.current === 'available')
+      appUpdateStatusRef.current === 'installing' ||
+      (silent &&
+        (appUpdateStatusRef.current === 'available' ||
+          appUpdateStatusRef.current === 'downloaded'))
     ) {
       return
     }
@@ -914,7 +960,8 @@ function App() {
       if (result.status === 'available') {
         appUpdateStatusRef.current = 'available'
         setAppUpdate({ status: 'available', update: result.update })
-        if (!silent) notify(`发现新版本 ${result.update.version}`)
+        if (!silent) notify(`发现新版本 ${result.update.version}，正在后台下载`)
+        void downloadApplicationUpdate(silent)
       } else if (result.status === 'current') {
         appUpdateStatusRef.current = 'current'
         setAppUpdate({ status: 'current' })
@@ -937,14 +984,23 @@ function App() {
       notify('请等待当前模型任务结束后再安装更新')
       return
     }
-    if (appUpdateStatusRef.current === 'downloading') return
-    appUpdateStatusRef.current = 'downloading'
-    setAppUpdate((current) => ({ ...current, status: 'downloading', progress: 0 }))
+    if (
+      appUpdateStatusRef.current === 'downloading' ||
+      appUpdateStatusRef.current === 'installing'
+    ) {
+      return
+    }
+    if (appUpdateStatusRef.current === 'available') {
+      await downloadApplicationUpdate()
+    }
+    if (appUpdateStatusRef.current !== 'downloaded') return
+    appUpdateStatusRef.current = 'installing'
+    setAppUpdate((current) => ({ ...current, status: 'installing' }))
     try {
       await installAppUpdate((downloaded, total) => {
         setAppUpdate((current) => ({
           ...current,
-          status: 'downloading',
+          status: 'installing',
           progress: total ? Math.min(100, (downloaded / total) * 100) : undefined,
         }))
       })
@@ -955,6 +1011,25 @@ function App() {
       notify(`安装更新失败：${message}`)
     }
   }
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return undefined
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void listen('app-update-check-requested', () => {
+      void checkApplicationUpdate()
+    }).then((cleanup) => {
+      if (disposed) {
+        cleanup()
+      } else {
+        unlisten = cleanup
+      }
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
 
   useEffect(() => {
     if (!import.meta.env.PROD || !isTauriRuntime()) return undefined
@@ -1665,28 +1740,42 @@ function App() {
               <span>设置</span>
             </button>
             {(appUpdate.status === 'available' ||
-              appUpdate.status === 'downloading') && (
+              appUpdate.status === 'downloading' ||
+              appUpdate.status === 'downloaded' ||
+              appUpdate.status === 'installing') && (
               <button
                 className={`sidebar-update-icon${
                   appUpdate.status === 'downloading' ? ' downloading' : ''
                 }`}
                 type="button"
-                title={
-                  appUpdate.status === 'downloading'
-                    ? appUpdate.progress === undefined
+                  title={
+                    appUpdate.status === 'downloading'
+                      ? appUpdate.progress === undefined
+                        ? '正在下载安装包'
+                        : `正在下载 ${Math.round(appUpdate.progress)}%`
+                      : appUpdate.status === 'installing'
+                        ? '正在安装更新'
+                        : appUpdate.status === 'downloaded'
+                          ? `重启安装 ${appUpdate.update?.version ?? ''}`
+                          : `后台下载更新 ${appUpdate.update?.version ?? ''}`
+                }
+                  aria-label={
+                    appUpdate.status === 'downloading'
                       ? '正在下载安装包'
-                      : `正在下载 ${Math.round(appUpdate.progress)}%`
-                    : `安装更新 ${appUpdate.update?.version ?? ''}`
+                      : appUpdate.status === 'installing'
+                        ? '正在安装更新'
+                        : appUpdate.status === 'downloaded'
+                          ? '重启安装新版本'
+                          : '下载新版本'
+                  }
+                disabled={
+                  appUpdate.status === 'downloading' ||
+                  appUpdate.status === 'installing'
                 }
-                aria-label={
-                  appUpdate.status === 'downloading'
-                    ? '正在下载安装包'
-                    : '安装新版本'
-                }
-                disabled={appUpdate.status === 'downloading'}
                 onClick={applyApplicationUpdate}
               >
-                {appUpdate.status === 'downloading' ? (
+                {appUpdate.status === 'downloading' ||
+                appUpdate.status === 'installing' ? (
                   <LoaderCircle className="model-spin" size={14} />
                 ) : (
                   <Download size={14} strokeWidth={2.2} />
@@ -1910,6 +1999,10 @@ function App() {
                         ? appUpdate.progress === undefined
                           ? '正在下载安装包'
                           : `正在下载 ${Math.round(appUpdate.progress)}%`
+                        : appUpdate.status === 'downloaded'
+                          ? `版本 ${appUpdate.update?.version} 已下载，点击重启安装`
+                          : appUpdate.status === 'installing'
+                            ? '正在安装更新'
                         : appUpdate.status === 'current'
                           ? `QwenAudio Toolkits ${runtime.version} 已是最新版`
                           : appUpdate.message ?? `当前版本 ${runtime.version}`}
@@ -1921,28 +2014,36 @@ function App() {
                   disabled={
                     appUpdate.status === 'checking' ||
                     appUpdate.status === 'downloading' ||
+                    appUpdate.status === 'installing' ||
                     appUpdate.status === 'unavailable'
                   }
                   onClick={() =>
-                    appUpdate.status === 'available'
+                    appUpdate.status === 'available' ||
+                    appUpdate.status === 'downloaded'
                       ? void applyApplicationUpdate()
                       : void checkApplicationUpdate()
                   }
                 >
                   {appUpdate.status === 'checking' ||
-                  appUpdate.status === 'downloading' ? (
+                  appUpdate.status === 'downloading' ||
+                  appUpdate.status === 'installing' ? (
                     <LoaderCircle className="model-spin" size={13} />
-                  ) : appUpdate.status === 'available' ? (
+                  ) : appUpdate.status === 'available' ||
+                    appUpdate.status === 'downloaded' ? (
                     <Download size={13} />
                   ) : (
                     <RefreshCw size={13} />
                   )}
                   {appUpdate.status === 'available'
-                    ? '安装更新'
+                    ? '下载并安装'
+                    : appUpdate.status === 'downloaded'
+                      ? '重启安装'
                     : appUpdate.status === 'checking'
                       ? '检查中'
-                      : appUpdate.status === 'downloading'
-                        ? '下载中'
+                        : appUpdate.status === 'downloading'
+                          ? '下载中'
+                          : appUpdate.status === 'installing'
+                            ? '安装中'
                         : appUpdate.status === 'unavailable'
                           ? '开发版本'
                           : '检查更新'}

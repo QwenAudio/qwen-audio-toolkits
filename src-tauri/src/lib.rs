@@ -49,9 +49,14 @@ use system_audio::{
     system_audio_flush_playback, system_audio_play_chunk, system_audio_start, system_audio_stop,
     SystemAudioRuntime,
 };
+#[cfg(target_os = "macos")]
+use tauri::tray::TrayIconBuilder;
 use tauri::Manager;
 #[cfg(target_os = "macos")]
-use tauri::{RunEvent, WindowEvent};
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    Emitter, RunEvent, WindowEvent,
+};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
@@ -72,6 +77,36 @@ fn restore_main_window(app: &tauri::AppHandle) {
     if let Err(error) = window.set_focus() {
         log::warn!("could not focus main window: {error}");
     }
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_status_item(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "打开 QwenAudio Toolkits", true, None::<&str>)?;
+    let check_update = MenuItem::with_id(app, "check-update", "检查更新", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(app, "quit", "退出 QwenAudio Toolkits", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &check_update, &separator, &quit])?;
+
+    let mut builder = TrayIconBuilder::new()
+        .menu(&menu)
+        .tooltip("QwenAudio Toolkits")
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => restore_main_window(app),
+            "check-update" => {
+                restore_main_window(app);
+                if let Err(error) = app.emit("app-update-check-requested", ()) {
+                    log::warn!("could not request update check: {error}");
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        });
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon).icon_as_template(true);
+    }
+    builder.build(app)?;
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -579,6 +614,8 @@ pub fn run() {
             #[cfg(desktop)]
             app.handle()
                 .plugin(tauri_plugin_updater::Builder::new().build())?;
+            #[cfg(target_os = "macos")]
+            build_macos_status_item(app.handle())?;
             if cfg!(debug_assertions) {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()

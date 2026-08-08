@@ -103,8 +103,10 @@ Application updates and model assets use separate channels:
 - **GitHub Releases**: desktop application installers and Tauri updater assets
 - **ModelScope**: model catalog, model weights, and runtime packages
 
-The application checks the GitHub updater manifest for new versions and only
-downloads an update after the user confirms it. Updating the application keeps
+The application checks the GitHub updater manifest in the background and
+downloads a signed update automatically when one is available. The app asks
+you to restart before installing the downloaded update. On macOS, you can also
+use the menu bar icon's **检查更新** action. Updating the application keeps
 installed models and application data.
 
 Local inference does not upload audio. Cloud models send the requested input to

@@ -14,9 +14,11 @@ capture uses the macOS Core Audio Process Tap API and may require additional
 system permission. Current builds are not Apple-notarized; macOS may require
 manual approval under **System Settings → Privacy & Security**.
 
-The app checks the GitHub Release updater manifest for new versions. Updates
-are downloaded only after you confirm them in the app; installed models and
-application data are preserved during an app update.
+The app checks the GitHub Release updater manifest in the background and
+automatically downloads signed updates. You can restart from **Settings** to
+install a downloaded update; installed models and application data are
+preserved during an app update. On macOS, the menu bar icon also includes
+**检查更新**.
 
 ## Run from source
 

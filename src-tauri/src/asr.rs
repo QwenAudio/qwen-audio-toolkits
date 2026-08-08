@@ -18,11 +18,9 @@ use std::{
 };
 
 pub(crate) type AsrProgressCallback = Arc<dyn Fn(u8, String) + Send + Sync>;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager};
 
-const MODEL_ID: &str = "sensevoice-small-int8-2024-07-17";
 const MODEL_DIRECTORY: &str = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17";
-const MODEL_DISPLAY_NAME: &str = "SenseVoice Small";
 const SAMPLE_RATE: i32 = 16_000;
 
 #[derive(Default)]
@@ -43,21 +41,6 @@ pub struct AsrProgress {
     stage: &'static str,
     progress: u8,
     detail: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AsrModelStatus {
-    id: &'static str,
-    name: &'static str,
-    installed: bool,
-    loaded: bool,
-    path: String,
-    sample_rate: i32,
-    languages: Vec<&'static str>,
-    token_timestamps: bool,
-    vad: bool,
-    runtime: &'static str,
 }
 
 #[derive(Clone, Deserialize)]
@@ -202,13 +185,6 @@ impl StreamingAsrRecognizer {
 }
 
 impl AsrRuntime {
-    fn loaded(&self) -> bool {
-        self.recognizer
-            .lock()
-            .map(|recognizer| recognizer.is_some())
-            .unwrap_or(false)
-    }
-
     fn recognizer(
         &self,
         model_dir: &Path,
@@ -246,44 +222,6 @@ impl AsrRuntime {
         });
         Ok(loaded)
     }
-}
-
-#[tauri::command]
-pub fn asr_model_status(
-    app: AppHandle,
-    runtime: State<'_, Arc<AsrRuntime>>,
-) -> Result<AsrModelStatus, String> {
-    let model_dir = model_directory(&app)?;
-    Ok(AsrModelStatus {
-        id: MODEL_ID,
-        name: MODEL_DISPLAY_NAME,
-        installed: model_is_installed(&model_dir, "sensevoice"),
-        loaded: runtime.loaded(),
-        path: path_string(&model_dir),
-        sample_rate: SAMPLE_RATE,
-        languages: vec!["zh", "en", "ja", "ko", "yue"],
-        token_timestamps: true,
-        vad: false,
-        runtime: "sherpa-onnx 1.13.4",
-    })
-}
-
-#[tauri::command]
-pub async fn transcribe_audio(
-    app: AppHandle,
-    runtime: State<'_, Arc<AsrRuntime>>,
-    request: AsrTranscribeRequest,
-) -> Result<AsrTranscriptionResult, String> {
-    transcribe_audio_with_runtime(
-        app,
-        runtime.inner().clone(),
-        request,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
 }
 
 pub(crate) async fn transcribe_audio_with_runtime(
