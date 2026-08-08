@@ -37,7 +37,7 @@ tauri-plugin-log = "2"
 tokio = { version = "1", features = ["net", "time"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "2.2", default-features = false, features = ["deflate"] }
+zip = { version = "4.6", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 tar = "0.4"
 bzip2 = "0.5"
