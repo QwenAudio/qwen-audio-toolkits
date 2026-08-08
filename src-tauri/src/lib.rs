@@ -10,7 +10,7 @@ mod tts;
 mod vad;
 mod wetext;
 
-use asr::{asr_model_status, transcribe_audio, AsrRuntime};
+use asr::AsrRuntime;
 use audio_io::MAX_AUDIO_BYTES;
 use audio_processing::{audio_processor_status, process_audio, AudioProcessingRuntime};
 use axum::{
@@ -206,10 +206,10 @@ fn plugin_runtime_catalog() -> Vec<PluginRuntimeDescriptor> {
             extensions: vec![".onnx", ".bin", ".txt"],
         },
         PluginRuntimeDescriptor {
-            id: "sensevoice",
-            label: "SenseVoice / sherpa-onnx",
+            id: "funasr-llamacpp-0.1.9",
+            label: "FunASR / llama.cpp",
             isolation: "process",
-            extensions: vec![".onnx", ".txt"],
+            extensions: vec![".gguf"],
         },
         PluginRuntimeDescriptor {
             id: "dpdfnet2",
@@ -338,9 +338,6 @@ async fn api_harness_catalog(AxumState(state): AxumState<LocalApiState>) -> Json
     let tts_status = tts_model_status(state.app.clone(), state.app.state::<Arc<TtsRuntime>>())
         .ok()
         .and_then(|status| serde_json::to_value(status).ok());
-    let asr_status = asr_model_status(state.app.clone(), state.app.state::<Arc<AsrRuntime>>())
-        .ok()
-        .and_then(|status| serde_json::to_value(status).ok());
     let audio_status = audio_processor_status(
         state.app.clone(),
         state.app.state::<Arc<AudioProcessingRuntime>>(),
@@ -350,7 +347,6 @@ async fn api_harness_catalog(AxumState(state): AxumState<LocalApiState>) -> Json
     Json(harness::catalog_from_status(
         &state.app,
         tts_status,
-        asr_status,
         audio_status,
     ))
 }
@@ -629,8 +625,6 @@ pub fn run() {
             plugin_runtime_catalog,
             audio_processor_status,
             process_audio,
-            asr_model_status,
-            transcribe_audio,
             tts_model_status,
             generate_speech,
             harness_catalog,

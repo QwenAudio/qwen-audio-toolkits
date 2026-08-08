@@ -66,6 +66,7 @@ pub const CAPABILITY_SOURCE_SEPARATION: &str = "audio.separate";
 
 const API_PROVIDER_ID: &str = "api.openai-compatible";
 const BAILIAN_PROVIDER_ID: &str = "api.bailian";
+const SENSEVOICE_GGUF_PROVIDER_ID: &str = "plugin.funaudiollm.sensevoice-small-gguf";
 const BAILIAN_TTS_MODEL: &str = "qwen-audio-3.0-tts-flash";
 const BAILIAN_TTS_PLUS_MODEL: &str = "qwen-audio-3.0-tts-plus";
 const BAILIAN_QWEN_ASR_MODEL: &str = "qwen3-asr-flash";
@@ -745,25 +746,20 @@ impl HarnessRuntime {
 pub fn harness_catalog(
     app: AppHandle,
     tts_runtime: State<'_, Arc<TtsRuntime>>,
-    asr_runtime: State<'_, Arc<AsrRuntime>>,
     audio_runtime: State<'_, Arc<AudioProcessingRuntime>>,
 ) -> HarnessCatalog {
     let tts_status = crate::tts::tts_model_status(app.clone(), tts_runtime)
         .ok()
         .and_then(|status| serde_json::to_value(status).ok());
-    let asr_status = crate::asr::asr_model_status(app.clone(), asr_runtime)
-        .ok()
-        .and_then(|status| serde_json::to_value(status).ok());
     let audio_status = crate::audio_processing::audio_processor_status(app.clone(), audio_runtime)
         .ok()
         .and_then(|status| serde_json::to_value(status).ok());
-    catalog_from_status(&app, tts_status, asr_status, audio_status)
+    catalog_from_status(&app, tts_status, audio_status)
 }
 
 pub(crate) fn catalog_from_status(
     app: &AppHandle,
     tts_status: Option<Value>,
-    asr_status: Option<Value>,
     audio_status: Option<Value>,
 ) -> HarnessCatalog {
     let bailian = read_bailian_provider_config(app).unwrap_or_default();
@@ -803,11 +799,6 @@ pub(crate) fn catalog_from_status(
         "kokoro-int8-multi-lang-v1_1",
         "Kokoro v1.1 中文",
     );
-    let asr_model = model(
-        asr_status,
-        "sensevoice-small-int8-2024-07-17",
-        "SenseVoice Small",
-    );
     let audio_model = model(audio_status, "dpdfnet2-48khz-hr", "DPDFNet2 48 kHz HR");
     let vad_model = crate::vad::model_status(app)
         .ok()
@@ -815,8 +806,6 @@ pub(crate) fn catalog_from_status(
     let vad_model = model(vad_model, "silero-vad", "Silero VAD");
     let kokoro_enabled =
         plugins::is_plugin_installed(app, "kokoro-tts").unwrap_or(tts_model.installed);
-    let sensevoice_enabled =
-        plugins::is_plugin_installed(app, "sensevoice-small").unwrap_or(asr_model.installed);
     let denoiser_enabled =
         plugins::is_plugin_installed(app, "dpdfnet2-48khz-hr").unwrap_or(audio_model.installed);
     let vad_enabled =
@@ -971,24 +960,6 @@ pub(crate) fn catalog_from_status(
                     local: true,
                     capabilities: vec![CAPABILITY_TTS.to_string()],
                     models: vec![tts_model],
-                },
-                ProviderDescriptor {
-                    id: "local.sensevoice".to_string(),
-                    name: "SenseVoice Small".to_string(),
-                    kind: "local-model".to_string(),
-                    runtime: "sherpa-onnx".to_string(),
-                    status: if !asr_model.installed {
-                        "missing"
-                    } else if sensevoice_enabled {
-                        "ready"
-                    } else {
-                        "disabled"
-                    }
-                    .to_string(),
-                    configured: asr_model.installed && sensevoice_enabled,
-                    local: true,
-                    capabilities: vec![CAPABILITY_ASR.to_string()],
-                    models: vec![asr_model],
                 },
                 ProviderDescriptor {
                     id: "local.silero-vad".to_string(),
@@ -5373,6 +5344,19 @@ fn resolve_provider(
         });
     }
 
+    if requested == "auto" && request.capability == CAPABILITY_ASR {
+        let provider = plugins::provider_by_id(app, SENSEVOICE_GGUF_PROVIDER_ID)?
+            .ok_or_else(|| "SenseVoice Small GGUF 尚未安装，请先在模型商店安装".to_string())?;
+        return Ok(ResolvedProvider {
+            id: provider.provider_id,
+            name: provider.name,
+            model_id: provider.model_id,
+            is_api: false,
+            adapter: provider.adapter,
+            model_path: provider.model_path,
+        });
+    }
+
     let (id, name, model_id, plugin_id, adapter) = match request.capability.as_str() {
         CAPABILITY_TTS => (
             "local.kokoro",
@@ -5381,13 +5365,9 @@ fn resolve_provider(
             "kokoro-tts",
             "kokoro",
         ),
-        CAPABILITY_ASR => (
-            "local.sensevoice",
-            "SenseVoice Small",
-            "sensevoice-small-int8-2024-07-17",
-            "sensevoice-small",
-            "sensevoice",
-        ),
+        CAPABILITY_ASR => {
+            return Err("请指定已安装的本地 ASR 插件或安装 SenseVoice Small GGUF".to_string())
+        }
         CAPABILITY_VAD => (
             "local.silero-vad",
             "Silero VAD",

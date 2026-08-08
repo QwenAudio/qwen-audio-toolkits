@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
-import { open } from '@tauri-apps/plugin-dialog'
 import {
   Boxes,
   BrainCircuit,
@@ -28,7 +27,6 @@ import {
   getBailianProviderSettings,
   getHarnessCatalog,
   installCatalogModel,
-  installModelPlugin,
   installRecommendedModelDependency,
   isTauriRuntime,
   listModelPlugins,
@@ -660,53 +658,12 @@ export function PluginsView({
     }
   }
 
-  const importPackage = async () => {
-    if (!desktopRuntime || busyId) return
-    const selected = await open({
-      multiple: false,
-      directory: false,
-      title: '选择 QwenAudio Toolkits 模型插件',
-      filters: [
-        {
-      name: 'QwenAudio Toolkits Plugin',
-          extensions: ['cspkg', 'zip', 'json'],
-        },
-      ],
-    })
-    if (!selected || Array.isArray(selected)) return
-
-    setBusyId('package')
-    setInstallProgress(2)
-    setInstallSpeed('')
-    installProgressScopeRef.current = 'package'
-    setInstallStage('preparing')
-    setInstallDetail('正在打开插件包')
-    try {
-      const installed = await installModelPlugin(selected)
-      setInstallProgress(100)
-      await refreshPlugins()
-      setSelectedId(installed.id)
-      onAction(`${installed.name} 已下载、校验并注册到 Harness`)
-    } catch (error) {
-      onAction(
-        `安装失败：${error instanceof Error ? error.message : String(error)}`,
-      )
-    } finally {
-      setBusyId(null)
-      setInstallProgress(0)
-      setInstallSpeed('')
-      setInstallStage('')
-      installProgressScopeRef.current = 'model'
-      setInstallDetail('')
-    }
-  }
-
   const installOrAddPlugin = async (plugin: ModelPlugin) => {
     if (!plugin.installed) {
       if (plugin.catalogManaged) {
         enqueueCatalogInstall(plugin)
       } else if (!busyId) {
-        await importPackage()
+        onAction(`${plugin.name} 不是可下载安装的目录模型，请安装 ModelScope 中的对应模型版本`)
       }
       return
     }
@@ -909,7 +866,9 @@ export function PluginsView({
                 plugin.sidebarVisible === false &&
                 dependencyReferences.length > 0
               const actionDisabled =
-                (!plugin.installed && plugin.installable === false) ||
+                (!plugin.installed &&
+                  !apiPlugin &&
+                  (!plugin.catalogManaged || plugin.installable === false)) ||
                 retainedDependency ||
                 isQueued ||
                 (!canQueueInstall && !apiPlugin && Boolean(busyId)) ||
@@ -1081,7 +1040,11 @@ export function PluginsView({
                         ) : (
                           <>
                             <Download size={15} />{' '}
-                            {plugin.installable === false ? '适配中' : '安装'}
+                            {plugin.installable === false
+                              ? '适配中'
+                              : plugin.catalogManaged
+                                ? '安装'
+                                : '仅兼容'}
                           </>
                         )}
                       </button>
@@ -1168,7 +1131,9 @@ export function PluginsView({
                     type="button"
                     disabled={
                       (!selectedPlugin.installed &&
-                        selectedPlugin.installable === false) ||
+                        !selectedIsApi &&
+                        (!selectedPlugin.catalogManaged ||
+                          selectedPlugin.installable === false)) ||
                       selectedInstallState !== undefined ||
                       (!selectedCanQueueInstall &&
                         !selectedIsApi &&
@@ -1230,7 +1195,9 @@ export function PluginsView({
                       <Download size={16} />{' '}
                       {selectedPlugin.installable === false
                         ? '运行适配中'
-                        : '安装模型'}
+                        : selectedPlugin.catalogManaged
+                          ? '安装模型'
+                          : '仅兼容已安装模型'}
                     </>
                   )}
                   </button>

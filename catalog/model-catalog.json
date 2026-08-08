@@ -28,11 +28,12 @@
           "id": "fsmn-vad-gguf",
           "name": "FSMN-VAD",
           "precision": "F32",
-          "source": "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf",
+          "source": "",
           "sha256": "1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479",
           "files": [
             "fsmn-vad.gguf"
           ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 2
         }
       ],
@@ -68,33 +69,36 @@
           "id": "paraformer-gguf-q8",
           "name": "Paraformer",
           "precision": "Q8",
-          "source": "https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer-q8.gguf",
+          "source": "",
           "sha256": "42bf76ea1575a336aaca4c1b7c01a82b79113e6d04d0d6b799561bfcf07ee011",
           "files": [
             "paraformer-q8.gguf"
           ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 226
         },
         {
           "id": "paraformer-gguf-f16",
           "name": "Paraformer",
           "precision": "F16",
-          "source": "https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer-f16.gguf",
+          "source": "",
           "sha256": "5d1fda4e132f003faeb3a0e34dd19601fb6d0a82b3fe8292326b86ac35eba803",
           "files": [
             "paraformer-f16.gguf"
           ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 415
         },
         {
           "id": "paraformer-gguf-f32",
           "name": "Paraformer",
           "precision": "F32",
-          "source": "https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer.gguf",
+          "source": "",
           "sha256": "f81e32c3541fa274e456a8954b9e6d786b3fa8bcd532a8287bfeb04c4b4307ce",
           "files": [
             "paraformer.gguf"
           ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 824
         }
       ],
@@ -130,33 +134,36 @@
           "id": "sensevoice-small-gguf-q8",
           "name": "SenseVoice Small",
           "precision": "Q8",
-          "source": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf",
+          "source": "",
           "sha256": "4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5",
           "files": [
             "sensevoice-small-q8.gguf"
           ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 243
         },
         {
           "id": "sensevoice-small-gguf-f16",
           "name": "SenseVoice Small",
           "precision": "F16",
-          "source": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-f16.gguf",
+          "source": "",
           "sha256": "2389039651f4574dbd674f1f1e296b8b1147b2e19a5fd9c2cd69e82669c78d8e",
           "files": [
             "sensevoice-small-f16.gguf"
           ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 449
         },
         {
           "id": "sensevoice-small-gguf-f32",
           "name": "SenseVoice Small",
           "precision": "F32",
-          "source": "https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small.gguf",
+          "source": "",
           "sha256": "62bbbd6bc97bdb55a53957c768f9e7f38e6b818fb720ba46d6ff52d4cc200ff0",
           "files": [
             "sensevoice-small.gguf"
           ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 893
         }
       ],
@@ -205,20 +212,10 @@
           "source": "",
           "files": [
             "funasr-encoder-f16.gguf",
-            "qwen3-0.6b-q4km.gguf"
+            "qwen3-0.6b-q4km.gguf",
+            "fsmn-vad.gguf"
           ],
-          "assets": [
-            {
-              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf",
-              "path": "funasr-encoder-f16.gguf",
-              "sha256": "f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"
-            },
-            {
-              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q4km.gguf",
-              "path": "qwen3-0.6b-q4km.gguf",
-              "sha256": "cc5057552aa9dddedcda73ea8889854e8a257eb07d0a561b7234465c1e856f22"
-            }
-          ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 928
         },
         {
@@ -228,20 +225,10 @@
           "source": "",
           "files": [
             "funasr-encoder-f16.gguf",
-            "qwen3-0.6b-q5km.gguf"
+            "qwen3-0.6b-q5km.gguf",
+            "fsmn-vad.gguf"
           ],
-          "assets": [
-            {
-              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf",
-              "path": "funasr-encoder-f16.gguf",
-              "sha256": "f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"
-            },
-            {
-              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q5km.gguf",
-              "path": "qwen3-0.6b-q5km.gguf",
-              "sha256": "dc2e6e195c534cbaea208c030d3ab55be4d3385ae4b726966cff8639a69aa2a2"
-            }
-          ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 993
         },
         {
@@ -251,20 +238,10 @@
           "source": "",
           "files": [
             "funasr-encoder-f16.gguf",
-            "qwen3-0.6b-q8_0.gguf"
+            "qwen3-0.6b-q8_0.gguf",
+            "fsmn-vad.gguf"
           ],
-          "assets": [
-            {
-              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf",
-              "path": "funasr-encoder-f16.gguf",
-              "sha256": "f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"
-            },
-            {
-              "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q8_0.gguf",
-              "path": "qwen3-0.6b-q8_0.gguf",
-              "sha256": "819f385dc0e035dccc3d9e7edaf6b7b044b8ba7ace63cbcbf84c7e397eecbf27"
-            }
-          ],
+          "repositoryHosted": true,
           "estimatedSizeMb": 1218
         }
       ],
@@ -294,7 +271,7 @@
         {
           "role": "reference-transcription",
           "label": "参考文本识别",
-          "pluginId": "sensevoice-small",
+          "pluginId": "funaudiollm.sensevoice-small-gguf",
           "capability": "speech.transcribe",
           "default": true,
           "optional": true

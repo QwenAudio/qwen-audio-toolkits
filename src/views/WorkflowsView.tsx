@@ -191,11 +191,11 @@ const paletteItems: PaletteItem[] = [
   {
     id: 'local-sensevoice',
     kind: 'asr',
-    label: 'SenseVoice',
+    label: 'SenseVoice Small GGUF',
     description: '语音转写与时间戳',
     category: '音频理解',
     capability: 'speech.transcribe',
-    providerId: 'local.sensevoice',
+    providerId: 'plugin.funaudiollm.sensevoice-small-gguf',
     inputTypes: ['audio', 'speech-segments'],
     outputType: 'transcript',
   },

@@ -1,7 +1,7 @@
 {
   "name": "qwenaudio-toolkits",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A local-first AI audio workstation",
   "author": "Zhendong Peng <pengzhendong.pzd@alibaba-inc.com>",
   "license": "Apache-2.0",
@@ -48,13 +48,13 @@
   "devDependencies": {
     "@playwright/test": "^1.62.0",
     "@tauri-apps/cli": "^2.11.4",
-    "@types/node": "^26.1.2",
+    "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.5",
-    "oxlint": "^1.77.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
     "tsx": "^4.23.11",
     "typescript": "~6.0.2",
-    "vite": "^8.2.0"
+    "vite": "^8.1.1"
   }
 }

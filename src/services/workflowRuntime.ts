@@ -296,10 +296,10 @@ export const DEFAULT_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         position: { x: 710, y: 80 },
         data: {
           kind: 'asr',
-          label: 'SenseVoice Small',
+          label: 'SenseVoice Small GGUF',
           capability: 'speech.transcribe',
-          providerId: 'local.sensevoice',
-          adapter: 'sensevoice',
+          providerId: 'plugin.funaudiollm.sensevoice-small-gguf',
+          adapter: 'funasr-sensevoice-gguf',
           streamingMode: 'batch',
           parameters: { language: 'auto' },
           inputTypes: ['audio', 'speech-segments'],

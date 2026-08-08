@@ -143,7 +143,7 @@ const localTests = [
     name: 'SenseVoice Small',
     request: {
       capability: 'speech.transcribe',
-      providerId: 'local.sensevoice',
+      providerId: 'plugin.funaudiollm.sensevoice-small-gguf',
       routing: 'local',
       title: 'Smoke · SenseVoice',
       input: speech,

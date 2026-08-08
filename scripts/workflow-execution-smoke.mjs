@@ -127,7 +127,7 @@ await smoke('本地字幕后处理链', async () => {
   }
   for (const providerId of [
     'local.silero-vad',
-    'local.sensevoice',
+    'plugin.funaudiollm.sensevoice-small-gguf',
     'plugin.k2-fsa.punctuation-zh-en',
     'plugin.wetext.text-normalization',
   ]) {
@@ -157,7 +157,7 @@ await smoke('本地字幕后处理链', async () => {
   })
   const asr = await run({
     capability: 'speech.transcribe',
-    providerId: 'local.sensevoice',
+    providerId: 'plugin.funaudiollm.sensevoice-small-gguf',
     routing: 'local',
     title: 'Workflow · ASR',
     input: { ...enhancedInput, speechSegments: vad.segments },

@@ -55,7 +55,7 @@ export function recommendedDependencies(plugin: ModelPlugin): ModelDependency[] 
         {
           role: 'reference-transcription',
           label: '参考文本识别',
-          pluginId: 'sensevoice-small',
+          pluginId: 'funaudiollm.sensevoice-small-gguf',
           capability: 'speech.transcribe',
           default: true,
           optional: true,

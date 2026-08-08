@@ -192,9 +192,9 @@ const SENSEVOICE_GGUF_MANIFEST: &str = r#"{
   "displayCapabilities": ["语音识别", "语种与情感", "GGUF"],
   "runtime": {"kind": "native", "entry": "llama-funasr-sensevoice", "package": "funasr-llamacpp-0.1.9"},
   "models": [
-    {"id":"sensevoice-small-gguf-q8","name":"SenseVoice Small","precision":"Q8","source":"https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-q8.gguf","sha256":"4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5","files":["sensevoice-small-q8.gguf"],"estimatedSizeMb":243},
-    {"id":"sensevoice-small-gguf-f16","name":"SenseVoice Small","precision":"F16","source":"https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small-f16.gguf","sha256":"2389039651f4574dbd674f1f1e296b8b1147b2e19a5fd9c2cd69e82669c78d8e","files":["sensevoice-small-f16.gguf"],"estimatedSizeMb":449},
-    {"id":"sensevoice-small-gguf-f32","name":"SenseVoice Small","precision":"F32","source":"https://huggingface.co/FunAudioLLM/SenseVoiceSmall-GGUF/resolve/main/sensevoice-small.gguf","sha256":"62bbbd6bc97bdb55a53957c768f9e7f38e6b818fb720ba46d6ff52d4cc200ff0","files":["sensevoice-small.gguf"],"estimatedSizeMb":893}
+    {"id":"sensevoice-small-gguf-q8","name":"SenseVoice Small","precision":"Q8","source":"","sha256":"4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5","files":["sensevoice-small-q8.gguf"],"repositoryHosted":true,"estimatedSizeMb":243},
+    {"id":"sensevoice-small-gguf-f16","name":"SenseVoice Small","precision":"F16","source":"","sha256":"2389039651f4574dbd674f1f1e296b8b1147b2e19a5fd9c2cd69e82669c78d8e","files":["sensevoice-small-f16.gguf"],"repositoryHosted":true,"estimatedSizeMb":449},
+    {"id":"sensevoice-small-gguf-f32","name":"SenseVoice Small","precision":"F32","source":"","sha256":"62bbbd6bc97bdb55a53957c768f9e7f38e6b818fb720ba46d6ff52d4cc200ff0","files":["sensevoice-small.gguf"],"repositoryHosted":true,"estimatedSizeMb":893}
   ],
   "acceleration": ["CPU"],
   "tone": "blue"
@@ -212,9 +212,9 @@ const PARAFORMER_GGUF_MANIFEST: &str = r#"{
   "displayCapabilities": ["语音识别", "中英文", "GGUF"],
   "runtime": {"kind": "native", "entry": "llama-funasr-paraformer", "package": "funasr-llamacpp-0.1.9"},
   "models": [
-    {"id":"paraformer-gguf-q8","name":"Paraformer","precision":"Q8","source":"https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer-q8.gguf","sha256":"42bf76ea1575a336aaca4c1b7c01a82b79113e6d04d0d6b799561bfcf07ee011","files":["paraformer-q8.gguf"],"estimatedSizeMb":226},
-    {"id":"paraformer-gguf-f16","name":"Paraformer","precision":"F16","source":"https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer-f16.gguf","sha256":"5d1fda4e132f003faeb3a0e34dd19601fb6d0a82b3fe8292326b86ac35eba803","files":["paraformer-f16.gguf"],"estimatedSizeMb":415},
-    {"id":"paraformer-gguf-f32","name":"Paraformer","precision":"F32","source":"https://huggingface.co/FunAudioLLM/Paraformer-GGUF/resolve/main/paraformer.gguf","sha256":"f81e32c3541fa274e456a8954b9e6d786b3fa8bcd532a8287bfeb04c4b4307ce","files":["paraformer.gguf"],"estimatedSizeMb":824}
+    {"id":"paraformer-gguf-q8","name":"Paraformer","precision":"Q8","source":"","sha256":"42bf76ea1575a336aaca4c1b7c01a82b79113e6d04d0d6b799561bfcf07ee011","files":["paraformer-q8.gguf"],"repositoryHosted":true,"estimatedSizeMb":226},
+    {"id":"paraformer-gguf-f16","name":"Paraformer","precision":"F16","source":"","sha256":"5d1fda4e132f003faeb3a0e34dd19601fb6d0a82b3fe8292326b86ac35eba803","files":["paraformer-f16.gguf"],"repositoryHosted":true,"estimatedSizeMb":415},
+    {"id":"paraformer-gguf-f32","name":"Paraformer","precision":"F32","source":"","sha256":"f81e32c3541fa274e456a8954b9e6d786b3fa8bcd532a8287bfeb04c4b4307ce","files":["paraformer.gguf"],"repositoryHosted":true,"estimatedSizeMb":824}
   ],
   "acceleration": ["CPU"],
   "tone": "blue"
@@ -231,7 +231,7 @@ const FSMN_VAD_GGUF_MANIFEST: &str = r#"{
   "capabilities": ["speech.vad"],
   "displayCapabilities": ["VAD", "长音频", "GGUF"],
   "runtime": {"kind": "native", "entry": "llama-funasr-vad", "package": "funasr-llamacpp-0.1.9"},
-  "models": [{"id":"fsmn-vad-gguf","name":"FSMN-VAD","precision":"F32","source":"https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf","sha256":"1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479","files":["fsmn-vad.gguf"],"estimatedSizeMb":2}],
+  "models": [{"id":"fsmn-vad-gguf","name":"FSMN-VAD","precision":"F32","source":"","sha256":"1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479","files":["fsmn-vad.gguf"],"repositoryHosted":true,"estimatedSizeMb":2}],
   "acceleration": ["CPU"],
   "tone": "yellow"
 }"#;
@@ -316,33 +316,24 @@ const FUNASR_NANO_MANIFEST: &str = r#"{
     "name": "Fun-ASR-Nano-2512",
     "precision": "Q4_K_M",
     "source": "",
-    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q4km.gguf"],
-    "assets": [
-      {"source":"https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf","path":"funasr-encoder-f16.gguf","sha256":"f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"},
-      {"source":"https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q4km.gguf","path":"qwen3-0.6b-q4km.gguf","sha256":"cc5057552aa9dddedcda73ea8889854e8a257eb07d0a561b7234465c1e856f22"}
-    ],
+    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q4km.gguf", "fsmn-vad.gguf"],
+    "repositoryHosted": true,
     "estimatedSizeMb": 928
   }, {
     "id": "funasr-nano-2512-official-q5km",
     "name": "Fun-ASR-Nano-2512",
     "precision": "Q5_K_M",
     "source": "",
-    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q5km.gguf"],
-    "assets": [
-      {"source":"https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf","path":"funasr-encoder-f16.gguf","sha256":"f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"},
-      {"source":"https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q5km.gguf","path":"qwen3-0.6b-q5km.gguf","sha256":"dc2e6e195c534cbaea208c030d3ab55be4d3385ae4b726966cff8639a69aa2a2"}
-    ],
+    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q5km.gguf", "fsmn-vad.gguf"],
+    "repositoryHosted": true,
     "estimatedSizeMb": 993
   }, {
     "id": "funasr-nano-2512-official-q8",
     "name": "Fun-ASR-Nano-2512",
     "precision": "Q8",
     "source": "",
-    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q8_0.gguf"],
-    "assets": [
-      {"source":"https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/funasr-encoder-f16.gguf","path":"funasr-encoder-f16.gguf","sha256":"f92f91d01a24fbed6c863495b2ee8c6a6788144a02858b75743f0946668de8a2"},
-      {"source":"https://huggingface.co/FunAudioLLM/Fun-ASR-Nano-GGUF/resolve/main/qwen3-0.6b-q8_0.gguf","path":"qwen3-0.6b-q8_0.gguf","sha256":"819f385dc0e035dccc3d9e7edaf6b7b044b8ba7ace63cbcbf84c7e397eecbf27"}
-    ],
+    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q8_0.gguf", "fsmn-vad.gguf"],
+    "repositoryHosted": true,
     "estimatedSizeMb": 1218
   }],
   "acceleration": ["CPU"],
@@ -362,7 +353,7 @@ const COSYVOICE_LOCAL_MANIFEST: &str = r#"{
   "recommendedDependencies": [{
     "role": "reference-transcription",
     "label": "参考文本识别",
-    "pluginId": "sensevoice-small",
+"pluginId": "funaudiollm.sensevoice-small-gguf",
     "capability": "speech.transcribe",
     "default": true,
     "optional": true
@@ -719,13 +710,19 @@ fn merge_catalog_entry_payload(
             continue;
         };
         merge_catalog_string_array(remote_model, builtin_model, "files");
-        merge_catalog_asset_array(remote_model, builtin_model);
         if builtin_model
             .get("repositoryHosted")
             .and_then(serde_json::Value::as_bool)
             == Some(true)
         {
             remote_model["repositoryHosted"] = serde_json::Value::Bool(true);
+            // A ModelScope-hosted model must not retain an old external
+            // source or asset list from a stale cached catalog.
+            remote_model["source"] = serde_json::Value::String(String::new());
+            remote_model["assets"] = serde_json::Value::Array(Vec::new());
+            merge_catalog_asset_array(remote_model, builtin_model);
+        } else {
+            merge_catalog_asset_array(remote_model, builtin_model);
         }
     }
     remote
@@ -986,6 +983,13 @@ fn validate_remote_catalog_entry(manifest: &V2PluginManifest) -> Result<(), Stri
                 manifest.id, model.id
             ));
         }
+        if model.repository_hosted && (!model.source.trim().is_empty() || !model.assets.is_empty())
+        {
+            return Err(format!(
+                "在线模型 {} 标记为 ModelScope 托管时不能声明外部 source 或 assets",
+                model.id
+            ));
+        }
         if !model.source.trim().is_empty() {
             validate_remote_asset(&model.source, &model.sha256)?;
         } else if model.assets.is_empty()
@@ -1070,6 +1074,8 @@ pub struct PluginModelManifest {
     files: Vec<String>,
     #[serde(default)]
     assets: Vec<PluginAssetManifest>,
+    #[serde(default)]
+    repository_hosted: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1636,31 +1642,6 @@ fn install_recommended_dependency(app: &AppHandle, dependency_id: &str) -> Resul
                 let _ = fs::remove_file(cached);
             }
         }
-        "sensevoice-small" => {
-            let destination =
-                models.join("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17");
-            if !destination.join("model.int8.onnx").is_file()
-                || !destination.join("tokens.txt").is_file()
-            {
-                emit_install(app, "downloading", 12, "正在安装 SenseVoice Small");
-                let cached = download_cached(
-                    app,
-                    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17.tar.bz2",
-                    "",
-                    DownloadProgressRange { base: 12, span: 78 },
-                    "正在下载 SenseVoice Small",
-                )?;
-                if destination.exists() {
-                    fs::remove_dir_all(&destination)
-                        .map_err(|error| format!("无法更新 SenseVoice Small: {error}"))?;
-                }
-                fs::create_dir_all(&destination)
-                    .map_err(|error| format!("无法创建 SenseVoice Small 模型目录: {error}"))?;
-                extract_model_download(&cached, &destination, "sensevoice-small.tar.bz2")?;
-                flatten_single_directory(&destination)?;
-                let _ = fs::remove_file(cached);
-            }
-        }
         _ => return Err(format!("不支持的推荐依赖: {dependency_id}")),
     }
     let mut state = read_state(app)?;
@@ -2047,11 +2028,6 @@ fn builtin_plugins(app: &AppHandle, state: &PluginState) -> Result<Vec<PluginDes
     let kokoro = env::var("QWEN_AUDIO_KOKORO_MODEL_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| models_dir.join("kokoro-int8-multi-lang-v1_1"));
-    let sensevoice = env::var("QWEN_AUDIO_SENSEVOICE_MODEL_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            models_dir.join("sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17")
-        });
     let denoiser = env::var("QWEN_AUDIO_DPDFNET2_MODEL_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| models_dir.join("dpdfnet2_48khz_hr.onnx"));
@@ -2094,23 +2070,6 @@ fn builtin_plugins(app: &AppHandle, state: &PluginState) -> Result<Vec<PluginDes
             true,
             "green",
             &denoiser,
-            state,
-        ),
-        builtin_descriptor(
-            "sensevoice-small",
-            "SenseVoice Small",
-            "FunAudioLLM",
-            "中英日韩粤语本地识别，独立输出文本与 Token 时间戳。",
-            vec!["ASR", "时间戳", "多语言"],
-            vec![CAPABILITY_ASR],
-            "sherpa-onnx",
-            "sensevoice",
-            "2024.07",
-            "242 MB",
-            sensevoice.join("model.int8.onnx").is_file() && sensevoice.join("tokens.txt").is_file(),
-            true,
-            "blue",
-            &sensevoice,
             state,
         ),
         builtin_descriptor(
@@ -2841,6 +2800,7 @@ fn normalize_v2_manifest(manifest: V2PluginManifest) -> Result<PluginManifest, S
                     sha256: asset.sha256,
                 })
                 .collect(),
+            repository_hosted: model.repository_hosted,
         }
     });
     Ok(PluginManifest {
@@ -2952,7 +2912,7 @@ fn inferred_dependencies(
         return vec![PluginDependencyManifest {
             role: "reference-transcription".to_string(),
             label: "参考文本识别".to_string(),
-            plugin_id: "sensevoice-small".to_string(),
+            plugin_id: "funaudiollm.sensevoice-small-gguf".to_string(),
             capability: CAPABILITY_ASR.to_string(),
             default: true,
             optional: true,
@@ -3323,13 +3283,19 @@ fn prepare_shared_runtime(
             manifest.runtime_package,
             runtime_platform_id()?
         );
-        download_modelscope_directory(
+        let downloaded = download_modelscope_directory(
             app,
             &prefix,
             &runtime_dir,
             "模型运行时",
             SHARED_RUNTIME_PROGRESS,
         )?;
+        if !downloaded {
+            return Err(format!(
+                "ModelScope 中没有当前平台的 {} 运行时",
+                manifest.runtime_package
+            ));
+        }
     }
     write_runtime_pointer(model_dir, &runtime_dir)
 }
@@ -3427,7 +3393,7 @@ fn install_remote_model(
         return Ok(());
     }
     if model_payload_ready && is_funasr_llamacpp_adapter(&manifest.adapter) {
-        install_funasr_runtime(app, &destination)?;
+        install_funasr_runtime(app, &destination, prefer_modelscope)?;
         return Ok(());
     }
     if !model.source.trim().is_empty() && !model.source.starts_with("https://") {
@@ -3438,6 +3404,12 @@ fn install_remote_model(
     } else {
         false
     };
+    if prefer_modelscope && model.repository_hosted && !modelscope_downloaded {
+        return Err(format!(
+            "无法从 ModelScope 下载 {} 的模型文件；已禁止回退到 Hugging Face，请检查网络后重试",
+            manifest.name
+        ));
+    }
     if !modelscope_downloaded && !model.source.trim().is_empty() {
         emit_install(app, "downloading", MODEL_PROGRESS_BASE, "正在下载模型权重");
         let archive_path = download_cached(
@@ -3472,13 +3444,13 @@ fn install_remote_model(
         manifest.adapter.as_str(),
         "funasr-sensevoice-gguf" | "funasr-paraformer-gguf"
     ) {
-        install_fsmn_vad_gguf(app, &destination)?;
+        install_fsmn_vad_gguf(app, manifest, model, &destination)?;
     }
     if manifest.adapter == "cosyvoice-local" {
         install_cosyvoice_runtime(app, &destination)?;
     }
     if is_funasr_llamacpp_adapter(&manifest.adapter) {
-        install_funasr_runtime(app, &destination)?;
+        install_funasr_runtime(app, &destination, prefer_modelscope)?;
     }
     for relative in &model.files {
         let required = safe_join(&destination, relative)?;
@@ -3499,6 +3471,7 @@ fn install_remote_model(
                 "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx".to_string(),
             ],
             assets: Vec::new(),
+            repository_hosted: false,
         });
         dependency.id = "k2-fsa.speaker-embedding".to_string();
         install_remote_model(app, root, &dependency, prefer_modelscope)?;
@@ -3535,21 +3508,36 @@ fn download_model_asset(
     Ok(())
 }
 
-fn install_fsmn_vad_gguf(app: &AppHandle, destination: &Path) -> Result<(), String> {
+fn install_fsmn_vad_gguf(
+    app: &AppHandle,
+    manifest: &PluginManifest,
+    model: &PluginModelManifest,
+    destination: &Path,
+) -> Result<(), String> {
     let target = destination.join("fsmn-vad.gguf");
     if is_non_empty_file(&target) {
         return Ok(());
     }
-    download_model_asset(
-        app,
-        &PluginAssetManifest {
-            source: "https://huggingface.co/FunAudioLLM/fsmn-vad-GGUF/resolve/main/fsmn-vad.gguf"
-                .to_string(),
-            path: "fsmn-vad.gguf".to_string(),
-            sha256: "1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479".to_string(),
-        },
-        &target,
-    )
+    let prefixes = [
+        format!("models/{}/{}/", manifest.id, model.id),
+        format!("{}/models/{}/", manifest.id, model.id),
+    ];
+    for prefix in prefixes {
+        if download_modelscope_directory_filtered(
+            app,
+            &prefix,
+            destination,
+            "FSMN-VAD",
+            ASSET_PROGRESS,
+            |relative| relative == "fsmn-vad.gguf",
+        )? {
+            return Ok(());
+        }
+    }
+    Err(format!(
+        "ModelScope 中没有 {} 对应的 FSMN-VAD 文件",
+        manifest.name
+    ))
 }
 
 fn deepfilter_runtime_file_name() -> &'static str {
@@ -3669,11 +3657,20 @@ fn funasr_runtime_asset() -> Result<PluginAssetManifest, String> {
     })
 }
 
-fn install_funasr_runtime(app: &AppHandle, destination: &Path) -> Result<(), String> {
+fn install_funasr_runtime(
+    app: &AppHandle,
+    destination: &Path,
+    prefer_modelscope: bool,
+) -> Result<(), String> {
     if let Ok(executable) = funasr_runtime_executable(destination) {
         ensure_executable_permission(&executable, "FunASR")?;
         mark_shared_runtime_ready(destination)?;
         return Ok(());
+    }
+    if prefer_modelscope {
+        return Err(
+            "ModelScope 中的 FunASR 运行时不完整，已禁止回退到 GitHub，请重试安装".to_string(),
+        );
     }
     let asset = funasr_runtime_asset()?;
     let archive = download_cached(
@@ -4301,7 +4298,7 @@ fn supported_capability(capability: &str) -> bool {
 fn builtin_plugin_id(plugin_id: &str) -> bool {
     matches!(
         plugin_id,
-        "kokoro-tts" | "sensevoice-small" | "dpdfnet2-48khz-hr" | "silero-vad" | "web-audio-stream"
+        "kokoro-tts" | "dpdfnet2-48khz-hr" | "silero-vad" | "web-audio-stream"
     )
 }
 
@@ -4564,13 +4561,13 @@ mod tests {
     #[test]
     fn plugin_state_persists_dependency_bindings() {
         let state: PluginState = serde_json::from_str(
-            r#"{"dependency_bindings":{"sensevoice-small":{"speech-segmentation":"silero-vad"}}}"#,
+            r#"{"dependency_bindings":{"funaudiollm.sensevoice-small-gguf":{"speech-segmentation":"silero-vad"}}}"#,
         )
         .expect("parse dependency bindings");
         assert_eq!(
             state
                 .dependency_bindings
-                .get("sensevoice-small")
+                .get("funaudiollm.sensevoice-small-gguf")
                 .and_then(|roles| roles.get("speech-segmentation"))
                 .map(String::as_str),
             Some("silero-vad")
@@ -5236,6 +5233,27 @@ mod tests {
             let normalized =
                 normalize_v2_manifest(parsed).expect("catalog manifest should normalize");
             assert_eq!(normalized.capabilities.len(), 1);
+        }
+    }
+
+    #[test]
+    fn official_funasr_catalog_models_are_modelscope_only() {
+        for raw in [
+            FUNASR_NANO_MANIFEST,
+            SENSEVOICE_GGUF_MANIFEST,
+            PARAFORMER_GGUF_MANIFEST,
+            FSMN_VAD_GGUF_MANIFEST,
+        ] {
+            let parsed: V2PluginManifest =
+                serde_json::from_str(raw).expect("FunASR manifest should parse");
+            let normalized =
+                normalize_v2_manifest(parsed).expect("FunASR manifest should normalize");
+            let model = normalized
+                .model
+                .expect("FunASR manifest should have a model");
+            assert!(model.repository_hosted);
+            assert!(model.source.is_empty());
+            assert!(model.assets.is_empty());
         }
     }
 

@@ -42,7 +42,6 @@ import {
   type TranscriptExportFormat,
 } from '../utils/transcript'
 import type {
-  AsrModelStatus,
   AsrTranscriptionResult,
   AudioProcessOperation,
   AudioProcessResult,
@@ -177,7 +176,6 @@ export function EditView({
   )
   const [timelineVisible, setTimelineVisible] = useState(true)
   const [sourceMenuOpen, setSourceMenuOpen] = useState(false)
-  const [asrStatus, setAsrStatus] = useState<AsrModelStatus | null>(null)
   const [transcriptions, setTranscriptions] = useState<
     Record<string, AsrTranscriptionResult>
   >({})
@@ -204,7 +202,9 @@ export function EditView({
   const [monitoredTracks, setMonitoredTracks] = useState<Set<string>>(
     () => new Set(['voice']),
   )
-  const [asrProviderId, setAsrProviderId] = useState('local.sensevoice')
+  const [asrProviderId, setAsrProviderId] = useState(
+    'plugin.funaudiollm.sensevoice-small-gguf',
+  )
   const [enhanceProviderId, setEnhanceProviderId] =
     useState('local.dpdfnet2')
   const [transcriptExportOpen, setTranscriptExportOpen] = useState(false)
@@ -239,7 +239,7 @@ export function EditView({
   )
   const asrProviderReady = catalog
     ? selectedAsrProvider?.status === 'ready'
-    : Boolean(asrStatus?.installed)
+    : false
   const enhanceProviderReady = catalog
     ? selectedEnhanceProvider?.status === 'ready'
     : Boolean(processorStatus?.installed)
@@ -324,14 +324,6 @@ export function EditView({
 
     let disposed = false
     let removeProgressListener: (() => void) | undefined
-
-    invoke<AsrModelStatus>('asr_model_status')
-      .then((status) => {
-        if (!disposed) setAsrStatus(status)
-      })
-      .catch((error) => {
-        if (!disposed) setTranscriptionError(errorMessage(error))
-      })
 
     void listen<AsrProgressEvent>(
       'asr-transcription-progress',
@@ -536,9 +528,6 @@ export function EditView({
         ...current,
         [clip.id]: result,
       }))
-      setAsrStatus((current) =>
-        current ? { ...current, loaded: true } : current,
-      )
       onAction(`已识别 ${result.segments.length} 个带时间码片段`)
     } catch (error) {
       const message = errorMessage(error)
@@ -922,7 +911,7 @@ export function EditView({
                     </strong>
                     <small>
                       {asrProviderReady
-                        ? `${asrStatus?.loaded ? '已加载' : '本地就绪'} · 自动语言 · Token 时间戳`
+                        ? '本地就绪 · 自动语言 · Token 时间戳'
                         : desktopRuntime
                           ? '正在检查本地模型'
                           : '仅桌面端可用'}
@@ -1114,7 +1103,7 @@ export function EditView({
                     <Captions size={16} />
                     {!desktopRuntime
                       ? '请在桌面端识别'
-                      : asrStatus && !asrStatus.installed
+                      : !asrProviderReady
                         ? '模型未安装'
                         : '开始识别'}
                   </button>

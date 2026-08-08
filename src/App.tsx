@@ -214,14 +214,14 @@ function getInitialCollapsedSidebarGroups() {
 }
 
 function getInitialSelectedPluginId(): string {
-  if (typeof window === 'undefined') return 'sensevoice-small'
+  if (typeof window === 'undefined') return 'funaudiollm.sensevoice-small-gguf'
   try {
     return (
       window.localStorage.getItem(LAST_MODEL_STORAGE_KEY) ??
-      'sensevoice-small'
+      'funaudiollm.sensevoice-small-gguf'
     )
   } catch {
-    return 'sensevoice-small'
+    return 'funaudiollm.sensevoice-small-gguf'
   }
 }
 
