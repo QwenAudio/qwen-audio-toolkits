@@ -7633,7 +7633,8 @@ body.sidebar-resizing .model-app-frame {
 }
 
 .installed-model-entry:hover .activity-model-name,
-.installed-model-entry:has(.installed-model-actions:focus-within) .activity-model-name {
+.installed-model-entry:has(.installed-model-actions:focus-within) .activity-model-name,
+.installed-model-entry:has(.installed-model-remove.confirming) .activity-model-name {
   margin-right: 44px;
   mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);
   -webkit-mask-image: linear-gradient(to right, black calc(100% - 16px), transparent);

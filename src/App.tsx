@@ -734,6 +734,7 @@ function App() {
     }
     const missing = recommendedDependencies(selectedPlugin).filter(
       (dependency) => {
+        if (dependency.optional) return false
         const dependencyId = getModelBinding(
           modelBindings,
           selectedPlugin.id,

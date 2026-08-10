@@ -492,20 +492,21 @@ export function PluginsView({
     cloudBusyIdsRef.current.add(plugin.id)
     setCloudBusyIds((current) => new Set(current).add(plugin.id))
     try {
+      let optionalDependencyFailures: string[] = []
       if (installed) {
         setInstallProgress(0)
         setInstallSpeed('')
         setInstallStage('preparing')
         setInstallDetail('正在准备依赖模型')
         installProgressScopeRef.current = 'dependency'
-        await ensureSelectedDependencies(plugin)
+        optionalDependencyFailures = await ensureSelectedDependencies(plugin)
         setInstallProgress(100)
       }
       onCloudModelInstalled(plugin.id, installed)
       await refreshPlugins()
       onAction(
         installed
-          ? `${plugin.name} 已添加到工作台`
+          ? `${plugin.name} 已添加到工作台${optionalDependencyNotice(optionalDependencyFailures)}`
           : `${plugin.name} 已从工作台移除`,
       )
     } catch (error) {
@@ -537,6 +538,7 @@ export function PluginsView({
   }
 
   const ensureSelectedDependencies = async (plugin: ModelPlugin) => {
+    const optionalFailures: string[] = []
     for (const dependency of recommendedDependencies(plugin)) {
       const dependencyId = getModelBinding(
         modelBindings,
@@ -552,9 +554,22 @@ export function PluginsView({
             candidate.installed,
         )
       ) {
-        await installRecommendedModelDependency(dependencyId)
+        try {
+          await installRecommendedModelDependency(dependencyId)
+        } catch (error) {
+          if (!dependency.optional) throw error
+          optionalFailures.push(dependency.label)
+        }
       }
     }
+    return optionalFailures
+  }
+
+  const optionalDependencyNotice = (failures: string[]) => {
+    const labels = [...new Set(failures)]
+    return labels.length
+      ? `；可选组件“${labels.join('、')}”未安装，不影响模型运行`
+      : ''
   }
 
   const enqueueCatalogInstall = (plugin: ModelPlugin) => {
@@ -608,11 +623,14 @@ export function PluginsView({
           job.variantId,
         )
         installProgressScopeRef.current = 'dependency'
-        await ensureSelectedDependencies(installed)
+        const optionalDependencyFailures =
+          await ensureSelectedDependencies(installed)
         setInstallProgress(100)
         await refreshPlugins()
         setSelectedId(installed.id)
-        onAction(`${installed.name} 已安装并注册到 Harness`)
+        onAction(
+          `${installed.name} 已安装并注册到 Harness${optionalDependencyNotice(optionalDependencyFailures)}`,
+        )
       } catch (error) {
         if (canceledInstallIdsRef.current.has(job.pluginId)) {
           onAction(`${job.name} 下载已取消，已保留断点`)
@@ -705,12 +723,15 @@ export function PluginsView({
     setInstallSpeed('')
     setInstallDetail('正在准备依赖模型')
     try {
-      await ensureSelectedDependencies(plugin)
+      const optionalDependencyFailures =
+        await ensureSelectedDependencies(plugin)
       setInstallProgress(100)
       const next = await setModelPluginSidebarVisible(plugin.id, true)
       onPluginsChanged(next)
       onCatalogChanged(await getHarnessCatalog())
-      onAction(`${plugin.name} 已添加到工作台`)
+      onAction(
+        `${plugin.name} 已添加到工作台${optionalDependencyNotice(optionalDependencyFailures)}`,
+      )
     } catch (error) {
       onAction(
         `操作失败：${error instanceof Error ? error.message : String(error)}`,
@@ -1354,7 +1375,7 @@ export function PluginsView({
                                   (candidate) =>
                                     candidate.id === dependency.pluginId,
                                 )?.name ?? dependency.pluginId}{' '}
-                                · 安装时下载
+                                · 安装时尝试下载
                               </option>
                             )}
                           </select>
@@ -1362,7 +1383,9 @@ export function PluginsView({
                       )
                     })}
                     {!selectedPlugin.installed && (
-                      <small>安装模型时一并安装，之后可在这里替换。</small>
+                      <small>
+                        默认随模型尝试安装；可选组件失败不影响模型运行，之后也可在这里替换。
+                      </small>
                     )}
                   </div>
                 </section>
