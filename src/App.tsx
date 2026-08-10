@@ -427,6 +427,9 @@ function App() {
   )
   const [selectedPluginId, setSelectedPluginId] =
     useState(getInitialSelectedPluginId)
+  const [apiConfigurationTargetId, setApiConfigurationTargetId] = useState<
+    string | null
+  >(null)
   const [workflows, setWorkflows] = useState<SavedWorkflow[]>(
     listSavedWorkflows,
   )
@@ -1873,7 +1876,14 @@ function App() {
                 runs={runs}
                 onRunText={runText}
                 onRunAudio={runAudio}
-                onOpenStore={() => changeView('plugins')}
+                onOpenStore={() => {
+                  setApiConfigurationTargetId(
+                    selectedPlugin.providerId?.startsWith('api.')
+                      ? selectedPlugin.id
+                      : null,
+                  )
+                  changeView('plugins')
+                }}
                 onAction={notify}
                 onClearTextHistory={() =>
                   clearTextHistory(selectedPlugin.providerId ?? '')
@@ -1889,6 +1899,10 @@ function App() {
               catalog={catalog}
               apiModelCatalog={apiModelCatalog}
               installedCloudModelIds={installedCloudModelIds}
+              configureApiPluginId={apiConfigurationTargetId}
+              onApiConfigurationHandled={() =>
+                setApiConfigurationTargetId(null)
+              }
               onPluginsChanged={setPlugins}
               onModelBindingsChanged={setModelBindings}
               onRemoveModelBindings={removeModelBindings}

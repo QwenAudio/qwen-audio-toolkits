@@ -1845,7 +1845,7 @@ export function ModelWorkspaceView({
     if (!providerReady) {
       onAction(
         apiModel
-          ? `请先在模型商店配置 ${plugin.name} 的 API Key`
+          ? `请先配置 ${plugin.name} 的 API Key`
           : `请先在模型商店启用 ${plugin.name}`,
       )
       onOpenStore()
@@ -2416,9 +2416,6 @@ export function ModelWorkspaceView({
               plugin.version}
           </p>
         </div>
-        {!providerReady && (
-          <span className="model-ready-state">需要配置</span>
-        )}
         {selectedRun && (
           <button
             className="icon-button result-detail-close"
@@ -2469,7 +2466,7 @@ export function ModelWorkspaceView({
                   type="button"
                   onClick={onOpenStore}
                 >
-                  打开模型商店
+                  {apiModel ? '配置 API' : '打开模型商店'}
                 </button>
               )}
             </div>

@@ -63,6 +63,8 @@ interface PluginsViewProps {
   catalog: HarnessCatalog | null
   apiModelCatalog: ApiModelCatalogEntry[]
   installedCloudModelIds: string[]
+  configureApiPluginId?: string | null
+  onApiConfigurationHandled?: () => void
   onPluginsChanged: (plugins: ModelPlugin[]) => void
   onModelBindingsChanged: (bindings: ModelDependencyBindings) => void
   onRemoveModelBindings: (pluginId: string) => void
@@ -280,6 +282,8 @@ export function PluginsView({
   catalog,
   apiModelCatalog,
   installedCloudModelIds,
+  configureApiPluginId,
+  onApiConfigurationHandled,
   onPluginsChanged,
   onModelBindingsChanged,
   onRemoveModelBindings,
@@ -462,6 +466,23 @@ export function PluginsView({
   const openApiConfig = (plugin: ModelPlugin) => {
     if (plugin.providerId === 'api.bailian') setConfigProvider('bailian')
   }
+
+  useEffect(() => {
+    if (!configureApiPluginId) return
+    const target = allModels.find(
+      (plugin) => plugin.id === configureApiPluginId,
+    )
+    onApiConfigurationHandled?.()
+    if (!target || !isApiPlugin(target)) return
+
+    setSearch('')
+    setFilter('all')
+    setRuntimeFilter('api')
+    setSelectedId(target.id)
+    if (target.installed && target.providerId === 'api.bailian') {
+      setConfigProvider('bailian')
+    }
+  }, [allModels, configureApiPluginId, onApiConfigurationHandled])
 
   const setCloudModelInstalled = async (
     plugin: ModelPlugin,
