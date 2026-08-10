@@ -262,9 +262,9 @@ export const DEFAULT_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         position: { x: 250, y: 80 },
         data: {
           kind: 'enhance',
-          label: 'DPDFNet2',
+          label: 'DeepFilterNet3',
           capability: 'audio.enhance',
-          providerId: 'local.dpdfnet2',
+          providerId: 'plugin.rikorose.deepfilternet3',
           parameters: { denoiseStrength: 0.68 },
           inputTypes: ['audio'],
           outputType: 'audio',

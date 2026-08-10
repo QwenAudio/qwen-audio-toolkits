@@ -743,25 +743,11 @@ impl HarnessRuntime {
 }
 
 #[tauri::command]
-pub fn harness_catalog(
-    app: AppHandle,
-    tts_runtime: State<'_, Arc<TtsRuntime>>,
-    audio_runtime: State<'_, Arc<AudioProcessingRuntime>>,
-) -> HarnessCatalog {
-    let tts_status = crate::tts::tts_model_status(app.clone(), tts_runtime)
-        .ok()
-        .and_then(|status| serde_json::to_value(status).ok());
-    let audio_status = crate::audio_processing::audio_processor_status(app.clone(), audio_runtime)
-        .ok()
-        .and_then(|status| serde_json::to_value(status).ok());
-    catalog_from_status(&app, tts_status, audio_status)
+pub fn harness_catalog(app: AppHandle) -> HarnessCatalog {
+    catalog_for_app(&app)
 }
 
-pub(crate) fn catalog_from_status(
-    app: &AppHandle,
-    tts_status: Option<Value>,
-    audio_status: Option<Value>,
-) -> HarnessCatalog {
+pub(crate) fn catalog_for_app(app: &AppHandle) -> HarnessCatalog {
     let bailian = read_bailian_provider_config(app).unwrap_or_default();
     let model = |status: Option<Value>, fallback_id: &str, fallback_name: &str| {
         let installed = status
@@ -794,20 +780,10 @@ pub(crate) fn catalog_from_status(
         }
     };
 
-    let tts_model = model(
-        tts_status,
-        "kokoro-int8-multi-lang-v1_1",
-        "Kokoro v1.1 中文",
-    );
-    let audio_model = model(audio_status, "dpdfnet2-48khz-hr", "DPDFNet2 48 kHz HR");
     let vad_model = crate::vad::model_status(app)
         .ok()
         .and_then(|status| serde_json::to_value(status).ok());
     let vad_model = model(vad_model, "silero-vad", "Silero VAD");
-    let kokoro_enabled =
-        plugins::is_plugin_installed(app, "kokoro-tts").unwrap_or(tts_model.installed);
-    let denoiser_enabled =
-        plugins::is_plugin_installed(app, "dpdfnet2-48khz-hr").unwrap_or(audio_model.installed);
     let vad_enabled =
         plugins::is_plugin_installed(app, "silero-vad").unwrap_or(vad_model.installed);
     let stream_enabled = plugins::is_plugin_installed(app, "web-audio-stream").unwrap_or(true);
@@ -944,24 +920,6 @@ pub(crate) fn catalog_from_status(
         providers: {
             let mut providers = vec![
                 ProviderDescriptor {
-                    id: "local.kokoro".to_string(),
-                    name: "Kokoro TTS".to_string(),
-                    kind: "local-model".to_string(),
-                    runtime: "sherpa-onnx".to_string(),
-                    status: if !tts_model.installed {
-                        "missing"
-                    } else if kokoro_enabled {
-                        "ready"
-                    } else {
-                        "disabled"
-                    }
-                    .to_string(),
-                    configured: tts_model.installed && kokoro_enabled,
-                    local: true,
-                    capabilities: vec![CAPABILITY_TTS.to_string()],
-                    models: vec![tts_model],
-                },
-                ProviderDescriptor {
                     id: "local.silero-vad".to_string(),
                     name: "Silero VAD".to_string(),
                     kind: "local-model".to_string(),
@@ -978,24 +936,6 @@ pub(crate) fn catalog_from_status(
                     local: true,
                     capabilities: vec![CAPABILITY_VAD.to_string()],
                     models: vec![vad_model],
-                },
-                ProviderDescriptor {
-                    id: "local.dpdfnet2".to_string(),
-                    name: "DPDFNet2".to_string(),
-                    kind: "local-model".to_string(),
-                    runtime: "sherpa-onnx".to_string(),
-                    status: if !audio_model.installed {
-                        "missing"
-                    } else if denoiser_enabled {
-                        "ready"
-                    } else {
-                        "disabled"
-                    }
-                    .to_string(),
-                    configured: audio_model.installed && denoiser_enabled,
-                    local: true,
-                    capabilities: vec![CAPABILITY_ENHANCE.to_string()],
-                    models: vec![audio_model],
                 },
                 ProviderDescriptor {
                     id: "local.web-audio".to_string(),
@@ -5335,13 +5275,7 @@ fn resolve_provider(
     }
 
     let (id, name, model_id, plugin_id, adapter) = match request.capability.as_str() {
-        CAPABILITY_TTS => (
-            "local.kokoro",
-            "Kokoro TTS",
-            "kokoro-int8-multi-lang-v1_1",
-            "kokoro-tts",
-            "kokoro",
-        ),
+        CAPABILITY_TTS => return Err("请指定已安装的本地语音合成模型".to_string()),
         CAPABILITY_ASR => {
             return Err("请指定已安装的本地 ASR 插件或安装 SenseVoice Small GGUF".to_string())
         }
@@ -5355,13 +5289,7 @@ fn resolve_provider(
         CAPABILITY_TEXT => {
             return Err("text.generate 需要配置 API Provider 或安装本地 LLM 插件".to_string())
         }
-        CAPABILITY_ENHANCE => (
-            "local.dpdfnet2",
-            "DPDFNet2 + Silero",
-            "dpdfnet2-48khz-hr",
-            "dpdfnet2-48khz-hr",
-            "dpdfnet2",
-        ),
+        CAPABILITY_ENHANCE => return Err("请指定已安装的本地音频增强模型".to_string()),
         CAPABILITY_LIVE => (
             "local.web-audio",
             "Web Audio Stream",

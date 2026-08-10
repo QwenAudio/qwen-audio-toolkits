@@ -244,6 +244,8 @@ fn validated_keyword_tokens(model_dir: &Path, keywords: &[String]) -> Result<Str
         .lines()
         .filter_map(|line| line.split_whitespace().next())
         .collect::<std::collections::HashSet<_>>();
+    let builtin_keywords = builtin_keyword_tokens(model_dir);
+    let mut resolved = Vec::with_capacity(keywords.len());
     for keyword in keywords {
         let units = keyword
             .split_once('@')
@@ -251,11 +253,46 @@ fn validated_keyword_tokens(model_dir: &Path, keywords: &[String]) -> Result<Str
             .unwrap_or(keyword)
             .split_whitespace()
             .collect::<Vec<_>>();
-        if units.is_empty() || units.iter().any(|unit| !vocabulary.contains(unit)) {
+        if !units.is_empty() && units.iter().all(|unit| vocabulary.contains(unit)) {
+            resolved.push(keyword.clone());
+            continue;
+        }
+        if let Some(tokens) = builtin_keywords.get(&keyword.to_lowercase()) {
+            resolved.push(tokens.clone());
+        } else {
             return Err("自定义关键词需要先转换为模型 token；当前可暂用模型内置关键词".to_string());
         }
     }
-    Ok(keywords.join("\n"))
+    Ok(resolved.join("\n"))
+}
+
+fn builtin_keyword_tokens(model_dir: &Path) -> HashMap<String, String> {
+    let Some(raw_path) = find(model_dir, |name| name == "keywords_raw.txt").ok() else {
+        return HashMap::new();
+    };
+    let Some(tokens_path) = find(model_dir, |name| name == "keywords.txt").ok() else {
+        return HashMap::new();
+    };
+    let Ok(raw) = fs::read_to_string(raw_path) else {
+        return HashMap::new();
+    };
+    let Ok(tokens) = fs::read_to_string(tokens_path) else {
+        return HashMap::new();
+    };
+    let by_label = tokens
+        .lines()
+        .filter_map(|line| {
+            let (_, label) = line.rsplit_once('@')?;
+            Some((label.trim().to_lowercase(), line.trim().to_string()))
+        })
+        .collect::<HashMap<_, _>>();
+    raw.lines()
+        .filter_map(|line| {
+            let (phrase, label) = line.rsplit_once('@')?;
+            let tokens = by_label.get(&label.trim().to_lowercase())?.clone();
+            Some((phrase.trim().to_lowercase(), tokens))
+        })
+        .collect()
 }
 
 pub(crate) fn run_speaker_embedding(
@@ -464,8 +501,9 @@ fn prepare_spleeter_audio(source: &PcmAudio) -> Result<PcmAudio, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{compact_speaker_ids, prepare_spleeter_audio};
+    use super::{compact_speaker_ids, prepare_spleeter_audio, validated_keyword_tokens};
     use crate::audio_io::PcmAudio;
+    use std::{env, fs};
 
     #[test]
     fn prepares_mono_audio_as_44khz_stereo() {
@@ -487,5 +525,24 @@ mod tests {
             vec![0, 0, 1, 0, 2, 1]
         );
         assert_eq!(compact_speaker_ids(&[1, 1, 1]), vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn maps_builtin_raw_keywords_to_model_tokens() {
+        let root = env::temp_dir().join("qwen-audio-keyword-mapping-test");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("test_wavs")).expect("create keyword fixtures");
+        fs::write(root.join("tokens.txt"), "n 1\nǚ 2\nér 3\n").expect("write token vocabulary");
+        fs::write(root.join("test_wavs/keywords.txt"), "n ǚ ér @女儿\n")
+            .expect("write tokenized keywords");
+        fs::write(root.join("test_wavs/keywords_raw.txt"), "女儿 @女儿\n")
+            .expect("write raw keywords");
+
+        assert_eq!(
+            validated_keyword_tokens(&root, &["女儿".to_string()]).expect("map builtin keyword"),
+            "n ǚ ér @女儿"
+        );
+        assert!(validated_keyword_tokens(&root, &["你好小助手".to_string()]).is_err());
+        let _ = fs::remove_dir_all(root);
     }
 }

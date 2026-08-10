@@ -650,8 +650,42 @@ const CATALOG_MANIFESTS: &[&str] = &[
 fn builtin_catalog_values() -> Result<Vec<serde_json::Value>, String> {
     CATALOG_MANIFESTS
         .iter()
-        .map(|raw| serde_json::from_str(raw).map_err(|error| format!("内置模型目录无效: {error}")))
+        .map(|raw| {
+            let mut value: serde_json::Value =
+                serde_json::from_str(raw).map_err(|error| format!("内置模型目录无效: {error}"))?;
+            mark_catalog_payloads_modelscope_hosted(&mut value);
+            Ok(value)
+        })
         .collect()
+}
+
+fn mark_catalog_payloads_modelscope_hosted(value: &mut serde_json::Value) {
+    let Some(models) = value
+        .get_mut("models")
+        .and_then(serde_json::Value::as_array_mut)
+    else {
+        return;
+    };
+    for model in models {
+        let has_payload = model
+            .get("files")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|files| !files.is_empty())
+            || model
+                .get("assets")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|assets| !assets.is_empty())
+            || model
+                .get("source")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|source| !source.trim().is_empty());
+        if !has_payload {
+            continue;
+        }
+        model["repositoryHosted"] = serde_json::Value::Bool(true);
+        model["source"] = serde_json::Value::String(String::new());
+        model["assets"] = serde_json::Value::Array(Vec::new());
+    }
 }
 
 fn catalog_values(app: &AppHandle) -> Result<Vec<serde_json::Value>, String> {
@@ -2053,72 +2087,25 @@ fn install_from_path_blocking(
 }
 
 fn builtin_plugins(app: &AppHandle, state: &PluginState) -> Result<Vec<PluginDescriptor>, String> {
-    let models_dir = models_directory(app)?;
-    let kokoro = env::var("QWEN_AUDIO_KOKORO_MODEL_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| models_dir.join("kokoro-int8-multi-lang-v1_1"));
-    let denoiser = env::var("QWEN_AUDIO_DPDFNET2_MODEL_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| models_dir.join("dpdfnet2_48khz_hr.onnx"));
     let vad = crate::vad::ensure_model_install(app)?;
 
-    let mut plugins = vec![
-        builtin_descriptor(
-            "kokoro-tts",
-            "Kokoro TTS 中文",
-            "hexgrad",
-            "通过 sherpa-onnx 本地合成中英文语音，内置 103 个说话人。",
-            vec!["TTS", "中文", "英文"],
-            vec![CAPABILITY_TTS],
-            "sherpa-onnx",
-            "kokoro",
-            "1.1",
-            "210 MB",
-            kokoro.join("voices.bin").is_file()
-                && kokoro.join("tokens.txt").is_file()
-                && kokoro.join("espeak-ng-data").is_dir()
-                && (kokoro.join("model.int8.onnx").is_file()
-                    || kokoro.join("model.onnx").is_file()),
-            true,
-            "coral",
-            &kokoro,
-            state,
-        ),
-        builtin_descriptor(
-            "dpdfnet2-48khz-hr",
-            "DPDFNet2 48 kHz HR",
-            "CEVA",
-            "通过 sherpa-onnx 进行 48 kHz 单声道或立体声语音增强。",
-            vec!["AI 降噪", "48 kHz", "文件处理"],
-            vec![CAPABILITY_ENHANCE],
-            "sherpa-onnx",
-            "dpdfnet2",
-            "2025.07",
-            "10 MB",
-            denoiser.is_file(),
-            true,
-            "green",
-            &denoiser,
-            state,
-        ),
-        builtin_descriptor(
-            "silero-vad",
-            "Silero VAD",
-            "Silero",
-            "独立检测语音区域、停顿和静音，并输出可定位、播放的时间片段。",
-            vec!["VAD", "时间片段"],
-            vec![CAPABILITY_VAD],
-            "sherpa-onnx",
-            "silero-vad",
-            "5.1.2",
-            "644 KB",
-            vad.is_file(),
-            true,
-            "yellow",
-            &vad,
-            state,
-        ),
-    ];
+    let mut plugins = vec![builtin_descriptor(
+        "silero-vad",
+        "Silero VAD",
+        "Silero",
+        "独立检测语音区域、停顿和静音，并输出可定位、播放的时间片段。",
+        vec!["VAD", "时间片段"],
+        vec![CAPABILITY_VAD],
+        "sherpa-onnx",
+        "silero-vad",
+        "5.1.2",
+        "644 KB",
+        vad.is_file(),
+        true,
+        "yellow",
+        &vad,
+        state,
+    )];
     for plugin in &mut plugins {
         plugin.enabled = plugin.installed;
     }
@@ -2166,8 +2153,6 @@ fn builtin_descriptor(
         featured,
         tone: tone.to_string(),
         provider_id: match adapter {
-            "kokoro" => Some("local.kokoro".to_string()),
-            "dpdfnet2" => Some("local.dpdfnet2".to_string()),
             "silero-vad" => Some("local.silero-vad".to_string()),
             "web-audio" => Some("local.web-audio".to_string()),
             _ => None,
@@ -2654,14 +2639,77 @@ fn validate_manifest(root: &Path, manifest: &PluginManifest) -> Result<(), Strin
             require_file(&model.join("decoder.int8.onnx"))?;
             require_directory(&model.join("tokenizer"))?;
         }
-        "audio-tagging"
-        | "keyword-spotting"
-        | "language-id"
-        | "punctuation"
-        | "speaker-embedding"
-        | "speaker-diarization"
-        | "source-separation" => {
-            require_directory(&required_model(root, manifest)?)?;
+        "audio-tagging" => {
+            let model = required_model(root, manifest)?;
+            require_matching_file(&model, "ONNX 权重", &|path| {
+                path.extension().and_then(|value| value.to_str()) == Some("onnx")
+            })?;
+            require_matching_file(&model, "标签文件", &|path| {
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|name| {
+                        name.contains("label") && (name.ends_with(".csv") || name.ends_with(".txt"))
+                    })
+            })?;
+        }
+        "keyword-spotting" => {
+            let model = required_model(root, manifest)?;
+            for prefix in ["encoder", "decoder", "joiner"] {
+                require_matching_file(&model, prefix, &|path| {
+                    path.file_name()
+                        .and_then(|value| value.to_str())
+                        .is_some_and(|name| name.starts_with(prefix) && name.ends_with(".onnx"))
+                })?;
+            }
+            require_named_file(&model, "tokens.txt")?;
+            require_named_file(&model, "keywords.txt")?;
+            require_named_file(&model, "keywords_raw.txt")?;
+        }
+        "language-id" => {
+            let model = required_model(root, manifest)?;
+            for component in ["encoder", "decoder"] {
+                require_matching_file(&model, component, &|path| {
+                    path.file_name()
+                        .and_then(|value| value.to_str())
+                        .is_some_and(|name| name.contains(component) && name.ends_with(".onnx"))
+                })?;
+            }
+        }
+        "punctuation" | "speaker-embedding" => {
+            let model = required_model(root, manifest)?;
+            require_matching_file(&model, "ONNX 权重", &|path| {
+                path.extension().and_then(|value| value.to_str()) == Some("onnx")
+            })?;
+        }
+        "speaker-diarization" => {
+            let model = required_model(root, manifest)?;
+            require_matching_file(&model, "说话人分段权重", &|path| {
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|name| {
+                        name.ends_with(".onnx")
+                            && !name.contains("speaker")
+                            && !name.contains("campplus")
+                    })
+            })?;
+            require_matching_file(&model, "声纹权重", &|path| {
+                path.file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|name| {
+                        name.ends_with(".onnx")
+                            && (name.contains("speaker") || name.contains("campplus"))
+                    })
+            })?;
+        }
+        "source-separation" => {
+            let model = required_model(root, manifest)?;
+            for stem in ["vocals", "accompaniment"] {
+                require_matching_file(&model, stem, &|path| {
+                    path.file_name()
+                        .and_then(|value| value.to_str())
+                        .is_some_and(|name| name.contains(stem) && name.ends_with(".onnx"))
+                })?;
+            }
         }
         "wetext" => {
             let model = required_model(root, manifest)?;
@@ -2925,7 +2973,7 @@ fn inferred_dependencies(
         return vec![PluginDependencyManifest {
             role: "speech-segmentation".to_string(),
             label: "自动分段".to_string(),
-            plugin_id: "silero-vad".to_string(),
+            plugin_id: "funaudiollm.fsmn-vad-gguf".to_string(),
             capability: CAPABILITY_VAD.to_string(),
             default: true,
             optional: true,
@@ -3041,7 +3089,8 @@ fn modelscope_component(value: &str) -> bool {
 
 fn modelscope_payload_file(relative: &str) -> bool {
     let file_name = relative.rsplit('/').next().unwrap_or_default();
-    !relative.split('/').any(|segment| segment == "test_wavs")
+    let in_test_wavs = relative.split('/').any(|segment| segment == "test_wavs");
+    (!in_test_wavs || matches!(file_name, "keywords.txt" | "keywords_raw.txt"))
         && file_name != ".gitattributes"
         && file_name != "README.md"
 }
@@ -3491,13 +3540,11 @@ fn install_remote_model(
             id: "3dspeaker-campplus".to_string(),
             name: "3D-Speaker CAM++".to_string(),
             path: model.path.clone(),
-            source: "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx".to_string(),
+            source: String::new(),
             sha256: String::new(),
-            files: vec![
-                "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx".to_string(),
-            ],
+            files: vec!["3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx".to_string()],
             assets: Vec::new(),
-            repository_hosted: false,
+            repository_hosted: true,
         });
         dependency.id = "k2-fsa.speaker-embedding".to_string();
         install_remote_model(app, root, &dependency, prefer_modelscope)?;
@@ -4320,10 +4367,7 @@ fn supported_capability(capability: &str) -> bool {
 }
 
 fn builtin_plugin_id(plugin_id: &str) -> bool {
-    matches!(
-        plugin_id,
-        "kokoro-tts" | "dpdfnet2-48khz-hr" | "silero-vad" | "web-audio-stream"
-    )
+    matches!(plugin_id, "silero-vad" | "web-audio-stream")
 }
 
 fn capability_label(capability: &str) -> &'static str {
@@ -4357,11 +4401,27 @@ fn valid_tone(tone: &str) -> &'static str {
 }
 
 fn require_file(path: &Path) -> Result<(), String> {
-    if path.is_file() {
+    if is_non_empty_file(path) {
         Ok(())
     } else {
         Err(format!("插件缺少必需文件 {}", path.display()))
     }
+}
+
+fn require_named_file(root: &Path, file_name: &str) -> Result<(), String> {
+    require_matching_file(root, file_name, &|path| {
+        path.file_name().and_then(|value| value.to_str()) == Some(file_name)
+    })
+}
+
+fn require_matching_file(
+    root: &Path,
+    label: &str,
+    predicate: &dyn Fn(&Path) -> bool,
+) -> Result<(), String> {
+    let path =
+        find_matching_file(root, predicate).ok_or_else(|| format!("插件缺少必需文件 {label}"))?;
+    require_file(&path)
 }
 
 fn require_path(path: &Path) -> Result<(), String> {
@@ -4650,6 +4710,8 @@ mod tests {
     fn modelscope_payload_skips_test_audio_and_metadata() {
         assert!(modelscope_payload_file("encoder.int8.onnx"));
         assert!(modelscope_payload_file("espeak-ng-data/lang/eng"));
+        assert!(modelscope_payload_file("test_wavs/keywords.txt"));
+        assert!(modelscope_payload_file("test_wavs/keywords_raw.txt"));
         assert!(!modelscope_payload_file("test_wavs/0.wav"));
         assert!(!modelscope_payload_file("README.md"));
         assert!(!modelscope_payload_file(".gitattributes"));
@@ -4936,6 +4998,45 @@ mod tests {
     }
 
     #[test]
+    fn keyword_spotting_install_requires_builtin_keywords() {
+        let raw: V2PluginManifest = serde_json::from_value(serde_json::json!({
+            "schemaVersion": 2,
+            "id": "example.keyword-spotting",
+            "name": "Keyword Spotting",
+            "version": "1.0.0",
+            "publisher": "Example",
+            "adapter": "keyword-spotting",
+            "capabilities": ["speech.keyword"],
+            "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
+            "models": [{"id": "kws", "files": []}]
+        }))
+        .expect("manifest should parse");
+        let manifest = normalize_v2_manifest(raw).expect("manifest should normalize");
+        let root =
+            env::temp_dir().join(format!("qwen-audio-kws-validation-{}", timestamp_millis()));
+        let model = root.join("models").join("kws");
+        fs::create_dir_all(&model).expect("create KWS model directory");
+        for file in [
+            "encoder.int8.onnx",
+            "decoder.int8.onnx",
+            "joiner.int8.onnx",
+            "tokens.txt",
+        ] {
+            fs::write(model.join(file), b"complete").expect("write KWS fixture");
+        }
+
+        assert!(validate_manifest(&root, &manifest).is_err());
+        let test_wavs = model.join("test_wavs");
+        fs::create_dir_all(&test_wavs).expect("create KWS metadata directory");
+        fs::write(test_wavs.join("keywords.txt"), b"hello").expect("write KWS keywords");
+        assert!(validate_manifest(&root, &manifest).is_err());
+        fs::write(test_wavs.join("keywords_raw.txt"), b"hello @hello")
+            .expect("write raw KWS keywords");
+        assert!(validate_manifest(&root, &manifest).is_ok());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn wetext_validation_rejects_incomplete_rule_sets() {
         let manifest = parse_manifest_value(
             serde_json::from_str(WETEXT_MANIFEST).expect("WeText manifest should parse"),
@@ -5021,6 +5122,36 @@ mod tests {
         let catalog = parse_remote_catalog(include_bytes!("../../catalog/model-catalog.json"))
             .expect("parse published model catalog");
         assert!(catalog.plugins.len() >= 9);
+    }
+
+    #[test]
+    fn embedded_catalog_payloads_only_use_modelscope_repository() {
+        for plugin in builtin_catalog_values().expect("parse embedded catalog") {
+            for model in plugin["models"]
+                .as_array()
+                .expect("catalog models should be an array")
+            {
+                let has_payload = model["files"]
+                    .as_array()
+                    .is_some_and(|files| !files.is_empty())
+                    || model["repositoryHosted"].as_bool() == Some(true);
+                if !has_payload {
+                    continue;
+                }
+                assert_eq!(model["repositoryHosted"], true);
+                assert_eq!(model["source"], "");
+                assert!(model["assets"]
+                    .as_array()
+                    .is_some_and(|assets| assets.is_empty()));
+            }
+        }
+    }
+
+    #[test]
+    fn inferred_asr_segmentation_uses_modelscope_fsmn_vad() {
+        let dependencies = inferred_dependencies(&[CAPABILITY_ASR.to_string()], "wenet-ctc", &[]);
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies[0].plugin_id, "funaudiollm.fsmn-vad-gguf");
     }
 
     #[test]
@@ -5246,6 +5377,27 @@ mod tests {
         };
         let bytes = fs::read(path).expect("read configured model catalog");
         parse_remote_catalog(&bytes).expect("configured model catalog should validate");
+    }
+
+    #[test]
+    fn configured_installed_model_repository_is_runnable() {
+        let Ok(path) = env::var("QWEN_AUDIO_AUDIT_PLUGIN_ROOT") else {
+            return;
+        };
+        let root = PathBuf::from(path);
+        let mut validated = 0;
+        for entry in fs::read_dir(&root).expect("read audit plugin directory") {
+            let plugin_root = entry.expect("read audit plugin entry").path();
+            if !plugin_root.is_dir() {
+                continue;
+            }
+            let manifest = read_manifest(&plugin_root.join("plugin.json"))
+                .unwrap_or_else(|error| panic!("{}: {error}", plugin_root.display()));
+            validate_manifest(&plugin_root, &manifest)
+                .unwrap_or_else(|error| panic!("{}: {error}", plugin_root.display()));
+            validated += 1;
+        }
+        assert!(validated >= 32, "expected the complete model repository");
     }
 
     #[test]

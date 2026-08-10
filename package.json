@@ -25,7 +25,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build",
+    "desktop:build": "tauri build --config src-tauri/tauri.local.conf.json",
     "desktop:release": "tauri build --config src-tauri/tauri.release.conf.json",
     "version:set": "node scripts/set-version.mjs",
     "catalog:export": "node scripts/export-model-catalog.mjs",

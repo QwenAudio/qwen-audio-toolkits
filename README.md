@@ -74,6 +74,10 @@ For a local production-style build:
 npm run desktop:build
 ```
 
+This creates a DMG without updater artifacts, so contributors do not need the
+project's private updater signing key. Maintainers use `npm run desktop:release`
+inside the release workflow to create signed updater artifacts.
+
 See the [getting started guide](docs/getting-started.md) for permissions,
 model installation, cloud configuration, and local data locations.
 
@@ -106,8 +110,9 @@ Application updates and model assets use separate channels:
 The application checks the GitHub updater manifest in the background and
 downloads a signed update automatically when one is available. The app asks
 you to restart before installing the downloaded update. On macOS, you can also
-use the menu bar icon's **检查更新** action. Updating the application keeps
-installed models and application data.
+choose **QwenAudio Toolkits → 检查更新…** from the application menu at the
+upper-left of the screen. Updating the application keeps installed models and
+application data.
 
 Local inference does not upload audio. Cloud models send the requested input to
 their configured provider. The app does not include telemetry, advertising

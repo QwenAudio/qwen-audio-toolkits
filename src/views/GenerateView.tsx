@@ -105,7 +105,7 @@ export function GenerateView({
   const [generationError, setGenerationError] = useState<string | null>(null)
   const [generatedAudio, setGeneratedAudio] =
     useState<TtsGenerateResult | null>(null)
-  const [providerId, setProviderId] = useState('local.kokoro')
+  const [providerId, setProviderId] = useState('plugin.k2-fsa.vits-aishell3')
   const [isPreviewPlaying, setIsPreviewPlaying] = useState(false)
   const [previewCurrentTime, setPreviewCurrentTime] = useState(0)
   const previewAudioRef = useRef<HTMLAudioElement>(null)
@@ -335,7 +335,7 @@ export function GenerateView({
                 </option>
               ))
             ) : (
-              <option value="local.kokoro">
+              <option value="plugin.k2-fsa.vits-aishell3">
                 {desktopRuntime ? '正在检查本地模型' : '仅桌面端可用'}
               </option>
             )}

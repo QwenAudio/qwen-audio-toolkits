@@ -45,6 +45,15 @@ or model runtimes:
 npm run dev
 ```
 
+To create a local production-style app and DMG without the maintainers' private
+updater key, run:
+
+```bash
+npm run desktop:build
+```
+
+Signed updater artifacts are created separately by the GitHub release workflow.
+
 ## Install and run a local model
 
 1. Open **模型商店 / Model Store**.

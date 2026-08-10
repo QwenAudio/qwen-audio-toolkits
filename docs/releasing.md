@@ -21,6 +21,10 @@ The release workflow runs on the Apple Silicon `macos-14` runner and builds the
 DMG plus the signed updater bundle. It is defined in
 `.github/workflows/release.yml`.
 
+`npm run desktop:build` is intentionally an unsigned-updater local build and
+does not require these secrets. `npm run desktop:release` retains updater
+artifact generation and therefore requires the private key.
+
 ## Publish a version
 
 1. Update the version in all package manifests:

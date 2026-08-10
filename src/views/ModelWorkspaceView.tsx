@@ -838,7 +838,7 @@ export function ModelWorkspaceView({
   const [wetextOperator, setWetextOperator] = useState<'tn' | 'itn'>('tn')
   const [wetextLanguage, setWetextLanguage] = useState('auto')
   const [wetextFullToHalf, setWetextFullToHalf] = useState(true)
-  const [keywords, setKeywords] = useState('你好小助手')
+  const [keywords, setKeywords] = useState('')
   const [audioSource, setAudioSource] = useState<'microphone' | 'system'>(
     'microphone',
   )
@@ -2627,7 +2627,8 @@ export function ModelWorkspaceView({
           })}
         </div>
 
-        <footer className="model-composer">
+        {providerReady && (
+          <footer className="model-composer">
           <input
             ref={fileInputRef}
             className="visually-hidden"
@@ -3103,7 +3104,7 @@ export function ModelWorkspaceView({
                     <span>关键词</span>
                     <input
                       value={keywords}
-                      placeholder="多个关键词用逗号分隔"
+                      placeholder="留空使用内置关键词；多个关键词用逗号分隔"
                       onChange={(event) => setKeywords(event.target.value)}
                     />
                   </label>
@@ -3266,7 +3267,8 @@ export function ModelWorkspaceView({
               </div>
             </AudioFileDropZone>
           )}
-        </footer>
+          </footer>
+        )}
       </section>
 
       {voiceDialogOpen && (

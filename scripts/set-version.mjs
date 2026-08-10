@@ -40,4 +40,14 @@ await writeFile(
   ),
 )
 
+const fallbackDataPath = resolve(root, 'src/data.ts')
+const fallbackData = await readFile(fallbackDataPath, 'utf8')
+await writeFile(
+  fallbackDataPath,
+  fallbackData.replace(
+    /(export const fallbackRuntime:[\s\S]*?version:\s*)'[^']+'/,
+    `$1'${version}'`,
+  ),
+)
+
 console.log(`QwenAudio Toolkits version set to ${version}`)

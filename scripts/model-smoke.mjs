@@ -129,12 +129,12 @@ const text = '今天下午三点开会预算是一千七百九十九元请提前
 
 const localTests = [
   {
-    name: 'Kokoro TTS 中文',
+    name: 'VITS AISHELL3 中文',
     request: {
       capability: 'speech.synthesize',
-      providerId: 'local.kokoro',
+      providerId: 'plugin.k2-fsa.vits-aishell3',
       routing: 'local',
-      title: 'Smoke · Kokoro',
+      title: 'Smoke · VITS AISHELL3',
       input: { text: '你好，这是本地语音合成测试。' },
       parameters: { sid: 3, speed: 1 },
     },
@@ -166,13 +166,12 @@ const localTests = [
     },
   },
   {
-    name: 'DPDFNet2 48 kHz HR',
-    enable: 'dpdfnet2-48khz-hr',
+    name: 'DeepFilterNet3',
     request: {
       capability: 'audio.enhance',
-      providerId: 'local.dpdfnet2',
+      providerId: 'plugin.rikorose.deepfilternet3',
       routing: 'local',
-      title: 'Smoke · DPDFNet2',
+      title: 'Smoke · DeepFilterNet3',
       input: noisy,
       parameters: { operations: ['denoise'], denoiseStrength: 0.7 },
     },

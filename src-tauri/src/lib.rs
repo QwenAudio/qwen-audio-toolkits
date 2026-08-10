@@ -368,20 +368,7 @@ async fn api_models(AxumState(state): AxumState<LocalApiState>) -> ApiResult<Vec
 }
 
 async fn api_harness_catalog(AxumState(state): AxumState<LocalApiState>) -> Json<HarnessCatalog> {
-    let tts_status = tts_model_status(state.app.clone(), state.app.state::<Arc<TtsRuntime>>())
-        .ok()
-        .and_then(|status| serde_json::to_value(status).ok());
-    let audio_status = audio_processor_status(
-        state.app.clone(),
-        state.app.state::<Arc<AudioProcessingRuntime>>(),
-    )
-    .ok()
-    .and_then(|status| serde_json::to_value(status).ok());
-    Json(harness::catalog_from_status(
-        &state.app,
-        tts_status,
-        audio_status,
-    ))
+    Json(harness::catalog_for_app(&state.app))
 }
 
 async fn api_list_runs(AxumState(state): AxumState<LocalApiState>) -> ApiResult<Vec<HarnessRun>> {

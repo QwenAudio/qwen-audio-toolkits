@@ -277,50 +277,30 @@
           "id": "fun-cosyvoice3-q5-k-m",
           "name": "Fun-CosyVoice3-0.5B-2512",
           "precision": "Q5_K_M",
-          "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/CosyVoice3-2512_Q5_K_M.gguf",
+          "source": "",
           "sha256": "702b54d4e5d2d6c8d855081a5a2dc1acf046544291899f674295dc17a4f89f16",
           "files": [
             "CosyVoice3-2512_Q5_K_M.gguf",
             "frontend-onnx/speech_tokenizer_v3.int8.onnx",
             "frontend-onnx/campplus.int8.onnx"
           ],
-          "assets": [
-            {
-              "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/frontend-onnx/speech_tokenizer_v3.int8.onnx",
-              "path": "frontend-onnx/speech_tokenizer_v3.int8.onnx",
-              "sha256": "d7caa04fbc2f54af196906469471b607ce2594b7e92ac07dddfb315103a74c72"
-            },
-            {
-              "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/frontend-onnx/campplus.int8.onnx",
-              "path": "frontend-onnx/campplus.int8.onnx",
-              "sha256": "96b05369863f6cad4a3905206bb376915c2d61af0db16508eeaf2910a0c8a80a"
-            }
-          ],
+          "assets": [],
+          "repositoryHosted": true,
           "estimatedSizeMb": 970
         },
         {
           "id": "fun-cosyvoice3-q8-0",
           "name": "Fun-CosyVoice3-0.5B-2512",
           "precision": "Q8_0",
-          "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/CosyVoice3-2512_Q8_0.gguf",
+          "source": "",
           "sha256": "be133cb6154ca73cd1d213b1c9496def99ba9c1f7c14cd99f6b350af2eb7963d",
           "files": [
             "CosyVoice3-2512_Q8_0.gguf",
             "frontend-onnx/speech_tokenizer_v3.int8.onnx",
             "frontend-onnx/campplus.int8.onnx"
           ],
-          "assets": [
-            {
-              "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/frontend-onnx/speech_tokenizer_v3.int8.onnx",
-              "path": "frontend-onnx/speech_tokenizer_v3.int8.onnx",
-              "sha256": "d7caa04fbc2f54af196906469471b607ce2594b7e92ac07dddfb315103a74c72"
-            },
-            {
-              "source": "https://huggingface.co/Lourdle/Fun-CosyVoice3-0.5B-2512-GGUF/resolve/main/frontend-onnx/campplus.int8.onnx",
-              "path": "frontend-onnx/campplus.int8.onnx",
-              "sha256": "96b05369863f6cad4a3905206bb376915c2d61af0db16508eeaf2910a0c8a80a"
-            }
-          ],
+          "assets": [],
+          "repositoryHosted": true,
           "estimatedSizeMb": 1230
         }
       ],
@@ -351,12 +331,13 @@
           "id": "deepfilternet3-onnx",
           "name": "DeepFilterNet3",
           "precision": "FP32",
-          "source": "https://raw.githubusercontent.com/Rikorose/DeepFilterNet/main/models/DeepFilterNet3_onnx.tar.gz",
+          "source": "",
           "sha256": "c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616",
           "files": [
             "DeepFilterNet3_onnx.tar.gz"
           ],
-          "estimatedSizeMb": 36
+          "estimatedSizeMb": 36,
+          "repositoryHosted": true
         }
       ],
       "acceleration": [
@@ -390,13 +371,14 @@
           "id": "wenetspeech-yue-u2pp-conformer-ctc-int8-2025-09-10",
           "name": "WeNetSpeech Yue U2++ CTC",
           "precision": "INT8",
-          "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-wenetspeech-yue-u2pp-conformer-ctc-zh-en-cantonese-int8-2025-09-10.tar.bz2",
+          "source": "",
           "sha256": "8636295785a43538a1b4620f167bcb89c10ce5ebdcee61c72a388738b783f992",
           "files": [
             "model.int8.onnx",
             "tokens.txt"
           ],
-          "estimatedSizeMb": 112
+          "estimatedSizeMb": 112,
+          "repositoryHosted": true
         }
       ],
       "acceleration": [

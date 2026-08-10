@@ -546,24 +546,24 @@ function App() {
 
   useEffect(() => {
     if (!modelBindingsLoaded) return
-    const next: ModelDependencyBindings = Object.fromEntries(
-      Object.entries(modelBindings).map(([pluginId, roles]) => [
-        pluginId,
-        { ...roles },
-      ]),
-    )
+    const next: ModelDependencyBindings = {}
     for (const model of [...plugins, ...cloudModelPlugins]) {
       if (!model.installed) continue
       const dependencies = recommendedDependencies(model)
       if (!dependencies.length) continue
       next[model.id] = {}
       for (const dependency of dependencies) {
-        next[model.id][dependency.role] = getModelBinding(
+        const selected = getModelBinding(
           modelBindings,
           model.id,
           dependency.role,
           dependency.default ? dependency.pluginId : '',
         )
+        next[model.id][dependency.role] =
+          dependency.role === 'speech-segmentation' &&
+          selected === 'silero-vad'
+            ? dependency.pluginId
+            : selected
       }
     }
     if (JSON.stringify(next) === JSON.stringify(modelBindings)) return

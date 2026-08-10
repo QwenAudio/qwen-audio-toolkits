@@ -142,7 +142,10 @@ function requestFor(plugin) {
   } else if (capability === 'audio.enhance') {
     parameters.operations = ['denoise']
   } else if (capability === 'speech.keyword') {
-    parameters.keywords = []
+    parameters.keywords = (process.env.QWEN_AUDIO_TOOLKITS_KEYWORDS ?? '')
+      .split(',')
+      .map((keyword) => keyword.trim())
+      .filter(Boolean)
   }
 
   return {

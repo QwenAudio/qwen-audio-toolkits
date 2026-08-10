@@ -76,7 +76,10 @@ fn clear_completed_downloads_in(cache: &Path) -> Result<usize, String> {
         let path = entry
             .map_err(|error| format!("无法读取下载缓存文件: {error}"))?
             .path();
-        if path.extension().and_then(|value| value.to_str()) == Some("download") {
+        let extension = path.extension().and_then(|value| value.to_str());
+        let empty_partial = extension == Some("part")
+            && fs::metadata(&path).is_ok_and(|metadata| metadata.len() == 0);
+        if extension == Some("download") || empty_partial {
             fs::remove_file(&path).map_err(|error| format!("无法清理下载缓存: {error}"))?;
             removed += 1;
         }
@@ -584,18 +587,20 @@ mod tests {
     }
 
     #[test]
-    fn completed_downloads_are_removed_but_partial_downloads_survive() {
+    fn completed_and_empty_downloads_are_removed_but_resumable_parts_survive() {
         let cache =
             env::temp_dir().join(format!("qwen-audio-download-cache-{}", cache_key("test")));
         fs::create_dir_all(&cache).expect("create cache");
         fs::write(cache.join("model.download"), b"complete").expect("write complete cache");
         fs::write(cache.join("model.part"), b"partial").expect("write partial cache");
+        fs::write(cache.join("empty.part"), b"").expect("write empty partial cache");
 
         assert_eq!(
             clear_completed_downloads_in(&cache).expect("clear cache"),
-            1
+            2
         );
         assert!(!cache.join("model.download").exists());
+        assert!(!cache.join("empty.part").exists());
         assert!(cache.join("model.part").is_file());
         let _ = fs::remove_dir_all(cache);
     }

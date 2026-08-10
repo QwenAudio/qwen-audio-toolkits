@@ -39,7 +39,7 @@ export function recommendedDependencies(plugin: ModelPlugin): ModelDependency[] 
       {
         role: 'speech-segmentation',
         label: '自动分段',
-        pluginId: 'silero-vad',
+        pluginId: 'funaudiollm.fsmn-vad-gguf',
         capability: 'speech.detect',
         default: true,
         optional: true,

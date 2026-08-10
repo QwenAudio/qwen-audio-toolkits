@@ -78,6 +78,10 @@ const noisyPath =
 const speech = audioInput(speechPath)
 const noisy = audioInput(noisyPath)
 const results = []
+const harnessCatalog = await requestJson(`${api}/harness/catalog`)
+const providerStatus = new Map(
+  harnessCatalog.providers.map((provider) => [provider.id, provider.status]),
+)
 const installedProviderIds = new Set(
   (await requestJson(`${api}/plugins`))
     .filter((plugin) => plugin.installed && plugin.providerId)
@@ -86,7 +90,6 @@ const installedProviderIds = new Set(
 const localEnhancerProvider = [
   'plugin.k2-fsa.gtcrn-simple',
   'plugin.rikorose.deepfilternet3',
-  'local.dpdfnet2',
 ].find((providerId) => installedProviderIds.has(providerId))
 
 async function smoke(name, execute) {
@@ -187,6 +190,9 @@ await smoke('本地字幕后处理链', async () => {
 })
 
 await smoke('云端实时助手模型链', async () => {
+  if (providerStatus.get('api.bailian') !== 'ready') {
+    skipSmoke('阿里云百炼 API 尚未配置')
+  }
   const asr = await run({
     capability: 'speech.transcribe',
     providerId: 'api.bailian',

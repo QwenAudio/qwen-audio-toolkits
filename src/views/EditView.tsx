@@ -206,7 +206,7 @@ export function EditView({
     'plugin.funaudiollm.sensevoice-small-gguf',
   )
   const [enhanceProviderId, setEnhanceProviderId] =
-    useState('local.dpdfnet2')
+    useState('plugin.rikorose.deepfilternet3')
   const [transcriptExportOpen, setTranscriptExportOpen] = useState(false)
   const sourceMenuRef = useRef<HTMLDivElement>(null)
   const transcriptExportRef = useRef<HTMLDivElement>(null)

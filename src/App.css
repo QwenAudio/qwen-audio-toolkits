@@ -7654,6 +7654,12 @@ body.sidebar-resizing .model-app-frame {
   white-space: nowrap;
   pointer-events: none;
   letter-spacing: 0;
+  mask-image: linear-gradient(to right, black calc(100% - 10px), transparent);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    black calc(100% - 10px),
+    transparent
+  );
 }
 
 .activity-model-name-text {
@@ -8029,14 +8035,14 @@ body.sidebar-resizing .model-app-frame {
 
 .conversation-index button {
   position: relative;
-  width: 6px;
-  height: 2px;
-  flex: 0 0 2px;
+  width: 4px;
+  height: 4px;
+  flex: 0 0 4px;
   padding: 0;
   cursor: pointer;
   background: var(--muted-2);
   border: 0;
-  border-radius: 2px;
+  border-radius: 50%;
   opacity: 0.48;
   pointer-events: auto;
   transition:
