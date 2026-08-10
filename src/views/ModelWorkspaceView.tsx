@@ -2758,6 +2758,28 @@ export function ModelWorkspaceView({
           })}
         </div>
 
+        {!providerReady && modelRuns.length > 0 && (
+          <footer className="model-provider-required">
+            <div>
+              <strong>
+                {apiModel ? '配置 API 后继续使用' : '模型尚未准备好'}
+              </strong>
+              <span>
+                {apiModel
+                  ? '已有对话记录仍会保留，配置完成后即可继续。'
+                  : '请前往模型商店完成安装或修复依赖。'}
+              </span>
+            </div>
+            <button
+              className="primary-action"
+              type="button"
+              onClick={onOpenStore}
+            >
+              {apiModel ? '配置 API' : '打开模型商店'}
+            </button>
+          </footer>
+        )}
+
         {providerReady && (
           <footer className="model-composer">
           <input

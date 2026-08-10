@@ -51,6 +51,7 @@ import type {
   ApiModelCatalogEntry,
   BailianProviderSettings,
   HarnessCatalog,
+  HarnessProvider,
   ModelDependencyBindings,
   ModelPlugin,
   RuntimeStatus,
@@ -114,6 +115,13 @@ const fallbackBailianSettings: BailianProviderSettings = {
   apiKeyConfigured: false,
   enabled: false,
   status: 'unconfigured',
+}
+
+const providerStatusLabels: Record<HarnessProvider['status'], string> = {
+  ready: '已连接',
+  missing: '组件缺失',
+  disabled: '已停用',
+  unconfigured: '未配置',
 }
 
 function BailianProviderPanel({
@@ -243,7 +251,9 @@ function BailianProviderPanel({
         <dl className="provider-contract-facts">
           <div>
             <dt>状态</dt>
-            <dd>{provider?.status ?? settings.status}</dd>
+            <dd>
+              {providerStatusLabels[provider?.status ?? settings.status]}
+            </dd>
           </div>
           <div>
             <dt>本地 API</dt>

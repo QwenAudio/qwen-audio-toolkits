@@ -1,8 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 const sourcePath = resolve('src-tauri/src/plugins.rs')
-const outputPath = resolve(process.argv[2] ?? 'catalog/model-catalog.json')
+const args = process.argv.slice(2)
+const checkOnly = args.includes('--check')
+const outputPath = resolve(
+  args.find((argument) => argument !== '--check') ??
+    'catalog/model-catalog.json',
+)
 const source = await readFile(sourcePath, 'utf8')
 const manifestPattern = /const\s+[A-Z0-9_]+_MANIFEST:\s*&str\s*=\s*r#"([\s\S]*?)"#;/g
 const sha256Pattern = /^[a-f0-9]{64}$/i
@@ -25,6 +31,16 @@ for (const match of source.matchAll(manifestPattern)) {
 
 plugins.sort((left, right) => left.id.localeCompare(right.id))
 const catalog = { schemaVersion: 1, plugins, apiModels: [] }
+if (checkOnly) {
+  const existing = JSON.parse(await readFile(outputPath, 'utf8'))
+  if (!isDeepStrictEqual(existing, catalog)) {
+    throw new Error(
+      `${outputPath} 与内置模型清单不一致，请运行 npm run catalog:export`,
+    )
+  }
+  console.log(`Catalog check passed (${plugins.length} plugins).`)
+  process.exit(0)
+}
 await mkdir(dirname(outputPath), { recursive: true })
 await writeFile(outputPath, `${JSON.stringify(catalog, null, 2)}\n`)
 console.log(`Exported ${plugins.length} plugins to ${outputPath}`)

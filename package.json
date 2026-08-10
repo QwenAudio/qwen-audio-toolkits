@@ -30,7 +30,7 @@
     "version:set": "node scripts/set-version.mjs",
     "catalog:export": "node scripts/export-model-catalog.mjs",
     "catalog:repository": "node scripts/export-model-repository-catalog.mjs",
-    "open-source:check": "node scripts/open-source-check.mjs",
+    "open-source:check": "node scripts/open-source-check.mjs && node scripts/export-model-catalog.mjs --check",
     "models:smoke": "node scripts/smoke-local-models.mjs",
     "workflow:smoke": "node scripts/workflow-execution-smoke.mjs"
   },

@@ -8679,6 +8679,44 @@ body.sidebar-resizing .model-app-frame {
   text-align: center;
 }
 
+.model-provider-required {
+  display: flex;
+  width: min(820px, calc(100% - 48px));
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 8px auto 16px;
+  padding: 12px 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-soft);
+}
+
+.model-provider-required > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.model-provider-required strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.model-provider-required span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-provider-required .primary-action {
+  flex: 0 0 auto;
+}
+
 .model-parameter-bar {
   display: flex;
   width: min(820px, 100%);

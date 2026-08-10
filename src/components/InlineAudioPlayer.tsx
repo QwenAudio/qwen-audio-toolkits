@@ -13,10 +13,12 @@ interface InlineAudioPlayerProps {
   onAbsoluteTimeChange?: (currentTime: number) => void
 }
 
-function formatPlayerTime(seconds: number): string {
+function formatPlayerTime(seconds: number, roundUp = false): string {
   if (!Number.isFinite(seconds) || seconds < 0) return '0:00'
-  const minutes = Math.floor(seconds / 60)
-  const remaining = Math.floor(seconds % 60)
+  const wholeSeconds =
+    roundUp && seconds > 0 ? Math.ceil(seconds) : Math.floor(seconds)
+  const minutes = Math.floor(wholeSeconds / 60)
+  const remaining = wholeSeconds % 60
   return `${minutes}:${remaining.toString().padStart(2, '0')}`
 }
 
@@ -114,6 +116,8 @@ export function InlineAudioPlayer({
     totalDuration > 0
       ? Math.min(100, Math.max(0, (relativeCurrentTime / totalDuration) * 100))
       : 0
+  const playbackReachedEnd =
+    totalDuration > 0 && relativeCurrentTime >= totalDuration - 0.01
 
   return (
     <div className="inline-audio-player">
@@ -212,7 +216,7 @@ export function InlineAudioPlayer({
           ))}
         </div>
       )}
-      <span>{formatPlayerTime(relativeCurrentTime)}</span>
+      <span>{formatPlayerTime(relativeCurrentTime, playbackReachedEnd)}</span>
       <input
         type="range"
         min={0}
@@ -232,7 +236,7 @@ export function InlineAudioPlayer({
           onAbsoluteTimeChange?.(absoluteTime)
         }}
       />
-      <span>{formatPlayerTime(totalDuration)}</span>
+      <span>{formatPlayerTime(totalDuration, true)}</span>
       <button
         type="button"
         title={muted ? '取消静音' : '静音'}
