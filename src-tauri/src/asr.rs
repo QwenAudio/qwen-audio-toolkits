@@ -4,11 +4,11 @@ use sherpa_onnx::{
     OfflineCanaryModelConfig, OfflineFireRedAsrCtcModelConfig, OfflineFireRedAsrModelConfig,
     OfflineFunASRNanoModelConfig, OfflineMoonshineModelConfig, OfflineQwen3ASRModelConfig,
     OfflineRecognizer, OfflineRecognizerConfig, OfflineRecognizerResult,
-    OfflineSenseVoiceModelConfig, OfflineWenetCtcModelConfig, OnlineRecognizer,
-    OnlineRecognizerConfig, OnlineStream,
+    OfflineWenetCtcModelConfig, OnlineRecognizer, OnlineRecognizerConfig, OnlineStream,
 };
+#[cfg(test)]
+use std::env;
 use std::{
-    env,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -18,9 +18,8 @@ use std::{
 };
 
 pub(crate) type AsrProgressCallback = Arc<dyn Fn(u8, String) + Send + Sync>;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 
-const MODEL_DIRECTORY: &str = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17";
 const SAMPLE_RATE: i32 = 16_000;
 
 #[derive(Default)]
@@ -206,7 +205,7 @@ impl AsrRuntime {
             }
         }
 
-        let config = offline_recognizer_config(model_dir, adapter, Some(request));
+        let config = offline_recognizer_config(model_dir, adapter, Some(request))?;
         let loaded = OfflineRecognizer::create(&config).ok_or_else(|| {
             format!(
                 "无法加载 {}，请检查模型文件是否完整",
@@ -229,16 +228,14 @@ pub(crate) async fn transcribe_audio_with_runtime(
     runtime: Arc<AsrRuntime>,
     request: AsrTranscribeRequest,
     cancel: Option<Arc<AtomicBool>>,
-    model_dir_override: Option<PathBuf>,
-    adapter_override: Option<String>,
+    model_dir: PathBuf,
+    adapter: String,
     progress_callback: Option<AsrProgressCallback>,
 ) -> Result<AsrTranscriptionResult, String> {
     if is_canceled(cancel.as_deref()) {
         return Err("任务已取消".to_string());
     }
 
-    let model_dir = model_dir_override.unwrap_or(model_directory(&app)?);
-    let adapter = adapter_override.unwrap_or_else(|| "sensevoice".to_string());
     if !model_is_installed(&model_dir, &adapter) {
         return Err(format!(
             "{} 模型尚未安装，请将模型安装到 {}",
@@ -502,7 +499,7 @@ fn offline_recognizer_config(
     model_dir: &Path,
     adapter: &str,
     request: Option<&AsrTranscribeRequest>,
-) -> OfflineRecognizerConfig {
+) -> Result<OfflineRecognizerConfig, String> {
     let mut config = OfflineRecognizerConfig::default();
     match adapter {
         "funasr-nano" => {
@@ -596,19 +593,12 @@ fn offline_recognizer_config(
             };
             config.model_config.tokens = Some(String::new());
         }
-        _ => {
-            config.model_config.sense_voice = OfflineSenseVoiceModelConfig {
-                model: Some(path_string(&model_dir.join("model.int8.onnx"))),
-                language: Some("auto".to_string()),
-                use_itn: true,
-            };
-            config.model_config.tokens = Some(path_string(&model_dir.join("tokens.txt")));
-        }
+        _ => return Err(format!("不支持的本地 ASR 适配器: {adapter}")),
     }
     config.model_config.num_threads = inference_threads();
     config.model_config.provider = Some("cpu".to_string());
     config.decoding_method = Some("greedy_search".to_string());
-    config
+    Ok(config)
 }
 
 fn adapter_label(adapter: &str) -> &'static str {
@@ -621,7 +611,7 @@ fn adapter_label(adapter: &str) -> &'static str {
         "nemo-parakeet" => "NVIDIA Parakeet TDT",
         "nemo-canary" => "NVIDIA Canary 180M Flash",
         "qwen3-asr" => "Qwen3-ASR",
-        _ => "SenseVoice Small",
+        _ => "本地 ASR",
     }
 }
 
@@ -724,17 +714,6 @@ fn detect_language(text: &str) -> String {
     }
 }
 
-fn model_directory(app: &AppHandle) -> Result<PathBuf, String> {
-    if let Ok(path) = env::var("QWEN_AUDIO_SENSEVOICE_MODEL_DIR") {
-        return Ok(PathBuf::from(path));
-    }
-
-    app.path()
-        .app_data_dir()
-        .map(|path| path.join("models").join(MODEL_DIRECTORY))
-        .map_err(|error| format!("无法定位模型目录: {error}"))
-}
-
 fn model_is_installed(model_dir: &Path, adapter: &str) -> bool {
     match adapter {
         "funasr-nano" => {
@@ -773,7 +752,10 @@ fn model_is_installed(model_dir: &Path, adapter: &str) -> bool {
             .all(|file| model_dir.join(file).is_file())
                 && model_dir.join("tokenizer").is_dir()
         }
-        _ => model_dir.join("model.int8.onnx").is_file() && model_dir.join("tokens.txt").is_file(),
+        "wenet-ctc" | "fire-red-asr-ctc" => {
+            model_dir.join("model.int8.onnx").is_file() && model_dir.join("tokens.txt").is_file()
+        }
+        _ => false,
     }
 }
 
@@ -819,9 +801,9 @@ mod tests {
         let bytes = fs::read(input).expect("failed to read smoke-test WAV");
         let decoded = decode_wav_bytes(&bytes).expect("failed to decode smoke-test WAV");
         let resampled = resample_audio(&decoded, SAMPLE_RATE as u32).expect("failed to resample");
-        let recognizer =
-            OfflineRecognizer::create(&offline_recognizer_config(&model_dir, &adapter, None))
-                .expect("failed to create recognizer");
+        let config = offline_recognizer_config(&model_dir, &adapter, None)
+            .expect("adapter should be supported");
+        let recognizer = OfflineRecognizer::create(&config).expect("failed to create recognizer");
         let stream = recognizer.create_stream();
         stream.accept_waveform(SAMPLE_RATE, &resampled.mono_samples());
         recognizer.decode(&stream);
@@ -830,38 +812,6 @@ mod tests {
             !result.text.trim().is_empty(),
             "recognizer returned empty text"
         );
-    }
-
-    #[test]
-    #[ignore = "requires QWEN_AUDIO_SENSEVOICE_MODEL_DIR and QWEN_AUDIO_ASR_SMOKE_INPUT"]
-    fn recognizes_chinese_wav_with_timestamps() {
-        let model_dir = env::var("QWEN_AUDIO_SENSEVOICE_MODEL_DIR")
-            .map(PathBuf::from)
-            .expect("QWEN_AUDIO_SENSEVOICE_MODEL_DIR is required");
-        let input =
-            env::var("QWEN_AUDIO_ASR_SMOKE_INPUT").expect("QWEN_AUDIO_ASR_SMOKE_INPUT is required");
-        let bytes = fs::read(input).expect("read input wav");
-        let decoded = decode_wav_bytes(&bytes).expect("decode input wav");
-        let audio = resample_audio(&decoded, SAMPLE_RATE as u32).expect("resample input");
-        let samples = audio.mono_samples();
-        let runtime = AsrRuntime::default();
-        let request = AsrTranscribeRequest::new(String::new(), String::new());
-        let recognizer = runtime
-            .recognizer(&model_dir, "sensevoice", &request)
-            .expect("load SenseVoice");
-        assert!(!samples.is_empty());
-
-        let stream = recognizer.create_stream();
-        stream.accept_waveform(SAMPLE_RATE, &samples);
-        recognizer.decode(&stream);
-        let result = stream.get_result().expect("recognition result");
-
-        assert!(!result.text.trim().is_empty());
-        assert!(result
-            .timestamps
-            .as_ref()
-            .is_some_and(|items| !items.is_empty()));
-        println!("text={} timestamps={:?}", result.text, result.timestamps);
     }
 
     #[test]

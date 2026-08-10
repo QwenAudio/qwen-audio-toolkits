@@ -2,7 +2,7 @@ use crate::audio_io::{decode_wav_data_url, resample_audio, waveform_envelope};
 use serde::{Deserialize, Serialize};
 use sherpa_onnx::{SileroVadModelConfig, VadModelConfig, VoiceActivityDetector};
 use std::{
-    env, fs,
+    env,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -15,7 +15,6 @@ use tauri::{AppHandle, Manager};
 const MODEL_ID: &str = "silero-vad";
 const MODEL_DIRECTORY: &str = "silero-vad";
 const MODEL_FILE: &str = "silero_vad.onnx";
-const LEGACY_SENSEVOICE_DIRECTORY: &str = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17";
 const SAMPLE_RATE: u32 = 16_000;
 const WINDOW_SIZE: usize = 512;
 
@@ -162,28 +161,7 @@ impl StreamingVad {
 }
 
 pub(crate) fn ensure_model_install(app: &AppHandle) -> Result<PathBuf, String> {
-    let target = model_path(app)?;
-    if target.is_file() {
-        return Ok(target);
-    }
-
-    let legacy = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("无法定位模型目录: {error}"))?
-        .join("models")
-        .join(LEGACY_SENSEVOICE_DIRECTORY)
-        .join(MODEL_FILE);
-    if !legacy.is_file() {
-        return Ok(target);
-    }
-
-    let parent = target
-        .parent()
-        .ok_or_else(|| "Silero VAD 模型目录无效".to_string())?;
-    fs::create_dir_all(parent).map_err(|error| format!("无法创建 VAD 模型目录: {error}"))?;
-    fs::copy(&legacy, &target).map_err(|error| format!("无法迁移 Silero VAD 模型: {error}"))?;
-    Ok(target)
+    model_path(app)
 }
 
 pub(crate) fn model_status(app: &AppHandle) -> Result<VadModelStatus, String> {

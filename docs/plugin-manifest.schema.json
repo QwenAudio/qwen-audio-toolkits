@@ -31,8 +31,11 @@
     "adapter": {
       "enum": [
         "kokoro", "vits", "matcha", "kitten", "zipvoice", "pocket-tts",
-        "supertonic", "sensevoice", "streaming-zipformer",
-        "streaming-paraformer", "silero-vad", "dpdfnet2", "gtcrn",
+        "supertonic", "cosyvoice-local", "streaming-zipformer",
+        "streaming-paraformer", "funasr-nano", "funasr-sensevoice-gguf",
+        "funasr-paraformer-gguf", "wenet-ctc", "fire-red-asr-ctc",
+        "fire-red-asr", "moonshine-v2", "nemo-parakeet", "nemo-canary",
+        "qwen3-asr", "silero-vad", "funasr-fsmn-vad-gguf", "dpdfnet2", "gtcrn",
         "deepfilternet", "rnnoise", "web-audio", "audio-tagging",
         "keyword-spotting", "language-id", "punctuation", "wetext",
         "speaker-embedding", "speaker-diarization", "source-separation"

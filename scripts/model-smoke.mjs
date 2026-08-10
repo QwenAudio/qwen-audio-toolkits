@@ -9,7 +9,7 @@ const appData = path.join(
 )
 const speechFile = path.join(
   appData,
-  'models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs/zh.wav',
+  'recordings/smoke-speech.wav',
 )
 const noisyFile = path.join(
   appData,

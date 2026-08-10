@@ -2953,9 +2953,8 @@ async fn run_funasr_nano_stream(
         let started = Instant::now();
         let runtime_bin = plugins::funasr_runtime_executable(&model_path)?;
         let decoder = find_model_file(&model_path, |name| name.starts_with("qwen3-0.6b-"))?;
-        let vad = resolve_funasr_vad_path(&app, &model_path).ok_or_else(|| {
-            "实时识别需要 FSMN-VAD，请先在模型商店安装 FSMN-VAD (GGUF)".to_string()
-        })?;
+        let vad = resolve_funasr_vad_path(&model_path)
+            .ok_or_else(|| "FunASR Nano 模型包缺少内置 FSMN-VAD".to_string())?;
         let mut child = Command::new(&runtime_bin)
             .arg("--enc")
             .arg(model_path.join("funasr-encoder-f16.gguf"))
@@ -3371,15 +3370,17 @@ async fn execute_official_funasr(
             _ => return Err(format!("不支持的 FunASR 官方适配器: {adapter}")),
         };
         let started = Instant::now();
+        let vad = resolve_funasr_vad_path(&model_path)
+            .ok_or_else(|| format!("{engine} 模型包缺少内置 FSMN-VAD"))?;
         let mut command = Command::new(&runtime);
-        command.args(model_args).arg("-a").arg(&source_file_path);
-        if let Some(vad) = resolve_funasr_vad_path(&app, &model_path) {
-            command
-                .arg("--vad")
-                .arg(vad)
-                .arg("--vad-maxseg")
-                .arg("30000");
-        }
+        command
+            .args(model_args)
+            .arg("-a")
+            .arg(&source_file_path)
+            .arg("--vad")
+            .arg(vad)
+            .arg("--vad-maxseg")
+            .arg("30000");
         let output = command
             .current_dir(runtime.parent().unwrap_or(&model_path))
             .output()
@@ -3447,20 +3448,10 @@ fn parse_sensevoice_output(raw: &str) -> (String, String, Option<String>, Option
     (rest.trim().to_string(), language, emotion, audio_event)
 }
 
-// FunASR's GGUF/llama.cpp models (funasr-nano, and formerly the bundled copies the other
-// two adapters used to carry) share one FSMN-VAD file with the standalone
-// funaudiollm.fsmn-vad-gguf plugin instead of each vendoring their own copy. Resolve it from
-// that plugin's install path first; fall back to a same-directory copy for installs made
-// before this model was split apart (older catalog versions bundled fsmn-vad.gguf directly).
-fn resolve_funasr_vad_path(app: &AppHandle, model_path: &Path) -> Option<PathBuf> {
-    if let Ok(Some(provider)) = plugins::provider_by_id(app, "plugin.funaudiollm.fsmn-vad-gguf") {
-        if let Some(vad_model_path) = provider.model_path {
-            let candidate = vad_model_path.join("fsmn-vad.gguf");
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
+// Each official FunASR GGUF model pack is self-contained and carries the FSMN-VAD file used
+// by its own CLI. The standalone FSMN plugin is a separate user-facing VAD model, not a runtime
+// dependency of Nano, SenseVoice, or Paraformer.
+fn resolve_funasr_vad_path(model_path: &Path) -> Option<PathBuf> {
     let bundled = model_path.join("fsmn-vad.gguf");
     bundled.is_file().then_some(bundled)
 }
@@ -3704,13 +3695,17 @@ async fn execute_request(
                     )
                     .await?
                 } else {
+                    let model_path = provider
+                        .model_path
+                        .clone()
+                        .ok_or_else(|| "本地 ASR Provider 缺少模型目录".to_string())?;
                     transcribe_audio_with_runtime(
                         app.clone(),
                         asr_runtime,
                         asr_request,
                         Some(cancel),
-                        provider.model_path.clone(),
-                        Some(provider.adapter.clone()),
+                        model_path,
+                        provider.adapter.clone(),
                         progress_callback.clone(),
                     )
                     .await?
@@ -5614,6 +5609,18 @@ mod tests {
             secure_audio_download_url("https://example.com/result.wav"),
             "https://example.com/result.wav"
         );
+    }
+
+    #[test]
+    fn funasr_uses_only_the_vad_bundled_with_its_model_pack() {
+        let model = env::temp_dir().join(format!("funasr-vad-test-{}", Uuid::new_v4()));
+        fs::create_dir_all(&model).expect("create model directory");
+        assert!(resolve_funasr_vad_path(&model).is_none());
+
+        let bundled = model.join("fsmn-vad.gguf");
+        fs::write(&bundled, b"test").expect("write bundled VAD");
+        assert_eq!(resolve_funasr_vad_path(&model), Some(bundled));
+        fs::remove_dir_all(model).expect("remove model directory");
     }
 
     #[test]

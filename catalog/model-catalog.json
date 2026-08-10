@@ -179,7 +179,7 @@
       "version": "2512-official-0.1.9",
       "publisher": "FunAudioLLM",
       "license": "Apache-2.0",
-      "description": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。搭配 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
+      "description": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。使用模型包内置 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
       "adapter": "funasr-nano",
       "capabilities": [
         "speech.asr"
@@ -187,17 +187,7 @@
       "displayCapabilities": [
         "语音识别",
         "中英日方言",
-        "VAD 分段"
-      ],
-      "recommendedDependencies": [
-        {
-          "role": "speech-segmentation",
-          "label": "FSMN-VAD 分段",
-          "pluginId": "funaudiollm.fsmn-vad-gguf",
-          "capability": "speech.detect",
-          "default": true,
-          "optional": false
-        }
+        "内置 VAD"
       ],
       "runtime": {
         "kind": "native",

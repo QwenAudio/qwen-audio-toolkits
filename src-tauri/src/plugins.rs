@@ -298,18 +298,10 @@ const FUNASR_NANO_MANIFEST: &str = r#"{
   "version": "2512-official-0.1.9",
   "publisher": "FunAudioLLM",
   "license": "Apache-2.0",
-  "description": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。搭配 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
+  "description": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。使用模型包内置 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
   "adapter": "funasr-nano",
   "capabilities": ["speech.asr"],
-  "displayCapabilities": ["语音识别", "中英日方言", "VAD 分段"],
-  "recommendedDependencies": [{
-    "role": "speech-segmentation",
-    "label": "FSMN-VAD 分段",
-    "pluginId": "funaudiollm.fsmn-vad-gguf",
-    "capability": "speech.detect",
-    "default": true,
-    "optional": false
-  }],
+  "displayCapabilities": ["语音识别", "中英日方言", "内置 VAD"],
   "runtime": {"kind": "native", "entry": "llama-funasr-cli", "package": "funasr-llamacpp-0.1.9"},
   "models": [{
     "id": "funasr-nano-2512-official-q4km",
@@ -1387,6 +1379,39 @@ struct PluginState {
 
 pub type DependencyBindings = BTreeMap<String, BTreeMap<String, String>>;
 
+const DEPRECATED_PLUGIN_IDS: &[&str] = &[
+    "sensevoice-small",
+    "org.qwenaudio.toolkits.sensevoice-small",
+];
+
+fn is_deprecated_plugin_id(plugin_id: &str) -> bool {
+    DEPRECATED_PLUGIN_IDS.contains(&plugin_id)
+}
+
+fn sanitize_plugin_state(state: &mut PluginState) -> bool {
+    let previous_sidebar_hidden = state.sidebar_hidden.len();
+    state
+        .sidebar_hidden
+        .retain(|plugin_id| !is_deprecated_plugin_id(plugin_id));
+    let mut changed = state.sidebar_hidden.len() != previous_sidebar_hidden;
+
+    state.dependency_bindings.retain(|plugin_id, roles| {
+        if is_deprecated_plugin_id(plugin_id) {
+            changed = true;
+            return false;
+        }
+        let previous_roles = roles.len();
+        roles.retain(|_, dependency_id| !is_deprecated_plugin_id(dependency_id));
+        changed |= roles.len() != previous_roles;
+        if roles.is_empty() {
+            changed = true;
+            return false;
+        }
+        true
+    });
+    changed
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginRemoval {
@@ -1434,6 +1459,7 @@ pub fn plugin_replace_dependency_bindings(
     validate_dependency_bindings(&bindings)?;
     let mut state = read_state(&app)?;
     state.dependency_bindings = bindings;
+    sanitize_plugin_state(&mut state);
     write_state(&app, &state)?;
     Ok(state.dependency_bindings)
 }
@@ -1449,6 +1475,9 @@ pub fn plugin_set_dependency_binding(
     validate_binding_key(&role, "依赖角色")?;
     if !dependency_id.is_empty() {
         validate_binding_key(&dependency_id, "依赖模型 ID")?;
+    }
+    if is_deprecated_plugin_id(&plugin_id) || is_deprecated_plugin_id(&dependency_id) {
+        return Err("该模型已下架，请刷新模型目录".to_string());
     }
     let mut state = read_state(&app)?;
     state
@@ -2138,7 +2167,6 @@ fn builtin_descriptor(
         tone: tone.to_string(),
         provider_id: match adapter {
             "kokoro" => Some("local.kokoro".to_string()),
-            "sensevoice" => Some("local.sensevoice".to_string()),
             "dpdfnet2" => Some("local.dpdfnet2".to_string()),
             "silero-vad" => Some("local.silero-vad".to_string()),
             "web-audio" => Some("local.web-audio".to_string()),
@@ -2193,7 +2221,7 @@ fn descriptor_from_manifest(
     };
     if matches!(
         manifest.adapter.as_str(),
-        "sensevoice" | "streaming-zipformer" | "streaming-paraformer"
+        "streaming-zipformer" | "streaming-paraformer"
     ) && !capabilities.iter().any(|item| item == "时间戳")
     {
         capabilities.push("时间戳".to_string());
@@ -2317,7 +2345,7 @@ fn catalog_descriptor(manifest: PluginManifest, value: &serde_json::Value) -> Pl
     };
     if matches!(
         manifest.adapter.as_str(),
-        "sensevoice" | "streaming-zipformer" | "streaming-paraformer"
+        "streaming-zipformer" | "streaming-paraformer"
     ) && !capabilities.iter().any(|item| item == "时间戳")
     {
         capabilities.push("时间戳".to_string());
@@ -2553,25 +2581,23 @@ fn validate_manifest(root: &Path, manifest: &PluginManifest) -> Result<(), Strin
             require_file(&cosyvoice_runtime_executable(&model)?)?;
             require_directory(&cosyvoice_backend_directory(&model)?)?;
         }
-        "sensevoice" => {
-            let model = required_model(root, manifest)?;
-            require_file(&model.join("model.int8.onnx"))?;
-            require_file(&model.join("tokens.txt"))?;
-        }
         "funasr-nano" => {
             let model = required_model(root, manifest)?;
             require_file(&model.join("funasr-encoder-f16.gguf"))?;
             require_file(&find_file_name_prefix(&model, "qwen3-0.6b-")?)?;
+            require_file(&model.join("fsmn-vad.gguf"))?;
             require_file(&funasr_runtime_executable(&model)?)?;
         }
         "funasr-sensevoice-gguf" => {
             let model = required_model(root, manifest)?;
             require_file(&find_file_with_extension(&model, "gguf")?)?;
+            require_file(&model.join("fsmn-vad.gguf"))?;
             require_file(&funasr_runtime_binary(&model, "llama-funasr-sensevoice")?)?;
         }
         "funasr-paraformer-gguf" => {
             let model = required_model(root, manifest)?;
             require_file(&find_file_with_extension(&model, "gguf")?)?;
+            require_file(&model.join("fsmn-vad.gguf"))?;
             require_file(&funasr_runtime_binary(&model, "llama-funasr-paraformer")?)?;
         }
         "funasr-fsmn-vad-gguf" => {
@@ -4142,8 +4168,7 @@ fn adapter_spec(adapter: &str) -> Option<AdapterSpec> {
     let capability = match adapter {
         "kokoro" | "vits" | "matcha" | "kitten" | "zipvoice" | "pocket-tts" | "supertonic"
         | "cosyvoice-local" => CAPABILITY_TTS,
-        "sensevoice"
-        | "streaming-zipformer"
+        "streaming-zipformer"
         | "streaming-paraformer"
         | "funasr-nano"
         | "funasr-sensevoice-gguf"
@@ -4178,7 +4203,6 @@ fn adapter_spec(adapter: &str) -> Option<AdapterSpec> {
             "pocket-tts" => "pocket-tts",
             "supertonic" => "supertonic",
             "cosyvoice-local" => "cosyvoice-local",
-            "sensevoice" => "sensevoice",
             "streaming-zipformer" => "streaming-zipformer",
             "streaming-paraformer" => "streaming-paraformer",
             "funasr-nano" => "funasr-nano",
@@ -4517,7 +4541,12 @@ fn read_state(app: &AppHandle) -> Result<PluginState, String> {
     let path = state_path(app)?;
     match fs::read(&path) {
         Ok(bytes) => {
-            serde_json::from_slice(&bytes).map_err(|error| format!("无法读取插件状态: {error}"))
+            let mut state: PluginState = serde_json::from_slice(&bytes)
+                .map_err(|error| format!("无法读取插件状态: {error}"))?;
+            if sanitize_plugin_state(&mut state) {
+                write_state(app, &state)?;
+            }
+            Ok(state)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(PluginState::default()),
         Err(error) => Err(format!("无法读取插件状态: {error}")),
@@ -4573,6 +4602,36 @@ mod tests {
             Some("silero-vad")
         );
         assert!(validate_dependency_bindings(&state.dependency_bindings).is_ok());
+    }
+
+    #[test]
+    fn plugin_state_removes_deprecated_sensevoice_entries() {
+        let mut state: PluginState = serde_json::from_str(
+            r#"{
+                "sidebar_hidden":["sensevoice-small","wetext.text-normalization"],
+                "dependency_bindings":{
+                    "sensevoice-small":{"speech-segmentation":"silero-vad"},
+                    "lourdle.fun-cosyvoice3-local":{"reference-transcription":"sensevoice-small"},
+                    "k2-fsa.vits-aishell3":{"text-normalization":"wetext.text-normalization"}
+                }
+            }"#,
+        )
+        .expect("parse stale plugin state");
+
+        assert!(sanitize_plugin_state(&mut state));
+        assert_eq!(
+            state.sidebar_hidden,
+            HashSet::from(["wetext.text-normalization".to_string()])
+        );
+        assert_eq!(state.dependency_bindings.len(), 1);
+        assert_eq!(
+            state
+                .dependency_bindings
+                .get("k2-fsa.vits-aishell3")
+                .and_then(|roles| roles.get("text-normalization"))
+                .map(String::as_str),
+            Some("wetext.text-normalization")
+        );
     }
 
     #[test]
@@ -4916,7 +4975,6 @@ mod tests {
         assert_eq!(adapter_capability("pocket-tts"), Some(CAPABILITY_TTS));
         assert_eq!(adapter_capability("supertonic"), Some(CAPABILITY_TTS));
         assert_eq!(adapter_capability("cosyvoice-local"), Some(CAPABILITY_TTS));
-        assert_eq!(adapter_capability("sensevoice"), Some(CAPABILITY_ASR));
         assert_eq!(adapter_capability("funasr-nano"), Some(CAPABILITY_ASR));
         assert_eq!(adapter_capability("silero-vad"), Some(CAPABILITY_VAD));
         assert_eq!(adapter_capability("dpdfnet2"), Some(CAPABILITY_ENHANCE));
@@ -4928,7 +4986,6 @@ mod tests {
         assert_eq!(adapter_capability("rnnoise"), Some(CAPABILITY_ENHANCE));
         assert_eq!(adapter_capability("unknown"), None);
         assert_eq!(adapter_streaming_mode("silero-vad"), "streaming");
-        assert_eq!(adapter_streaming_mode("sensevoice"), "batch");
         assert_eq!(adapter_streaming_mode("funasr-nano"), "streaming");
         assert_eq!(adapter_streaming_mode("wenet-ctc"), "batch");
     }
@@ -4939,15 +4996,15 @@ mod tests {
             "schemaVersion": 1,
             "plugins": [{
                 "schemaVersion": 2,
-                "id": "example.remote-sensevoice",
-                "name": "Remote SenseVoice",
+                "id": "example.remote-wenet",
+                "name": "Remote WeNet",
                 "version": "1.0.0",
                 "publisher": "Example",
-                "adapter": "sensevoice",
+                "adapter": "wenet-ctc",
                 "capabilities": ["speech.asr"],
                 "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
                 "models": [{
-                    "id": "sensevoice-int8",
+                    "id": "wenet-int8",
                     "source": "https://example.com/model.tar.bz2",
                     "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "files": ["model.int8.onnx", "tokens.txt"]
@@ -5043,7 +5100,7 @@ mod tests {
                     "name": "Remote ASR",
                     "version": "1.0.0",
                     "publisher": "Example",
-                    "adapter": "sensevoice",
+                    "adapter": "wenet-ctc",
                     "capabilities": ["speech.asr"],
                     "recommendedDependencies": [{
                         "role": "speech-segmentation",
@@ -5078,7 +5135,7 @@ mod tests {
                 "name": "Remote ASR",
                 "version": "1.0.0",
                 "publisher": "Example",
-                "adapter": "sensevoice",
+                "adapter": "wenet-ctc",
                 "capabilities": ["speech.asr"],
                 "recommendedDependencies": [{
                     "role": "speech-segmentation",
@@ -5130,7 +5187,7 @@ mod tests {
                 "unknown-runtime",
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             ),
-            ("sensevoice", ""),
+            ("wenet-ctc", ""),
         ] {
             let bytes = serde_json::to_vec(&serde_json::json!({
                 "schemaVersion": 1,
@@ -5166,7 +5223,7 @@ mod tests {
                 "name": "Hosted ASR",
                 "version": "1.0.0",
                 "publisher": "Example",
-                "adapter": "sensevoice",
+                "adapter": "wenet-ctc",
                 "capabilities": ["speech.asr"],
                 "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
                 "models": [{
@@ -5255,6 +5312,22 @@ mod tests {
             assert!(model.source.is_empty());
             assert!(model.assets.is_empty());
         }
+    }
+
+    #[test]
+    fn funasr_nano_catalog_pack_contains_its_vad_without_external_dependencies() {
+        let parsed: V2PluginManifest =
+            serde_json::from_str(FUNASR_NANO_MANIFEST).expect("FunASR Nano manifest should parse");
+        let normalized =
+            normalize_v2_manifest(parsed).expect("FunASR Nano manifest should normalize");
+
+        assert!(normalized.recommended_dependencies.is_empty());
+        assert!(normalized
+            .model
+            .expect("FunASR Nano manifest should have a model")
+            .files
+            .iter()
+            .any(|file| file == "fsmn-vad.gguf"));
     }
 
     #[test]

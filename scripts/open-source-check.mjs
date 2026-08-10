@@ -99,7 +99,9 @@ for (const plugin of catalog.plugins ?? []) {
 }
 
 for (const file of files.filter((file) => file.endsWith('/plugin.json'))) {
-  const plugin = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'))
+  const absolute = path.join(root, file)
+  if (!fs.existsSync(absolute)) continue
+  const plugin = JSON.parse(fs.readFileSync(absolute, 'utf8'))
   if (!plugin.license?.trim()) failures.push(`${file}: no SPDX license`)
 }
 

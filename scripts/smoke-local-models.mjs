@@ -9,7 +9,7 @@ const appData = path.join(
 )
 const samplePath = path.join(
   appData,
-  'models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs/zh.wav',
+  'recordings/smoke-speech.wav',
 )
 const englishSamplePath = path.join(
   appData,
@@ -17,7 +17,7 @@ const englishSamplePath = path.join(
 )
 const senseVoiceEnglishSamplePath = path.join(
   appData,
-  'models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17/test_wavs/en.wav',
+  'recordings/smoke-english.wav',
 )
 
 function audioInput(filePath) {

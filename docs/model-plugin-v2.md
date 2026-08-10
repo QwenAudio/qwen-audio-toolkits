@@ -41,10 +41,9 @@ registry includes:
 
 | Adapter | Harness capability |
 | --- | --- |
-| `kokoro`, `vits`, `matcha`, `kitten`, `zipvoice`, `pocket-tts`, `supertonic` | `speech.synthesize` |
-| `sensevoice` | `speech.transcribe` |
-| `streaming-zipformer`, `streaming-paraformer` | `speech.transcribe` |
-| `silero-vad` | `speech.detect` |
+| `kokoro`, `vits`, `matcha`, `kitten`, `zipvoice`, `pocket-tts`, `supertonic`, `cosyvoice-local` | `speech.synthesize` |
+| `streaming-zipformer`, `streaming-paraformer`, `funasr-nano`, `funasr-sensevoice-gguf`, `funasr-paraformer-gguf`, `wenet-ctc`, `fire-red-asr-ctc`, `fire-red-asr`, `moonshine-v2`, `nemo-parakeet`, `nemo-canary`, `qwen3-asr` | `speech.transcribe` |
+| `silero-vad`, `funasr-fsmn-vad-gguf` | `speech.detect` |
 | `dpdfnet2`, `gtcrn`, `deepfilternet`, `rnnoise` | `audio.enhance` |
 | `web-audio` | `audio.live` |
 | `audio-tagging` | `audio.classify` |
