@@ -19,6 +19,7 @@ import {
   executeHarnessTask,
   HarnessRunError,
 } from '../services/harness'
+import { exportAudioFile } from '../services/fileExport'
 import type {
   AudioClip,
   AudioProcessResult,
@@ -241,15 +242,18 @@ export function BatchView({
     }))
   }
 
-  const exportResult = (job: BatchJob) => {
+  const exportResult = async (job: BatchJob) => {
     if (!job.result) return
-    const anchor = document.createElement('a')
-    anchor.href = job.result.dataUrl
-    anchor.download = job.result.fileName
-    document.body.append(anchor)
-    anchor.click()
-    anchor.remove()
-    onAction(`${job.result.fileName} 已导出`)
+    try {
+      const destinationPath = await exportAudioFile(job.result)
+      if (destinationPath) {
+        onAction(`${job.result.fileName} 已保存到 ${destinationPath}`)
+      }
+    } catch (error) {
+      onAction(
+        `导出音频失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
   }
 
   const completedCount = jobs.filter((job) => job.state === 'done').length

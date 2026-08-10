@@ -230,6 +230,27 @@ fn read_dropped_audio_file(path: String) -> Result<DroppedAudioFile, String> {
 }
 
 #[tauri::command]
+fn export_audio_file(source_path: String, destination_path: String) -> Result<u64, String> {
+    let source = PathBuf::from(source_path);
+    let destination = PathBuf::from(destination_path);
+    let metadata =
+        fs::metadata(&source).map_err(|error| format!("无法读取待导出的音频: {error}"))?;
+    if !metadata.is_file() {
+        return Err("待导出的音频文件不存在".to_string());
+    }
+    let Some(parent) = destination.parent() else {
+        return Err("导出目录无效".to_string());
+    };
+    if !parent.is_dir() {
+        return Err("导出目录不存在".to_string());
+    }
+    if source == destination {
+        return Ok(metadata.len());
+    }
+    fs::copy(&source, &destination).map_err(|error| format!("无法保存导出的音频: {error}"))
+}
+
+#[tauri::command]
 fn plugin_runtime_catalog() -> Vec<PluginRuntimeDescriptor> {
     vec![
         PluginRuntimeDescriptor {
@@ -644,6 +665,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             read_dropped_audio_file,
+            export_audio_file,
             plugin_runtime_catalog,
             audio_processor_status,
             process_audio,

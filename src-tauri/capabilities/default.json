@@ -19,6 +19,7 @@
     "core:window:allow-start-dragging",
     "core:window:allow-set-theme",
     "dialog:allow-open",
+    "dialog:allow-save",
     "dialog:allow-confirm",
     "updater:default",
     "process:allow-restart"

@@ -24,6 +24,7 @@ import {
   listHarnessRuns,
   retryHarnessRun,
 } from '../services/harness'
+import { exportAudioFile } from '../services/fileExport'
 import { AudioAssetPreview } from '../components/AudioAssetPreview'
 import { normalizeHarnessResult } from '../domain/results'
 import { formatTime } from '../utils/audio'
@@ -239,15 +240,20 @@ export function LibraryView({
     }
   }
 
-  const exportOutput = (format: TranscriptExportFormat = 'srt') => {
+  const exportOutput = async (format: TranscriptExportFormat = 'srt') => {
     if (!execution) return
     const output = execution.output
     if (isAudioOutput(output)) {
-      const anchor = document.createElement('a')
-      anchor.href = output.dataUrl
-      anchor.download = output.fileName
-      anchor.click()
-      onAction(`${anchor.download} 已导出`)
+      try {
+        const destinationPath = await exportAudioFile(output)
+        if (destinationPath) {
+          onAction(`${output.fileName} 已保存到 ${destinationPath}`)
+        }
+      } catch (error) {
+        onAction(
+          `导出音频失败：${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
     } else if (isTranscriptOutput(output)) {
       const fileName = downloadTranscript(
         output,

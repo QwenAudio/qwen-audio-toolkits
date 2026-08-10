@@ -73,6 +73,7 @@ import {
   showCaptionOutput,
   stopCaptionOutput,
 } from '../services/captionOutput'
+import { exportAudioFile } from '../services/fileExport'
 import {
   getModelBinding,
   recommendedDependencies,
@@ -2490,14 +2491,19 @@ export function ModelWorkspaceView({
     }
   }
 
-  const downloadAudioResult = (
+  const downloadAudioResult = async (
     output: TtsGenerateResult | AudioProcessResult,
   ) => {
-    const anchor = document.createElement('a')
-    anchor.href = output.dataUrl
-    anchor.download = output.fileName
-    anchor.click()
-    onAction(`${output.fileName} 已导出`)
+    try {
+      const destinationPath = await exportAudioFile(output)
+      if (destinationPath) {
+        onAction(`${output.fileName} 已保存到 ${destinationPath}`)
+      }
+    } catch (error) {
+      onAction(
+        `导出音频失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
   }
 
   return (
@@ -3853,7 +3859,7 @@ export function ModelWorkspaceView({
                         className="primary-action full-width"
                         type="button"
                         onClick={() =>
-                          downloadAudioResult(
+                          void downloadAudioResult(
                             execution.output as
                               | TtsGenerateResult
                               | AudioProcessResult,
