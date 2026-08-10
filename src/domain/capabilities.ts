@@ -191,7 +191,7 @@ export const CAPABILITY_DEFINITIONS: Record<
   },
   'speaker.embed': {
     id: 'speaker.embed',
-    label: '声纹提取',
+    label: '声纹比对',
     category: '音频理解',
     nodeKind: 'asr',
     inputTypes: ['audio'],

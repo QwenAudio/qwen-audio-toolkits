@@ -891,8 +891,8 @@ pub(crate) fn catalog_for_app(app: &AppHandle) -> HarnessCatalog {
             },
             CapabilityDescriptor {
                 id: CAPABILITY_SPEAKER_EMBED,
-                name: "声纹提取",
-                description: "提取可用于识别和聚类的说话人向量",
+                name: "声纹比对",
+                description: "提取两段人声的向量并计算余弦相似度",
                 input: "audio",
                 output: "speaker-embedding",
                 supports_batch: true,
@@ -3788,12 +3788,19 @@ async fn execute_request(
         }
         (CAPABILITY_SPEAKER_EMBED, false) => {
             let audio = required_string(&request.input, "audioDataUrl")?;
+            let comparison_audio = request
+                .input
+                .get("comparisonAudioDataUrl")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
             run_speaker_embedding(
                 provider
                     .model_path
                     .as_deref()
                     .ok_or_else(|| "Speaker Embedding 缺少模型目录".to_string())?,
                 &audio,
+                comparison_audio,
             )?
         }
         (CAPABILITY_DIARIZATION, false) => {
@@ -5422,7 +5429,7 @@ fn capability_title(capability: &str) -> &'static str {
         CAPABILITY_LANGUAGE_ID => "识别语言",
         CAPABILITY_PUNCTUATION => "恢复标点",
         CAPABILITY_TEXT_NORMALIZE => "文本归一化",
-        CAPABILITY_SPEAKER_EMBED => "提取声纹",
+        CAPABILITY_SPEAKER_EMBED => "比对声纹",
         CAPABILITY_DIARIZATION => "区分说话人",
         CAPABILITY_SOURCE_SEPARATION => "分离音源",
         _ => "音频任务",

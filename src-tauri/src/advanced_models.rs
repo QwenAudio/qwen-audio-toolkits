@@ -298,6 +298,7 @@ fn builtin_keyword_tokens(model_dir: &Path) -> HashMap<String, String> {
 pub(crate) fn run_speaker_embedding(
     model_dir: &Path,
     audio_data_url: &str,
+    comparison_audio_data_url: Option<&str>,
 ) -> Result<Value, String> {
     let started = std::time::Instant::now();
     let model = find(model_dir, |name| name.ends_with(".onnx"))?;
@@ -307,6 +308,34 @@ pub(crate) fn run_speaker_embedding(
     };
     let runtime =
         SpeakerEmbeddingExtractor::create(&config).ok_or_else(|| "无法加载声纹模型".to_string())?;
+    let embedding = compute_speaker_embedding(&runtime, audio_data_url)?;
+    let Some(comparison_audio_data_url) = comparison_audio_data_url else {
+        return Ok(json!({
+            "dimension": embedding.len(),
+            "embedding": embedding,
+            "engine": "sherpa-onnx SpeakerEmbedding",
+            "inferenceSeconds": started.elapsed().as_secs_f32()
+        }));
+    };
+    let comparison_embedding = compute_speaker_embedding(&runtime, comparison_audio_data_url)?;
+    let cosine_similarity = cosine_similarity(&embedding, &comparison_embedding)?;
+    const MATCH_THRESHOLD: f32 = 0.5;
+    Ok(json!({
+        "dimension": embedding.len(),
+        "embedding": embedding,
+        "comparisonEmbedding": comparison_embedding,
+        "cosineSimilarity": cosine_similarity,
+        "matchThreshold": MATCH_THRESHOLD,
+        "sameSpeaker": cosine_similarity >= MATCH_THRESHOLD,
+        "engine": "sherpa-onnx SpeakerEmbedding",
+        "inferenceSeconds": started.elapsed().as_secs_f32()
+    }))
+}
+
+fn compute_speaker_embedding(
+    runtime: &SpeakerEmbeddingExtractor,
+    audio_data_url: &str,
+) -> Result<Vec<f32>, String> {
     let stream = runtime
         .create_stream()
         .ok_or_else(|| "无法创建声纹音频流".to_string())?;
@@ -316,15 +345,29 @@ pub(crate) fn run_speaker_embedding(
     if !runtime.is_ready(&stream) {
         return Err("录音太短，无法提取稳定声纹".to_string());
     }
-    let embedding = runtime
+    runtime
         .compute(&stream)
-        .ok_or_else(|| "声纹提取没有返回结果".to_string())?;
-    Ok(json!({
-        "dimension": embedding.len(),
-        "embedding": embedding,
-        "engine": "sherpa-onnx SpeakerEmbedding",
-        "inferenceSeconds": started.elapsed().as_secs_f32()
-    }))
+        .ok_or_else(|| "声纹提取没有返回结果".to_string())
+}
+
+fn cosine_similarity(left: &[f32], right: &[f32]) -> Result<f32, String> {
+    if left.is_empty() || left.len() != right.len() {
+        return Err("两段音频的声纹维度不一致".to_string());
+    }
+    let (dot, left_norm, right_norm) = left.iter().zip(right).fold(
+        (0.0_f32, 0.0_f32, 0.0_f32),
+        |(dot, left_norm, right_norm), (left, right)| {
+            (
+                dot + left * right,
+                left_norm + left * left,
+                right_norm + right * right,
+            )
+        },
+    );
+    if left_norm <= f32::EPSILON || right_norm <= f32::EPSILON {
+        return Err("声纹向量无效，无法计算相似度".to_string());
+    }
+    Ok((dot / (left_norm.sqrt() * right_norm.sqrt())).clamp(-1.0, 1.0))
 }
 
 pub(crate) fn run_diarization(model_dir: &Path, audio_data_url: &str) -> Result<Value, String> {
@@ -501,7 +544,9 @@ fn prepare_spleeter_audio(source: &PcmAudio) -> Result<PcmAudio, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{compact_speaker_ids, prepare_spleeter_audio, validated_keyword_tokens};
+    use super::{
+        compact_speaker_ids, cosine_similarity, prepare_spleeter_audio, validated_keyword_tokens,
+    };
     use crate::audio_io::PcmAudio;
     use std::{env, fs};
 
@@ -525,6 +570,15 @@ mod tests {
             vec![0, 0, 1, 0, 2, 1]
         );
         assert_eq!(compact_speaker_ids(&[1, 1, 1]), vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn computes_bounded_cosine_similarity() {
+        assert!((cosine_similarity(&[1.0, 0.0], &[1.0, 0.0]).unwrap() - 1.0).abs() < 1e-6);
+        assert!((cosine_similarity(&[1.0, 0.0], &[0.0, 1.0]).unwrap()).abs() < 1e-6);
+        assert!((cosine_similarity(&[1.0, 0.0], &[-1.0, 0.0]).unwrap() + 1.0).abs() < 1e-6);
+        assert!(cosine_similarity(&[0.0, 0.0], &[1.0, 0.0]).is_err());
+        assert!(cosine_similarity(&[1.0], &[1.0, 0.0]).is_err());
     }
 
     #[test]

@@ -183,7 +183,11 @@ const localTests = [
       providerId: 'plugin.k2-fsa.speaker-embedding',
       routing: 'local',
       title: 'Smoke · Speaker Embedding',
-      input: speech,
+      input: {
+        ...speech,
+        comparisonAudioDataUrl: tagging.audioDataUrl,
+        comparisonClipName: tagging.clipName,
+      },
       parameters: {},
     },
   },

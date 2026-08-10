@@ -1354,6 +1354,7 @@ function App() {
     modelParameters: Record<string, unknown>,
     conversationVisible = true,
     dependencyRunIds: string[] = [],
+    comparisonClip?: AudioClip,
   ): Promise<
     HarnessExecution<
       | AsrTranscriptionResult
@@ -1368,6 +1369,10 @@ function App() {
         : clip.processingAudioUrl
     if (!audioDataUrl) {
       throw new Error('该音频无法解码为模型需要的 WAV 格式')
+    }
+    const comparisonAudioDataUrl = comparisonClip?.processingAudioUrl
+    if (comparisonClip && !comparisonAudioDataUrl) {
+      throw new Error('第二段音频无法解码为模型需要的 WAV 格式')
     }
     const { speechSegments, ...executionParameters } = modelParameters
 
@@ -1385,7 +1390,9 @@ function App() {
         dependencyRunIds,
         routing: 'local',
         title:
-          capability === 'speech.transcribe'
+          capability === 'speaker.embed' && comparisonClip
+            ? `${clip.name} 与 ${comparisonClip.name} · 声纹比对`
+            : capability === 'speech.transcribe'
             ? `${clip.name} · 语音识别`
             : capability === 'speech.detect'
               ? `${clip.name} · 语音活动检测`
@@ -1393,6 +1400,12 @@ function App() {
         input: {
           audioDataUrl,
           clipName: clip.name,
+          ...(comparisonAudioDataUrl
+            ? {
+                comparisonAudioDataUrl,
+                comparisonClipName: comparisonClip.name,
+              }
+            : {}),
           ...(Array.isArray(speechSegments)
             ? { speechSegments }
             : {}),

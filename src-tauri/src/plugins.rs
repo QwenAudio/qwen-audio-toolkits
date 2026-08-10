@@ -604,7 +604,7 @@ const WETEXT_MANIFEST: &str = r#"{
   "acceleration": ["CPU"],
   "tone": "violet"
 }"#;
-const SPEAKER_ID_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.speaker-embedding","name":"3D-Speaker 声纹","version":"1.0","publisher":"k2-fsa","description":"提取说话人向量，用于声纹识别、验证和聚类。","adapter":"speaker-embedding","capabilities":["speaker.embed"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"3dspeaker-campplus","name":"CAM++ 中英","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx","files":[],"estimatedSizeMb":30}],"acceleration":["CPU"],"tone":"blue"}"#;
+const SPEAKER_ID_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.speaker-embedding","name":"3D-Speaker 声纹","version":"1.0","publisher":"k2-fsa","description":"比较两段人声的声纹向量与余弦相似度，用于说话人验证。","adapter":"speaker-embedding","capabilities":["speaker.embed"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"3dspeaker-campplus","name":"CAM++ 中英","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx","files":[],"estimatedSizeMb":30}],"acceleration":["CPU"],"tone":"blue"}"#;
 const DIARIZATION_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.speaker-diarization","name":"Pyannote Speaker Diarization","version":"3.0","publisher":"k2-fsa","description":"检测多人音频中的说话人切换与时间区间。","adapter":"speaker-diarization","capabilities":["speaker.diarize"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"pyannote-segmentation-3","name":"Pyannote Segmentation 3.0","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2","files":[],"estimatedSizeMb":7}],"acceleration":["CPU"],"tone":"yellow"}"#;
 const QWEN3_ASR_MANIFEST: &str = r#"{"schemaVersion":2,"id":"qwen.qwen3-asr-0.6b","name":"Qwen3-ASR 0.6B","version":"2026.03.25","publisher":"Qwen","description":"高质量多语言离线识别，支持通过热词增强专有名词识别。","adapter":"qwen3-asr","capabilities":["speech.asr"],"displayCapabilities":["语音识别","多语言","热词"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"qwen3-asr-0.6b-int8","name":"Qwen3-ASR 0.6B","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2","files":["conv_frontend.onnx","encoder.int8.onnx","decoder.int8.onnx","tokenizer"],"estimatedSizeMb":950}],"acceleration":["CPU"],"tone":"blue"}"#;
 const FIRE_RED_ASR2_CTC_MANIFEST: &str = r#"{"schemaVersion":2,"id":"firered.fire-red-asr2-ctc","name":"FireRedASR2 CTC","version":"2026.02.25","publisher":"FireRedTeam","description":"中英文及二十多种中文方言识别，CTC 解码速度快，适合长音频和字幕。","adapter":"fire-red-asr-ctc","capabilities":["speech.asr"],"displayCapabilities":["语音识别","中英方言","长音频"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"fire-red-asr2-ctc-int8","name":"FireRedASR2 CTC","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25.tar.bz2","files":["model.int8.onnx","tokens.txt"],"estimatedSizeMb":741}],"acceleration":["CPU"],"tone":"blue"}"#;
@@ -715,6 +715,15 @@ fn merge_catalog_entry_payload(
     builtin: &serde_json::Value,
     mut remote: serde_json::Value,
 ) -> serde_json::Value {
+    if builtin.get("id").and_then(serde_json::Value::as_str) == Some("k2-fsa.speaker-embedding") {
+        if let Some(description) = builtin
+            .get("description")
+            .and_then(serde_json::Value::as_str)
+            .filter(|description| !description.trim().is_empty())
+        {
+            remote["description"] = serde_json::Value::String(description.to_string());
+        }
+    }
     let Some(builtin_models) = builtin.get("models").and_then(serde_json::Value::as_array) else {
         return remote;
     };
@@ -4383,7 +4392,7 @@ fn capability_label(capability: &str) -> &'static str {
         CAPABILITY_LANGUAGE_ID => "语言识别",
         CAPABILITY_PUNCTUATION => "标点恢复",
         CAPABILITY_TEXT_NORMALIZE => "文本归一化",
-        CAPABILITY_SPEAKER_EMBED => "声纹提取",
+        CAPABILITY_SPEAKER_EMBED => "声纹比对",
         CAPABILITY_DIARIZATION => "说话人分离",
         CAPABILITY_SOURCE_SEPARATION => "人声分离",
         _ => "扩展能力",

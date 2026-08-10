@@ -5356,6 +5356,72 @@ button.job-state {
   text-align: right;
 }
 
+.speaker-comparison-result {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.speaker-similarity-score {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: var(--primary);
+}
+
+.speaker-similarity-score > div,
+.speaker-comparison-verdict {
+  display: grid;
+  gap: 3px;
+}
+
+.speaker-similarity-score strong {
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.speaker-similarity-score span,
+.speaker-comparison-verdict span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.speaker-similarity-meter {
+  position: relative;
+  height: 8px;
+  background: var(--surface-soft);
+  border-radius: 4px;
+}
+
+.speaker-similarity-meter i {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+  border-radius: inherit;
+}
+
+.speaker-similarity-meter b {
+  position: absolute;
+  top: -4px;
+  width: 1px;
+  height: 16px;
+  background: var(--ink-soft);
+}
+
+.speaker-comparison-verdict strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.speaker-comparison-result.different .speaker-similarity-score {
+  color: var(--coral, #d76855);
+}
+
 .advanced-result-detail > .result-runtime-section {
   margin-top: auto;
 }
@@ -8183,6 +8249,19 @@ body.sidebar-resizing .model-app-frame {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
+.model-user-audio > span {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.model-user-audio.comparison-audio {
+  margin-top: 5px;
+}
+
 :root[data-theme="dark"] .model-user-audio {
   background: var(--surface);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
@@ -9620,6 +9699,141 @@ body.sidebar-resizing .model-app-frame {
 
 .audio-model-composer.recording {
   min-height: 91px;
+}
+
+.speaker-comparison-composer {
+  display: grid;
+  width: min(820px, 100%);
+  gap: 10px;
+  margin: 0 auto;
+  padding: 10px;
+  box-sizing: border-box;
+  background: var(--surface-raised);
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.045);
+}
+
+.speaker-comparison-composer > header,
+.speaker-comparison-composer > header > div,
+.speaker-audio-slot > div:first-child,
+.speaker-slot-actions {
+  display: flex;
+  align-items: center;
+}
+
+.speaker-comparison-composer > header {
+  justify-content: space-between;
+  gap: 14px;
+  padding: 1px 2px;
+}
+
+.speaker-comparison-composer > header > div {
+  min-width: 0;
+  gap: 9px;
+  color: var(--primary);
+}
+
+.speaker-comparison-composer > header span,
+.speaker-audio-slot > div:first-child > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.speaker-comparison-composer > header strong,
+.speaker-audio-slot strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.speaker-comparison-composer > header small,
+.speaker-audio-slot small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.speaker-comparison-composer > header .primary-action {
+  flex: 0 0 auto;
+}
+
+.speaker-comparison-inputs {
+  display: grid;
+  gap: 9px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.speaker-audio-slot {
+  display: grid;
+  min-width: 0;
+  min-height: 94px;
+  gap: 8px;
+  padding: 10px;
+  background: var(--surface-soft);
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+}
+
+.speaker-audio-slot.ready {
+  background: var(--surface-raised);
+  border-style: solid;
+}
+
+.speaker-audio-slot > div:first-child {
+  min-width: 0;
+  gap: 8px;
+}
+
+.speaker-slot-label {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 750;
+  place-items: center;
+}
+
+.speaker-slot-actions {
+  justify-content: flex-end;
+  gap: 5px;
+  margin-top: auto;
+}
+
+.speaker-slot-actions button {
+  display: inline-flex;
+  height: 27px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--ink-soft);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.speaker-slot-actions button.remove {
+  width: 27px;
+  padding: 0;
+  color: var(--muted);
+}
+
+.speaker-comparison-composer .inline-audio-player {
+  height: 28px;
+}
+
+@container (max-width: 680px) {
+  .speaker-comparison-inputs {
+    grid-template-columns: 1fr;
+  }
 }
 
 .audio-file-drop-zone {

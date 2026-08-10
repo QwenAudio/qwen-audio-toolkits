@@ -146,6 +146,9 @@ function requestFor(plugin) {
       .split(',')
       .map((keyword) => keyword.trim())
       .filter(Boolean)
+  } else if (capability === 'speaker.embed') {
+    input.comparisonAudioDataUrl = englishAudioInput.audioDataUrl
+    input.comparisonClipName = englishAudioInput.clipName
   }
 
   return {
@@ -212,8 +215,21 @@ function assertOutput(capability, response) {
   if (capability === 'speaker.diarize' && !Array.isArray(output.segments)) {
     throw new Error('speaker segments are missing')
   }
-  if (capability === 'speaker.embed' && !Array.isArray(output.embedding)) {
-    throw new Error('speaker embedding is missing')
+  if (capability === 'speaker.embed') {
+    if (
+      !Array.isArray(output.embedding) ||
+      !Array.isArray(output.comparisonEmbedding)
+    ) {
+      throw new Error('speaker comparison embeddings are missing')
+    }
+    if (
+      typeof output.cosineSimilarity !== 'number' ||
+      !Number.isFinite(output.cosineSimilarity) ||
+      output.cosineSimilarity < -1 ||
+      output.cosineSimilarity > 1
+    ) {
+      throw new Error('speaker cosine similarity is invalid')
+    }
   }
   if (capability === 'audio.classify' && !Array.isArray(output.tags)) {
     throw new Error('audio tags are missing')

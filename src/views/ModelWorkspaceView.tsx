@@ -16,6 +16,7 @@ import {
   CircleStop,
   Download,
   FileAudio,
+  Fingerprint,
   Headphones,
   LoaderCircle,
   Mic,
@@ -161,6 +162,7 @@ interface ModelWorkspaceViewProps {
     parameters: Record<string, unknown>,
     conversationVisible?: boolean,
     dependencyRunIds?: string[],
+    comparisonClip?: AudioClip,
   ) => Promise<
     HarnessExecution<
       AsrTranscriptionResult | VadDetectionResult | AudioProcessResult
@@ -289,6 +291,13 @@ function genericOutputPreview(output: RunOutput): string {
   }
   if ('language' in output && typeof output.language === 'string') {
     return `识别语言：${output.language}`
+  }
+  if (
+    'cosineSimilarity' in output &&
+    typeof output.cosineSimilarity === 'number'
+  ) {
+    const similarity = Math.max(-1, Math.min(1, output.cosineSimilarity))
+    return `声纹余弦相似度 ${similarity.toFixed(3)} · ${output.sameSpeaker === true ? '可能为同一说话人' : '声纹差异较大'}`
   }
   if ('dimension' in output && typeof output.dimension === 'number') {
     return `${output.dimension} 维声纹已生成`
@@ -512,6 +521,40 @@ function AdvancedResultDetail({
       </div>
     )
   }
+  if (typeof output.cosineSimilarity === 'number') {
+    const similarity = Math.max(-1, Math.min(1, output.cosineSimilarity))
+    const threshold =
+      typeof output.matchThreshold === 'number' ? output.matchThreshold : 0.5
+    const meterPosition = ((similarity + 1) / 2) * 100
+    const thresholdPosition =
+      ((Math.max(-1, Math.min(1, threshold)) + 1) / 2) * 100
+    const sameSpeaker = output.sameSpeaker === true
+    return (
+      <section
+        className={`speaker-comparison-result${sameSpeaker ? ' match' : ' different'}`}
+      >
+        <div className="speaker-similarity-score">
+          <Fingerprint size={24} />
+          <div>
+            <strong>{similarity.toFixed(3)}</strong>
+            <span>余弦相似度</span>
+          </div>
+        </div>
+        <div className="speaker-similarity-meter" aria-hidden="true">
+          <i style={{ width: `${meterPosition}%` }} />
+          <b style={{ left: `${thresholdPosition}%` }} />
+        </div>
+        <div className="speaker-comparison-verdict">
+          <strong>
+            {sameSpeaker ? '可能为同一说话人' : '声纹差异较大'}
+          </strong>
+          <span>
+            参考阈值 {threshold.toFixed(2)} · 结果会受录音时长、噪声和设备影响
+          </span>
+        </div>
+      </section>
+    )
+  }
   if (typeof output.dimension === 'number') {
     return (
       <div className="advanced-result-status">
@@ -631,6 +674,7 @@ export function ModelWorkspaceView({
   const streamingEnhanceModel =
     capability === 'audio.enhance' &&
     plugin.streamingMode === 'streaming'
+  const speakerComparisonModel = capability === 'speaker.embed'
   const requiresCustomCosyVoice = [
     'cosyvoice-v3.5-plus',
     'cosyvoice-v3.5-flash',
@@ -708,6 +752,8 @@ export function ModelWorkspaceView({
   const [ttsReferenceClip, setTtsReferenceClip] = useState<AudioClip | null>(
     null,
   )
+  const [speakerAudioA, setSpeakerAudioA] = useState<AudioClip | null>(null)
+  const [speakerAudioB, setSpeakerAudioB] = useState<AudioClip | null>(null)
   const [ttsReferenceText, setTtsReferenceText] = useState('')
   const [ttsReferenceDependencyRunId, setTtsReferenceDependencyRunId] =
     useState<string | null>(null)
@@ -926,8 +972,13 @@ export function ModelWorkspaceView({
   const [attachments, setAttachments] = useState<Record<string, AudioClip>>(
     {},
   )
+  const [comparisonAttachments, setComparisonAttachments] = useState<
+    Record<string, AudioClip>
+  >({})
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ttsReferenceInputRef = useRef<HTMLInputElement>(null)
+  const speakerAudioAInputRef = useRef<HTMLInputElement>(null)
+  const speakerAudioBInputRef = useRef<HTMLInputElement>(null)
   const conversationRef = useRef<HTMLDivElement>(null)
   const followLatestRunRef = useRef(true)
   const transcriptResultRef = useRef<HTMLDivElement>(null)
@@ -1834,6 +1885,69 @@ export function ModelWorkspaceView({
     }
   }
 
+  const prepareSpeakerAudio = async (file: File, slot: 'a' | 'b') => {
+    if (busy) return
+    setBusy(true)
+    onAction(`正在准备音频 ${slot.toUpperCase()}…`)
+    try {
+      const clip = await audioFileToClip(file)
+      if (slot === 'a') {
+        setSpeakerAudioA(clip)
+      } else {
+        setSpeakerAudioB(clip)
+      }
+      onAction(`音频 ${slot.toUpperCase()} 已就绪`)
+    } catch (error) {
+      onAction(
+        `音频准备失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitSpeakerComparison = async () => {
+    if (
+      !plugin.providerId ||
+      !providerReady ||
+      !speakerAudioA ||
+      !speakerAudioB ||
+      busy
+    ) {
+      return
+    }
+    setBusy(true)
+    onAction('正在提取两段声纹并计算余弦相似度…')
+    try {
+      const result = await onRunAudio(
+        speakerAudioA,
+        'speaker.embed',
+        plugin.providerId,
+        plugin.version,
+        {},
+        true,
+        [],
+        speakerAudioB,
+      )
+      setAttachments((current) =>
+        withBoundedAttachment(current, result.run.id, speakerAudioA),
+      )
+      setComparisonAttachments((current) =>
+        withBoundedAttachment(current, result.run.id, speakerAudioB),
+      )
+      setInlineOutputs((current) =>
+        withBoundedEntry(current, result.run.id, result.output),
+      )
+      onAction('声纹比对完成')
+    } catch (error) {
+      onAction(
+        `声纹比对失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const submitAudio = async (file: File) => {
     if (
       !plugin.providerId ||
@@ -2502,7 +2616,7 @@ export function ModelWorkspaceView({
                     'sourceAudioFilePath' in inlineOutput &&
                     typeof inlineOutput.sourceAudioFilePath === 'string'
                   ? convertFileSrc(inlineOutput.sourceAudioFilePath)
-                : undefined)
+                  : undefined)
             const inputAudioDuration =
               inputAudio?.duration ??
               (inlineOutput &&
@@ -2510,6 +2624,7 @@ export function ModelWorkspaceView({
               typeof inlineOutput.duration === 'number'
                 ? inlineOutput.duration
                 : 0)
+            const comparisonInputAudio = comparisonAttachments[run.id]
             return (
               <div
                 className="model-exchange"
@@ -2522,9 +2637,19 @@ export function ModelWorkspaceView({
                     <strong>{run.inputSummary || run.title}</strong>
                     {inputAudioUrl && (
                       <div className="model-user-audio">
+                        {comparisonInputAudio && <span>音频 A</span>}
                         <InlineAudioPlayer
                           src={inputAudioUrl}
                           duration={inputAudioDuration}
+                        />
+                      </div>
+                    )}
+                    {comparisonInputAudio?.url && (
+                      <div className="model-user-audio comparison-audio">
+                        <span>音频 B</span>
+                        <InlineAudioPlayer
+                          src={comparisonInputAudio.url}
+                          duration={comparisonInputAudio.duration}
                         />
                       </div>
                     )}
@@ -2648,6 +2773,28 @@ export function ModelWorkspaceView({
             onChange={(event) => {
               const file = event.target.files?.[0]
               if (file) void prepareTtsReferenceAudio(file)
+              event.target.value = ''
+            }}
+          />
+          <input
+            ref={speakerAudioAInputRef}
+            className="visually-hidden"
+            type="file"
+            accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) void prepareSpeakerAudio(file, 'a')
+              event.target.value = ''
+            }}
+          />
+          <input
+            ref={speakerAudioBInputRef}
+            className="visually-hidden"
+            type="file"
+            accept="audio/*,.wav,.mp3,.flac,.m4a,.ogg,.webm"
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              if (file) void prepareSpeakerAudio(file, 'b')
               event.target.value = ''
             }}
           />
@@ -3002,6 +3149,119 @@ export function ModelWorkspaceView({
                 </button>
               </div>
             </>
+          ) : speakerComparisonModel ? (
+            <AudioFileDropZone
+              disabled={busy}
+              onFile={(file) =>
+                void prepareSpeakerAudio(file, speakerAudioA ? 'b' : 'a')
+              }
+              onInvalidFile={onAction}
+            >
+              <div className="speaker-comparison-composer">
+                <header>
+                  <div>
+                    <Fingerprint size={18} />
+                    <span>
+                      <strong>比较两段人声</strong>
+                      <small>建议每段 5–15 秒，尽量只包含一位说话人</small>
+                    </span>
+                  </div>
+                  <button
+                    className="primary-action"
+                    type="button"
+                    disabled={busy || !speakerAudioA || !speakerAudioB}
+                    onClick={() => void submitSpeakerComparison()}
+                  >
+                    {busy ? (
+                      <LoaderCircle className="model-spin" size={16} />
+                    ) : (
+                      <Fingerprint size={16} />
+                    )}
+                    {busy ? '比对中' : '开始比对'}
+                  </button>
+                </header>
+                <div className="speaker-comparison-inputs">
+                  <div
+                    className={`speaker-audio-slot${speakerAudioA ? ' ready' : ''}`}
+                  >
+                    <div>
+                      <span className="speaker-slot-label">A</span>
+                      <span>
+                        <strong>参考音频</strong>
+                        <small>{speakerAudioA?.name ?? '拖入或上传第一段人声'}</small>
+                      </span>
+                    </div>
+                    {speakerAudioA?.url && (
+                      <InlineAudioPlayer
+                        src={speakerAudioA.url}
+                        duration={speakerAudioA.duration}
+                      />
+                    )}
+                    <div className="speaker-slot-actions">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => speakerAudioAInputRef.current?.click()}
+                      >
+                        <Upload size={15} />
+                        {speakerAudioA ? '更换' : '上传'}
+                      </button>
+                      {speakerAudioA && (
+                        <button
+                          className="remove"
+                          type="button"
+                          title="清除音频 A"
+                          aria-label="清除音频 A"
+                          disabled={busy}
+                          onClick={() => setSpeakerAudioA(null)}
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div
+                    className={`speaker-audio-slot${speakerAudioB ? ' ready' : ''}`}
+                  >
+                    <div>
+                      <span className="speaker-slot-label">B</span>
+                      <span>
+                        <strong>待验证音频</strong>
+                        <small>{speakerAudioB?.name ?? '拖入或上传第二段人声'}</small>
+                      </span>
+                    </div>
+                    {speakerAudioB?.url && (
+                      <InlineAudioPlayer
+                        src={speakerAudioB.url}
+                        duration={speakerAudioB.duration}
+                      />
+                    )}
+                    <div className="speaker-slot-actions">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => speakerAudioBInputRef.current?.click()}
+                      >
+                        <Upload size={15} />
+                        {speakerAudioB ? '更换' : '上传'}
+                      </button>
+                      {speakerAudioB && (
+                        <button
+                          className="remove"
+                          type="button"
+                          title="清除音频 B"
+                          aria-label="清除音频 B"
+                          disabled={busy}
+                          onClick={() => setSpeakerAudioB(null)}
+                        >
+                          <X size={15} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </AudioFileDropZone>
           ) : (
             <AudioFileDropZone
               disabled={busy || recording}
