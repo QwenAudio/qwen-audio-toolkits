@@ -1,5 +1,6 @@
 import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { readApiModelCatalog } from './lib/api-model-catalog.mjs'
 
 const repository = process.argv[2]
 if (!repository) {
@@ -9,6 +10,7 @@ if (!repository) {
 
 const root = resolve(repository)
 const modelsRoot = resolve(root, 'models')
+const apiModels = await readApiModelCatalog()
 const entries = await readdir(modelsRoot, { withFileTypes: true })
 const plugins = []
 
@@ -37,7 +39,7 @@ for (const entry of entries.sort((left, right) => left.name.localeCompare(right.
   })
 }
 
-const catalog = { schemaVersion: 1, plugins, apiModels: [] }
+const catalog = { schemaVersion: 1, plugins, apiModels }
 const output = resolve(root, 'model-catalog.json')
 await writeFile(output, `${JSON.stringify(catalog, null, 2)}\n`)
 console.log(`Exported ${plugins.length} plugins to ${output}`)

@@ -688,9 +688,10 @@ export function ModelWorkspaceView({
     plugin.streamingMode === 'streaming'
   const speakerComparisonModel = capability === 'speaker.embed'
   const voiceOptions = cloudVoiceOptions(plugin)
-  const funAsrSupportsContext = plugin.version === 'fun-asr-realtime'
   const funAsrIs8k = plugin.version.includes('-8k-')
   const paraformerModel = plugin.version.startsWith('paraformer-')
+  const funAsrSupportsContext =
+    funAsrModel && !funAsrIs8k && !paraformerModel
   const adjustableVadModel = plugin.adapter === 'silero-vad'
   const adjustableEnhanceModel = capability === 'audio.enhance' && !apiModel
   const modelRuns = useMemo(

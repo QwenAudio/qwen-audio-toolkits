@@ -8,6 +8,7 @@ use crate::harness::{
     CAPABILITY_SOURCE_SEPARATION, CAPABILITY_SPEAKER_EMBED, CAPABILITY_TEXT,
     CAPABILITY_TEXT_NORMALIZE, CAPABILITY_TTS, CAPABILITY_VAD,
 };
+use minisign_verify::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
@@ -25,7 +26,11 @@ const MAX_ARCHIVE_ENTRIES: usize = 100_000;
 const MAX_CATALOG_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_CATALOG_PLUGINS: usize = 1_000;
 const MAX_CATALOG_VARIANTS: usize = 32;
-const DEFAULT_CATALOG_URL: &str = "https://www.modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/model-catalog.json";
+const MAX_CATALOG_API_MODELS: usize = 256;
+const MAX_API_MODEL_ALIASES: usize = 16;
+const MAX_CATALOG_SIGNATURE_BYTES: u64 = 16 * 1024;
+const CATALOG_PUBLIC_KEY: &str = "RWQBgqf6blQyyS5iZtY8jghQsvoA1CpEUXbZOwwxuipkYCCsR/kHQ5tO";
+const DEFAULT_CATALOG_URL: &str = "https://github.com/QwenAudio/qwen-audio-toolkits/releases/download/model-catalog-v1/model-catalog.json";
 const DEFAULT_MODEL_REPOSITORY_RESOLVE: &str =
     "https://www.modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master";
 const DEFAULT_MODEL_REPOSITORY_FILES_API: &str =
@@ -678,16 +683,15 @@ fn catalog_values(app: &AppHandle) -> Result<Vec<serde_json::Value>, String> {
         entries.insert(id, value);
     }
     if catalog_source_url(app)?.is_some() {
-        if let Ok(bytes) = fs::read(catalog_cache_path(app)?) {
-            if let Ok(remote) = parse_remote_catalog(&bytes) {
-                for value in remote.plugins {
-                    let id = catalog_entry_id(&value)?;
-                    let value = entries
-                        .get(&id)
-                        .map(|builtin| merge_catalog_entry_payload(builtin, value.clone()))
-                        .unwrap_or(value);
-                    entries.insert(id, value);
-                }
+        if let Some(bytes) = read_verified_catalog_cache(app)? {
+            let remote = parse_remote_catalog(&bytes)?;
+            for value in remote.plugins {
+                let id = catalog_entry_id(&value)?;
+                let value = entries
+                    .get(&id)
+                    .map(|builtin| merge_catalog_entry_payload(builtin, value.clone()))
+                    .unwrap_or(value);
+                entries.insert(id, value);
             }
         }
     }
@@ -832,6 +836,42 @@ fn catalog_cache_path(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|error| format!("无法定位模型目录缓存: {error}"))
 }
 
+fn catalog_cache_signature_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|path| path.join("catalog-cache.json.sig"))
+        .map_err(|error| format!("无法定位模型目录签名缓存: {error}"))
+}
+
+fn verify_catalog_signature(bytes: &[u8], signature_bytes: &[u8]) -> Result<(), String> {
+    let signature_text = std::str::from_utf8(signature_bytes)
+        .map_err(|error| format!("在线模型目录签名不是有效文本: {error}"))?;
+    let public_key = PublicKey::from_base64(CATALOG_PUBLIC_KEY)
+        .map_err(|error| format!("无法读取模型目录公钥: {error}"))?;
+    let signature = Signature::decode(signature_text)
+        .map_err(|error| format!("在线模型目录签名无效: {error}"))?;
+    public_key
+        .verify(bytes, &signature, false)
+        .map_err(|error| format!("在线模型目录签名校验失败: {error}"))
+}
+
+fn read_verified_catalog_cache(app: &AppHandle) -> Result<Option<Vec<u8>>, String> {
+    let bytes = match fs::read(catalog_cache_path(app)?) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("无法读取模型目录缓存: {error}")),
+    };
+    let signature = match fs::read(catalog_cache_signature_path(app)?) {
+        Ok(signature) => signature,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("无法读取模型目录签名缓存: {error}")),
+    };
+    if verify_catalog_signature(&bytes, &signature).is_err() {
+        return Ok(None);
+    }
+    Ok(Some(bytes))
+}
+
 fn catalog_source_url(app: &AppHandle) -> Result<Option<String>, String> {
     if let Ok(url) = env::var("QWEN_AUDIO_CATALOG_URL") {
         return validate_catalog_url(&url).map(Some);
@@ -887,7 +927,7 @@ fn refresh_remote_catalog(app: &AppHandle) -> Result<(), String> {
         .build()
         .map_err(|error| format!("无法创建模型目录连接: {error}"))?;
     let mut response = client
-        .get(url)
+        .get(&url)
         .send()
         .map_err(|error| format!("无法读取在线模型目录: {error}"))?
         .error_for_status()
@@ -907,14 +947,43 @@ fn refresh_remote_catalog(app: &AppHandle) -> Result<(), String> {
     if bytes.len() as u64 > MAX_CATALOG_BYTES {
         return Err("在线模型目录超过 2 MB 限制".to_string());
     }
+    let signature_url = format!("{url}.sig");
+    let mut signature_response = client
+        .get(&signature_url)
+        .send()
+        .map_err(|error| format!("无法下载在线模型目录签名: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("在线模型目录签名请求失败: {error}"))?;
+    if signature_response
+        .content_length()
+        .is_some_and(|length| length > MAX_CATALOG_SIGNATURE_BYTES)
+    {
+        return Err("在线模型目录签名超过 16 KB 限制".to_string());
+    }
+    let mut signature = Vec::new();
+    signature_response
+        .by_ref()
+        .take(MAX_CATALOG_SIGNATURE_BYTES + 1)
+        .read_to_end(&mut signature)
+        .map_err(|error| format!("无法读取在线模型目录签名: {error}"))?;
+    if signature.len() as u64 > MAX_CATALOG_SIGNATURE_BYTES {
+        return Err("在线模型目录签名超过 16 KB 限制".to_string());
+    }
+    verify_catalog_signature(&bytes, &signature)?;
     parse_remote_catalog(&bytes)?;
     let cache_path = catalog_cache_path(app)?;
+    let signature_cache_path = catalog_cache_signature_path(app)?;
     if let Some(parent) = cache_path.parent() {
         fs::create_dir_all(parent).map_err(|error| format!("无法创建目录缓存: {error}"))?;
     }
     let temporary = cache_path.with_extension("json.tmp");
+    let signature_temporary = signature_cache_path.with_extension("sig.tmp");
     fs::write(&temporary, &bytes).map_err(|error| format!("无法写入目录缓存: {error}"))?;
-    fs::rename(&temporary, &cache_path).map_err(|error| format!("无法更新目录缓存: {error}"))
+    fs::write(&signature_temporary, &signature)
+        .map_err(|error| format!("无法写入目录签名缓存: {error}"))?;
+    fs::rename(&temporary, &cache_path).map_err(|error| format!("无法更新目录缓存: {error}"))?;
+    fs::rename(&signature_temporary, &signature_cache_path)
+        .map_err(|error| format!("无法更新目录签名缓存: {error}"))
 }
 
 fn parse_remote_catalog(bytes: &[u8]) -> Result<RemoteCatalogEnvelope, String> {
@@ -952,6 +1021,11 @@ fn parse_remote_catalog(bytes: &[u8]) -> Result<RemoteCatalogEnvelope, String> {
         }
     }
     let mut api_ids = std::collections::HashSet::new();
+    if envelope.api_models.len() > MAX_CATALOG_API_MODELS {
+        return Err(format!(
+            "在线模型目录最多支持 {MAX_CATALOG_API_MODELS} 个 API 模型"
+        ));
+    }
     for model in &envelope.api_models {
         validate_remote_api_model(model)?;
         if !api_ids.insert(model.id.clone()) {
@@ -1034,6 +1108,24 @@ fn validate_remote_api_model(model: &ApiModelCatalogEntry) -> Result<(), String>
     {
         return Err("在线 API 模型缺少 id、modelId 或 name".to_string());
     }
+    if !valid_api_model_identifier(&model.model_id) {
+        return Err(format!("在线 API 模型 {} 的 modelId 无效", model.id));
+    }
+    if model.aliases.len() > MAX_API_MODEL_ALIASES {
+        return Err(format!(
+            "在线 API 模型 {} 最多支持 {MAX_API_MODEL_ALIASES} 个别名",
+            model.id
+        ));
+    }
+    let mut aliases = std::collections::HashSet::new();
+    for alias in &model.aliases {
+        if !valid_api_model_identifier(alias)
+            || alias == &model.model_id
+            || !aliases.insert(alias.as_str())
+        {
+            return Err(format!("在线 API 模型 {} 包含无效或重复别名", model.id));
+        }
+    }
     if !matches!(
         model.provider_id.as_str(),
         "api.bailian" | "api.openai-compatible"
@@ -1048,7 +1140,7 @@ fn validate_remote_api_model(model: &ApiModelCatalogEntry) -> Result<(), String>
         "bailian-tts" | "bailian-cosyvoice" | "compatible-tts" => {
             model.harness_capability == CAPABILITY_TTS
         }
-        "bailian-asr" | "bailian-funasr" | "compatible-asr" => {
+        "bailian-asr" | "bailian-qwen-audio-asr" | "bailian-funasr" | "compatible-asr" => {
             model.harness_capability == CAPABILITY_ASR
         }
         "bailian-llm" | "compatible-llm" => model.harness_capability == CAPABILITY_TEXT,
@@ -1064,6 +1156,14 @@ fn validate_remote_api_model(model: &ApiModelCatalogEntry) -> Result<(), String>
         return Err(format!("在线 API 模型 {} 的 streamingMode 无效", model.id));
     }
     Ok(())
+}
+
+fn valid_api_model_identifier(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':' | b'/')
+        })
 }
 
 fn validate_remote_asset(source: &str, sha256: &str) -> Result<(), String> {
@@ -1375,10 +1475,14 @@ pub struct ApiModelCatalogEntry {
     provider_id: String,
     adapter: String,
     model_id: String,
+    #[serde(default)]
+    aliases: Vec<String>,
     #[serde(default = "default_batch_streaming_mode")]
     streaming_mode: String,
     #[serde(default)]
     featured: bool,
+    #[serde(default = "default_true")]
+    visible: bool,
 }
 
 fn default_batch_streaming_mode() -> String {
@@ -1461,15 +1565,47 @@ pub fn plugin_catalog(app: AppHandle) -> Result<Vec<PluginDescriptor>, String> {
 
 #[tauri::command]
 pub fn plugin_api_catalog(app: AppHandle) -> Result<Vec<ApiModelCatalogEntry>, String> {
-    if catalog_source_url(&app)?.is_none() {
+    cached_api_models(&app)
+}
+
+fn cached_api_models(app: &AppHandle) -> Result<Vec<ApiModelCatalogEntry>, String> {
+    if catalog_source_url(app)?.is_none() {
         return Ok(Vec::new());
     }
-    let bytes = match fs::read(catalog_cache_path(&app)?) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(format!("无法读取模型目录缓存: {error}")),
+    let Some(bytes) = read_verified_catalog_cache(app)? else {
+        return Ok(Vec::new());
     };
     Ok(parse_remote_catalog(&bytes)?.api_models)
+}
+
+pub(crate) fn api_model_route(
+    app: &AppHandle,
+    provider_id: &str,
+    capability: &str,
+    model_id: &str,
+) -> Result<Option<(String, String)>, String> {
+    Ok(cached_api_models(app)?
+        .into_iter()
+        .find(|model| api_model_matches(model, provider_id, capability, model_id))
+        .map(|model| {
+            let adapter = match model.adapter.as_str() {
+                "bailian-tts" | "bailian-asr" | "bailian-qwen-audio-asr" => "bailian".to_string(),
+                adapter => adapter.to_string(),
+            };
+            (model.model_id, adapter)
+        }))
+}
+
+fn api_model_matches(
+    model: &ApiModelCatalogEntry,
+    provider_id: &str,
+    capability: &str,
+    model_id: &str,
+) -> bool {
+    model.visible
+        && model.provider_id == provider_id
+        && model.harness_capability == capability
+        && (model.model_id == model_id || model.aliases.iter().any(|alias| alias == model_id))
 }
 
 #[tauri::command]
@@ -5301,14 +5437,59 @@ mod tests {
                 "providerId": "api.bailian",
                 "adapter": "bailian-funasr",
                 "modelId": "next-asr-realtime",
+                "aliases": ["legacy-asr-realtime"],
                 "streamingMode": "streaming",
-                "featured": false
+                "featured": false,
+                "visible": true
             }]
         }))
         .expect("serialize remote API catalog");
         let catalog = parse_remote_catalog(&bytes).expect("parse remote API catalog");
         assert_eq!(catalog.api_models.len(), 1);
         assert_eq!(catalog.api_models[0].model_id, "next-asr-realtime");
+        assert!(api_model_matches(
+            &catalog.api_models[0],
+            "api.bailian",
+            CAPABILITY_ASR,
+            "legacy-asr-realtime"
+        ));
+        assert!(!api_model_matches(
+            &catalog.api_models[0],
+            "api.bailian",
+            CAPABILITY_TTS,
+            "legacy-asr-realtime"
+        ));
+    }
+
+    #[test]
+    fn exported_catalog_matches_the_runtime_schema() {
+        let catalog = parse_remote_catalog(include_bytes!("../../catalog/model-catalog.json"))
+            .expect("parse exported model catalog");
+        assert_eq!(catalog.api_models.len(), 16);
+        assert!(catalog.api_models.iter().any(|model| model
+            .aliases
+            .iter()
+            .any(|alias| alias == "fun-asr-realtime")));
+    }
+
+    #[test]
+    fn remote_catalog_rejects_duplicate_api_aliases() {
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "schemaVersion": 1,
+            "apiModels": [{
+                "id": "bailian-next-asr",
+                "name": "Next ASR",
+                "author": "Example",
+                "harnessCapability": "speech.transcribe",
+                "providerId": "api.bailian",
+                "adapter": "bailian-funasr",
+                "modelId": "next-asr-realtime",
+                "aliases": ["legacy-asr", "legacy-asr"],
+                "streamingMode": "streaming"
+            }]
+        }))
+        .expect("serialize invalid API aliases");
+        assert!(parse_remote_catalog(&bytes).is_err());
     }
 
     #[test]

@@ -2,7 +2,16 @@
 
 The model store is data-driven. Its bundled fallback is
 `catalog/model-catalog.json`; released apps refresh `model-catalog.json` from
-the ModelScope model repository without an application update.
+the `model-catalog-v1` GitHub prerelease without an application update. The
+catalog and its detached `.sig` file are published by
+`.github/workflows/model-catalog.yml` and verified with the updater Minisign
+public key before replacing the local cache. Model payloads and native runtime
+packages continue to download from the ModelScope model repository.
+
+The publishing workflow merges the complete ModelScope plugin catalog with
+`catalog/api-models.json`, then signs the combined envelope. It runs whenever
+API metadata changes, on manual dispatch, and every six hours so ModelScope
+plugin updates can reach clients without a desktop release.
 
 ## Catalog envelope
 
@@ -15,8 +24,22 @@ the ModelScope model repository without an application update.
 ```
 
 `plugins` contains local model packages. `apiModels` contains models exposed by
-an already supported cloud provider. Adding metadata or another model using a
-reviewed adapter does not require frontend code.
+an already supported cloud provider. Bundled API metadata is maintained in
+`catalog/api-models.json`; a validated remote entry with the same stable `id`
+overrides it. Adding metadata or another model using a reviewed adapter does
+not require frontend code.
+
+An API model entry uses `name` as its canonical display name, `modelId` as the
+preferred service identifier, and `aliases` for service identifiers retained
+for compatibility and search. Keep the stable catalog `id` unchanged when a
+provider renames a model so installed state, pins, and saved workflows remain
+valid. Set `visible` to `false` to remotely hide an entry without deleting user
+state. Aliases are declarative metadata only and may select only a reviewed
+adapter already bundled with the application.
+
+The app refreshes the catalog at startup and every six hours. A failed network,
+schema, adapter, or signature check leaves the last verified cache in place;
+when no verified cache exists, the bundled catalog remains available.
 
 ## Local model entry
 

@@ -72,6 +72,9 @@ const BAILIAN_TTS_PLUS_MODEL: &str = "qwen-audio-3.0-tts-plus";
 const BAILIAN_QWEN_ASR_MODEL: &str = "qwen3-asr-flash";
 const BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL: &str = "qwen-audio-3.0-asr-flash-filetrans";
 const BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL: &str = "qwen-audio-3.0-asr-flash";
+const BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL: &str = "qwen-audio-3.0-asr-flash-streaming";
+const BAILIAN_FUN_ASR_FILETRANS_MODEL: &str = "fun-asr";
+const BAILIAN_FUN_ASR_FLASH_MODEL: &str = "fun-asr-flash";
 const BAILIAN_FUN_ASR_MODEL: &str = "fun-asr-realtime";
 const BAILIAN_FUN_ASR_8K_MODEL: &str = "fun-asr-flash-8k-realtime";
 const BAILIAN_PARAFORMER_MODEL: &str = "paraformer-realtime-v2";
@@ -112,8 +115,11 @@ fn bailian_model_kind(model: &str) -> Option<BailianModelKind> {
         | BAILIAN_COSYVOICE_35_FLASH_MODEL => Some(BailianModelKind::CosyVoice),
         BAILIAN_QWEN_ASR_MODEL
         | BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL
-        | BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL => Some(BailianModelKind::Asr),
-        BAILIAN_FUN_ASR_MODEL
+        | BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL
+        | BAILIAN_FUN_ASR_FILETRANS_MODEL
+        | BAILIAN_FUN_ASR_FLASH_MODEL => Some(BailianModelKind::Asr),
+        BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL
+        | BAILIAN_FUN_ASR_MODEL
         | BAILIAN_FUN_ASR_8K_MODEL
         | BAILIAN_PARAFORMER_MODEL
         | BAILIAN_PARAFORMER_8K_MODEL => Some(BailianModelKind::FunAsr),
@@ -159,6 +165,27 @@ fn bailian_adapter_for(capability: &str, model: &str) -> &'static str {
 
 fn is_bailian_funasr_model(model: &str) -> bool {
     matches!(bailian_model_kind(model), Some(BailianModelKind::FunAsr))
+}
+
+fn canonical_bailian_model_id(model: &str) -> &str {
+    match model {
+        BAILIAN_FUN_ASR_FILETRANS_MODEL => BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL,
+        BAILIAN_FUN_ASR_FLASH_MODEL => BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL,
+        BAILIAN_FUN_ASR_MODEL => BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL,
+        _ => model,
+    }
+}
+
+fn resolve_bailian_funasr_model(app: &AppHandle, model: &str) -> Result<Option<String>, String> {
+    let canonical = canonical_bailian_model_id(model);
+    if is_bailian_funasr_model(canonical) {
+        return Ok(Some(canonical.to_string()));
+    }
+    Ok(
+        plugins::api_model_route(app, BAILIAN_PROVIDER_ID, CAPABILITY_ASR, model)?
+            .filter(|(_, adapter)| adapter == "bailian-funasr")
+            .map(|(model_id, _)| model_id),
+    )
 }
 
 fn bailian_cosyvoice_model(model: Option<&str>) -> Result<&str, String> {
@@ -1003,8 +1030,8 @@ pub(crate) fn catalog_for_app(app: &AppHandle) -> HarnessCatalog {
                             loaded: false,
                         },
                         ModelDescriptor {
-                            id: BAILIAN_FUN_ASR_MODEL.to_string(),
-                            name: "FunASR Realtime".to_string(),
+                            id: BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL.to_string(),
+                            name: "Qwen-Audio-3.0-ASR-Flash-Streaming".to_string(),
                             installed: true,
                             loaded: false,
                         },
@@ -1735,12 +1762,14 @@ pub fn harness_start_funasr_stream(
     }
 
     let config = configured_bailian_provider(&app)?;
-    let model_id = request
+    let requested_model = request
         .model_id
         .as_deref()
-        .filter(|model| is_bailian_funasr_model(model))
-        .unwrap_or(BAILIAN_FUN_ASR_MODEL)
-        .to_string();
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .unwrap_or(BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL);
+    let model_id = resolve_bailian_funasr_model(&app, requested_model)?
+        .ok_or_else(|| format!("模型 {requested_model} 不支持百炼流式 ASR"))?;
     let session_id = Uuid::new_v4().to_string();
     let run_id = new_run_id();
     let now = timestamp_millis();
@@ -1777,7 +1806,7 @@ pub fn harness_start_funasr_stream(
     runtime
         .funasr_streams
         .lock()
-        .map_err(|_| "FunASR 流式会话状态不可用".to_string())?
+        .map_err(|_| "百炼流式 ASR 会话状态不可用".to_string())?
         .insert(session_id.clone(), sender);
     emit_run(&app, &run);
 
@@ -1822,7 +1851,7 @@ pub fn harness_start_funasr_stream(
                 }
                 (Ok(_), None) => {
                     run.status = "failed".to_string();
-                    run.error = Some("无法保存 FunASR 流式识别结果".to_string());
+                    run.error = Some("无法保存百炼流式 ASR 识别结果".to_string());
                 }
                 (Err(error), _) => {
                     run.status = "failed".to_string();
@@ -1950,24 +1979,24 @@ pub fn harness_push_funasr_stream(
 ) -> Result<(), String> {
     let pcm = STANDARD
         .decode(pcm_base64)
-        .map_err(|error| format!("FunASR PCM 数据无效: {error}"))?;
+        .map_err(|error| format!("流式 ASR PCM 数据无效: {error}"))?;
     if pcm.is_empty() || pcm.len() % 2 != 0 {
-        return Err("FunASR PCM 数据必须是非空的 16-bit 音频".to_string());
+        return Err("流式 ASR PCM 数据必须是非空的 16-bit 音频".to_string());
     }
     let sender = runtime
         .funasr_streams
         .lock()
-        .map_err(|_| "FunASR 流式会话状态不可用".to_string())?
+        .map_err(|_| "流式 ASR 会话状态不可用".to_string())?
         .get(&session_id)
         .cloned()
-        .ok_or_else(|| "FunASR 流式会话不存在或已经结束".to_string())?;
+        .ok_or_else(|| "流式 ASR 会话不存在或已经结束".to_string())?;
     sender
         .try_send(FunAsrStreamCommand::Audio(pcm))
         .map_err(|error| match error {
             mpsc::error::TrySendError::Full(_) => {
-                "FunASR 处理速度跟不上输入，已触发背压保护".to_string()
+                "流式 ASR 处理速度跟不上输入，已触发背压保护".to_string()
             }
-            mpsc::error::TrySendError::Closed(_) => "FunASR 流式会话已经关闭".to_string(),
+            mpsc::error::TrySendError::Closed(_) => "流式 ASR 会话已经关闭".to_string(),
         })
 }
 
@@ -1980,7 +2009,7 @@ pub async fn harness_finish_funasr_stream(
         runtime
             .funasr_streams
             .lock()
-            .map_err(|_| "FunASR 流式会话状态不可用".to_string())?
+            .map_err(|_| "流式 ASR 会话状态不可用".to_string())?
             .get(&session_id)
             .cloned()
     };
@@ -1990,19 +2019,19 @@ pub async fn harness_finish_funasr_stream(
     sender
         .send(FunAsrStreamCommand::Finish)
         .await
-        .map_err(|_| "FunASR 流式会话已经关闭".to_string())?;
+        .map_err(|_| "流式 ASR 会话已经关闭".to_string())?;
     for _ in 0..200 {
         let completed = !runtime
             .funasr_streams
             .lock()
-            .map_err(|_| "FunASR 流式会话状态不可用".to_string())?
+            .map_err(|_| "流式 ASR 会话状态不可用".to_string())?
             .contains_key(&session_id);
         if completed {
             return Ok(());
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    Err("等待 FunASR 完成事件超时".to_string())
+    Err("等待流式 ASR 完成事件超时".to_string())
 }
 
 #[tauri::command]
@@ -2497,7 +2526,7 @@ async fn run_funasr_stream(
         + "/api-ws/v1/inference";
     let mut websocket_request = websocket_url
         .into_client_request()
-        .map_err(|error| format!("无法创建 FunASR WebSocket 请求: {error}"))?;
+        .map_err(|error| format!("无法创建百炼流式 ASR WebSocket 请求: {error}"))?;
     websocket_request.headers_mut().insert(
         "Authorization",
         HeaderValue::from_str(&format!("Bearer {}", config.api_key))
@@ -2509,7 +2538,7 @@ async fn run_funasr_stream(
     );
     let (mut socket, _) = connect_async(websocket_request)
         .await
-        .map_err(|error| format!("FunASR WebSocket 连接失败: {error}"))?;
+        .map_err(|error| format!("百炼流式 ASR WebSocket 连接失败: {error}"))?;
     let task_id = Uuid::new_v4().to_string();
     let context = request
         .context
@@ -2561,26 +2590,26 @@ async fn run_funasr_stream(
             .to_string(),
         ))
         .await
-        .map_err(|error| format!("无法启动 FunASR 任务: {error}"))?;
+        .map_err(|error| format!("无法启动百炼流式 ASR 任务: {error}"))?;
 
     tokio::time::timeout(Duration::from_secs(20), async {
         while let Some(message) = socket.next().await {
-            let message = message.map_err(|error| format!("FunASR 启动失败: {error}"))?;
+            let message = message.map_err(|error| format!("百炼流式 ASR 启动失败: {error}"))?;
             let Message::Text(text) = message else {
                 continue;
             };
             let event = serde_json::from_str::<Value>(&text)
-                .map_err(|error| format!("FunASR 返回了无效事件: {error}"))?;
+                .map_err(|error| format!("百炼流式 ASR 返回了无效事件: {error}"))?;
             match event.pointer("/header/event").and_then(Value::as_str) {
                 Some("task-started") => return Ok(()),
                 Some("task-failed") => return Err(funasr_event_error(&event)),
                 _ => {}
             }
         }
-        Err("FunASR 在任务启动前关闭了连接".to_string())
+        Err("百炼流式 ASR 在任务启动前关闭了连接".to_string())
     })
     .await
-    .map_err(|_| "FunASR 任务启动超时".to_string())??;
+    .map_err(|_| "百炼流式 ASR 任务启动超时".to_string())??;
 
     let (mut writer, mut reader) = socket.split();
     let started = Instant::now();
@@ -2623,7 +2652,7 @@ async fn run_funasr_stream(
                         writer
                             .send(Message::Binary(bytes))
                             .await
-                            .map_err(|error| format!("FunASR 音频发送失败: {error}"))?;
+                            .map_err(|error| format!("百炼流式 ASR 音频发送失败: {error}"))?;
                     }
                     Some(FunAsrStreamCommand::Finish) | None => {
                         writer
@@ -2640,20 +2669,20 @@ async fn run_funasr_stream(
                                 ,
                             ))
                             .await
-                            .map_err(|error| format!("无法结束 FunASR 任务: {error}"))?;
+                            .map_err(|error| format!("无法结束百炼流式 ASR 任务: {error}"))?;
                         finishing = true;
                     }
                 }
             }
             message = reader.next() => {
                 let message = message
-                    .ok_or_else(|| "FunASR 在返回完成事件前关闭了连接".to_string())?
-                    .map_err(|error| format!("FunASR 接收失败: {error}"))?;
+                    .ok_or_else(|| "百炼流式 ASR 在返回完成事件前关闭了连接".to_string())?
+                    .map_err(|error| format!("百炼流式 ASR 接收失败: {error}"))?;
                 let Message::Text(text) = message else {
                     continue;
                 };
                 let event = serde_json::from_str::<Value>(&text)
-                    .map_err(|error| format!("FunASR 返回了无效事件: {error}"))?;
+                    .map_err(|error| format!("百炼流式 ASR 返回了无效事件: {error}"))?;
                 match event.pointer("/header/event").and_then(Value::as_str) {
                     Some("result-generated") => {
                         let sentence = event
@@ -2723,7 +2752,7 @@ async fn run_funasr_stream(
         .collect::<Vec<_>>()
         .join("\n");
     if text.trim().is_empty() {
-        return Err("FunASR 没有识别出有效文本".to_string());
+        return Err("百炼流式 ASR 没有识别出有效文本".to_string());
     }
     let speech_seconds = segments
         .iter()
@@ -4513,11 +4542,17 @@ async fn execute_bailian_asr(
     cancel: Arc<AtomicBool>,
     progress_callback: Option<AsrProgressCallback>,
 ) -> Result<Value, String> {
-    if model_id == BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL {
+    if matches!(
+        model_id,
+        BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL | BAILIAN_FUN_ASR_FILETRANS_MODEL
+    ) {
         return execute_bailian_filetrans_asr(app, request, model_id, cancel, progress_callback)
             .await;
     }
-    if model_id == BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL {
+    if matches!(
+        model_id,
+        BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL | BAILIAN_FUN_ASR_FLASH_MODEL
+    ) {
         return execute_bailian_flash_asr(app, request, model_id, cancel, progress_callback).await;
     }
 
@@ -5767,7 +5802,20 @@ fn resolve_provider(
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let model_id = match (request.capability.as_str(), requested_model) {
+        let catalog_route = requested_model
+            .map(|model| {
+                plugins::api_model_route(app, BAILIAN_PROVIDER_ID, &request.capability, model)
+            })
+            .transpose()?
+            .flatten();
+        let normalized_model = catalog_route
+            .as_ref()
+            .map(|(model_id, _)| model_id.as_str())
+            .or_else(|| requested_model.map(canonical_bailian_model_id));
+        let catalog_adapter = catalog_route
+            .as_ref()
+            .map(|(_, adapter)| adapter.to_string());
+        let model_id = match (request.capability.as_str(), normalized_model) {
             (CAPABILITY_TTS, None) => BAILIAN_TTS_MODEL,
             (CAPABILITY_TTS, Some(model))
                 if bailian_model_supports_capability(CAPABILITY_TTS, model) =>
@@ -5785,6 +5833,7 @@ fn resolve_provider(
             }
             (CAPABILITY_TEXT, Some(BAILIAN_QWEN_36_PLUS_MODEL)) => BAILIAN_QWEN_36_PLUS_MODEL,
             (CAPABILITY_ENHANCE, None | Some(BAILIAN_DENOISE_MODEL)) => BAILIAN_DENOISE_MODEL,
+            (_, Some(model)) if catalog_adapter.is_some() => model,
             (
                 CAPABILITY_TTS
                 | CAPABILITY_ASR
@@ -5800,7 +5849,8 @@ fn resolve_provider(
             name: config.name,
             model_id: model_id.to_string(),
             is_api: true,
-            adapter: bailian_adapter_for(&request.capability, model_id).to_string(),
+            adapter: catalog_adapter
+                .unwrap_or_else(|| bailian_adapter_for(&request.capability, model_id).to_string()),
             model_path: None,
         });
     }
@@ -6187,6 +6237,8 @@ mod tests {
         for model in [
             BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL,
             BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL,
+            BAILIAN_FUN_ASR_FILETRANS_MODEL,
+            BAILIAN_FUN_ASR_FLASH_MODEL,
         ] {
             assert_eq!(bailian_model_kind(model), Some(BailianModelKind::Asr));
             assert!(bailian_model_supports_capability(CAPABILITY_ASR, model));
@@ -6195,6 +6247,26 @@ mod tests {
         assert_eq!(
             bailian_model_kind(BAILIAN_FUN_ASR_MODEL),
             Some(BailianModelKind::FunAsr)
+        );
+        assert_eq!(
+            bailian_model_kind(BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL),
+            Some(BailianModelKind::FunAsr)
+        );
+        assert_eq!(
+            bailian_adapter_for(CAPABILITY_ASR, BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL),
+            "bailian-funasr"
+        );
+        assert_eq!(
+            canonical_bailian_model_id(BAILIAN_FUN_ASR_FILETRANS_MODEL),
+            BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL
+        );
+        assert_eq!(
+            canonical_bailian_model_id(BAILIAN_FUN_ASR_FLASH_MODEL),
+            BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL
+        );
+        assert_eq!(
+            canonical_bailian_model_id(BAILIAN_FUN_ASR_MODEL),
+            BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL
         );
         assert_eq!(
             bailian_model_kind(BAILIAN_COSYVOICE_35_PLUS_MODEL),

@@ -395,7 +395,11 @@ export function PluginsView({
       allModels.filter((plugin) => {
         const searchMatch =
           plugin.name.toLowerCase().includes(search.toLowerCase()) ||
-          plugin.description.toLowerCase().includes(search.toLowerCase())
+          plugin.description.toLowerCase().includes(search.toLowerCase()) ||
+          plugin.version.toLowerCase().includes(search.toLowerCase()) ||
+          (plugin.apiAliases ?? []).some((alias) =>
+            alias.toLowerCase().includes(search.toLowerCase()),
+          )
         const filterMatch =
           filter === 'all' ||
           (filter === 'audio' &&
@@ -1462,6 +1466,15 @@ export function PluginsView({
                         : selectedVariant?.size ?? selectedPlugin.size}
                     </dd>
                   </div>
+                  {selectedIsApi &&
+                    (selectedPlugin.apiAliases?.length ?? 0) > 0 && (
+                      <div>
+                        <dt>
+                          <TerminalSquare size={14} /> 兼容别名
+                        </dt>
+                        <dd>{selectedPlugin.apiAliases?.join(' / ')}</dd>
+                      </div>
+                    )}
                   {selectedPlugin.license && (
                     <div>
                       <dt>许可证</dt>

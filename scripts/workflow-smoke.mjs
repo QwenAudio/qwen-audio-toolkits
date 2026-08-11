@@ -5,6 +5,7 @@ import {
   workflowParametersForModel,
 } from '../src/domain/capabilities.ts'
 import { modelInputProfile } from '../src/domain/modelInputs.ts'
+import { cloudModelsFromCatalog } from '../src/cloudModels.ts'
 
 const input = {
   id: 'input',
@@ -242,9 +243,66 @@ assert.deepEqual(
   expectProfile({ speakerCount: 174, supportsSpeakerSelection: true }),
 )
 
+assert.deepEqual(
+  workflowParametersForModel('speech.transcribe', {
+    adapter: 'bailian-funasr',
+    version: 'qwen-audio-3.0-asr-flash-streaming',
+  }),
+  { language: 'auto', context: '', semanticPunctuation: true },
+)
+
+const cloudCatalog = {
+  capabilities: [],
+  providers: [
+    {
+      id: 'api.bailian',
+      name: '阿里云百炼',
+      kind: 'api',
+      runtime: 'dashscope.aliyuncs.com',
+      status: 'ready',
+      configured: true,
+      local: false,
+      capabilities: ['speech.transcribe'],
+      models: [],
+    },
+  ],
+}
+const streamingCloudModel = cloudModelsFromCatalog(cloudCatalog, [
+  'bailian-funasr-realtime',
+]).find((entry) => entry.id === 'bailian-funasr-realtime')
+assert.equal(
+  streamingCloudModel?.name,
+  'Qwen-Audio-3.0-ASR-Flash-Streaming',
+)
+assert.deepEqual(streamingCloudModel?.apiAliases, ['fun-asr-realtime'])
+assert.equal(streamingCloudModel?.installed, true)
+
+const hiddenStreamingModel = {
+  id: 'bailian-funasr-realtime',
+  name: 'Hidden Streaming ASR',
+  author: '阿里云百炼',
+  description: '',
+  capabilities: ['ASR'],
+  harnessCapability: 'speech.transcribe',
+  providerId: 'api.bailian',
+  adapter: 'bailian-funasr',
+  modelId: 'qwen-audio-3.0-asr-flash-streaming',
+  aliases: ['fun-asr-realtime'],
+  streamingMode: 'streaming',
+  featured: false,
+  visible: false,
+}
+assert.equal(
+  cloudModelsFromCatalog(cloudCatalog, [], [hiddenStreamingModel]).some(
+    (entry) => entry.id === hiddenStreamingModel.id,
+  ),
+  false,
+)
+
 console.log(
   JSON.stringify({
     validTopologies: validCases.length,
     rejectedTopologies: invalidCases.length,
+    remoteApiCatalog: true,
   }),
 )
