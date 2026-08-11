@@ -99,6 +99,7 @@ export interface WorkflowNodeResult {
 }
 
 export interface WorkflowStreamingAsrConfig {
+  label: string
   providerId?: string
   modelId?: string
   adapter?: string
@@ -162,10 +163,10 @@ export const DEFAULT_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         position: { x: 480, y: 90 },
       data: {
         kind: 'asr',
-        label: 'FunASR Realtime',
+        label: 'Qwen-Audio-3.0-ASR-Flash-Streaming',
         capability: 'speech.transcribe',
         providerId: 'api.bailian',
-        modelId: 'fun-asr-realtime',
+        modelId: 'qwen-audio-3.0-asr-flash-streaming',
         adapter: 'bailian-funasr',
         streamingMode: 'streaming',
         parameters: {
@@ -411,10 +412,10 @@ export const DEFAULT_WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
         position: { x: 510, y: 150 },
         data: {
           kind: 'asr',
-          label: 'FunASR Realtime',
+          label: 'Qwen-Audio-3.0-ASR-Flash-Streaming',
           capability: 'speech.transcribe',
           providerId: 'api.bailian',
-          modelId: 'fun-asr-realtime',
+          modelId: 'qwen-audio-3.0-asr-flash-streaming',
           adapter: 'bailian-funasr',
           streamingMode: 'streaming',
           parameters: {
@@ -773,6 +774,7 @@ export function getWorkflowStreamingAsrConfig(
       return null
     }
     return {
+      label: node.data.label,
       providerId: node.data.providerId,
       modelId: node.data.modelId,
       adapter: node.data.adapter,

@@ -60,6 +60,7 @@ export interface ModelPlugin {
   installPath: string
   catalogManaged?: boolean
   streamingMode?: 'streaming' | 'batch'
+  apiAliases?: string[]
   variants?: ModelVariant[]
   selectedVariantId?: string
   defaultVariantId?: string
@@ -101,8 +102,10 @@ export interface ApiModelCatalogEntry {
   providerId: string
   adapter: string
   modelId: string
+  aliases: string[]
   streamingMode: 'streaming' | 'batch'
   featured: boolean
+  visible: boolean
 }
 
 export type PluginPortType =

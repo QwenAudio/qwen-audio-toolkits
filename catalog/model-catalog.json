@@ -285,8 +285,8 @@
             "frontend-onnx/campplus.int8.onnx"
           ],
           "assets": [],
-          "repositoryHosted": true,
-          "estimatedSizeMb": 970
+          "estimatedSizeMb": 970,
+          "repositoryHosted": true
         },
         {
           "id": "fun-cosyvoice3-q8-0",
@@ -300,8 +300,8 @@
             "frontend-onnx/campplus.int8.onnx"
           ],
           "assets": [],
-          "repositoryHosted": true,
-          "estimatedSizeMb": 1230
+          "estimatedSizeMb": 1230,
+          "repositoryHosted": true
         }
       ],
       "acceleration": [
@@ -572,5 +572,335 @@
       "tone": "green"
     }
   ],
-  "apiModels": []
+  "apiModels": [
+    {
+      "id": "bailian-fun-audio-denoising",
+      "name": "Fun Audio Denoising",
+      "author": "阿里云百炼",
+      "description": "面向录音、识别预处理和声音复刻素材的云端音频降噪服务，支持长音频与多种常用格式。",
+      "capabilities": [
+        "音频降噪",
+        "文件处理",
+        "最长 2 小时",
+        "云端 API"
+      ],
+      "harnessCapability": "audio.enhance",
+      "providerId": "api.bailian",
+      "adapter": "bailian-audio-process",
+      "modelId": "fun-audio-denoising",
+      "aliases": [],
+      "streamingMode": "batch",
+      "featured": false,
+      "visible": true
+    },
+    {
+      "id": "bailian-qwen-audio-tts",
+      "name": "Qwen Audio 3.0 TTS Flash",
+      "author": "阿里云百炼",
+      "description": "低延迟多语言语音合成模型，适合旁白、语音助手和内容生产，支持系统音色与自定义音色。",
+      "capabilities": [
+        "TTS",
+        "中文",
+        "多语言",
+        "24 kHz"
+      ],
+      "harnessCapability": "speech.synthesize",
+      "providerId": "api.bailian",
+      "adapter": "bailian-tts",
+      "modelId": "qwen-audio-3.0-tts-flash",
+      "aliases": [],
+      "streamingMode": "batch",
+      "featured": false,
+      "visible": true
+    },
+    {
+      "id": "bailian-qwen-audio-tts-plus",
+      "name": "Qwen Audio 3.0 TTS Plus",
+      "author": "阿里云百炼",
+      "description": "高质量多语言语音合成，支持系统音色、声音复刻与自然语言指令控制。",
+      "capabilities": [
+        "TTS",
+        "高质量",
+        "多语言",
+        "声音复刻"
+      ],
+      "harnessCapability": "speech.synthesize",
+      "providerId": "api.bailian",
+      "adapter": "bailian-tts",
+      "modelId": "qwen-audio-3.0-tts-plus",
+      "aliases": [],
+      "streamingMode": "batch",
+      "featured": false,
+      "visible": true
+    },
+    {
+      "id": "bailian-cosyvoice-v2",
+      "name": "CosyVoice v2",
+      "author": "阿里云百炼",
+      "description": "低首包延迟的双向流式语音合成模型，支持中文与英文、系统音色和声音复刻。",
+      "capabilities": [
+        "TTS",
+        "流式",
+        "中文",
+        "声音复刻"
+      ],
+      "harnessCapability": "speech.synthesize",
+      "providerId": "api.bailian",
+      "adapter": "bailian-cosyvoice",
+      "modelId": "cosyvoice-v2",
+      "aliases": [],
+      "streamingMode": "streaming",
+      "featured": true,
+      "visible": true
+    },
+    {
+      "id": "bailian-cosyvoice-v3-plus",
+      "name": "CosyVoice v3 Plus",
+      "author": "阿里云百炼",
+      "description": "高质量多语言语音合成，支持系统音色、声音复刻和声音设计。",
+      "capabilities": [
+        "TTS",
+        "高质量",
+        "多语言",
+        "声音复刻"
+      ],
+      "harnessCapability": "speech.synthesize",
+      "providerId": "api.bailian",
+      "adapter": "bailian-cosyvoice",
+      "modelId": "cosyvoice-v3-plus",
+      "aliases": [],
+      "streamingMode": "streaming",
+      "featured": true,
+      "visible": true
+    },
+    {
+      "id": "bailian-cosyvoice-v35-plus",
+      "name": "CosyVoice v3.5 Plus",
+      "author": "阿里云百炼",
+      "description": "面向高质量声音复刻与声音设计的 CosyVoice 新版本，支持指令控制。",
+      "capabilities": [
+        "TTS",
+        "高质量",
+        "声音复刻",
+        "声音设计"
+      ],
+      "harnessCapability": "speech.synthesize",
+      "providerId": "api.bailian",
+      "adapter": "bailian-cosyvoice",
+      "modelId": "cosyvoice-v3.5-plus",
+      "aliases": [],
+      "streamingMode": "streaming",
+      "featured": true,
+      "visible": true
+    },
+    {
+      "id": "bailian-cosyvoice-v35-flash",
+      "name": "CosyVoice v3.5 Flash",
+      "author": "阿里云百炼",
+      "description": "兼顾延迟与成本的声音复刻和声音设计模型，适合交互式语音应用。",
+      "capabilities": [
+        "TTS",
+        "低延迟",
+        "声音复刻",
+        "声音设计"
+      ],
+      "harnessCapability": "speech.synthesize",
+      "providerId": "api.bailian",
+      "adapter": "bailian-cosyvoice",
+      "modelId": "cosyvoice-v3.5-flash",
+      "aliases": [],
+      "streamingMode": "streaming",
+      "featured": true,
+      "visible": true
+    },
+    {
+      "id": "bailian-qwen3-asr",
+      "name": "Qwen3 ASR Flash",
+      "author": "阿里云百炼",
+      "description": "面向普通话、方言与多语言音频的快速识别模型，可直接处理录音和本地音频文件。",
+      "capabilities": [
+        "ASR",
+        "多语言",
+        "方言",
+        "语种检测"
+      ],
+      "harnessCapability": "speech.transcribe",
+      "providerId": "api.bailian",
+      "adapter": "bailian-asr",
+      "modelId": "qwen3-asr-flash",
+      "aliases": [],
+      "streamingMode": "batch",
+      "featured": true,
+      "visible": true
+    },
+    {
+      "id": "bailian-qwen-audio-asr-filetrans",
+      "name": "Qwen-Audio-3.0-ASR-Flash-Filetrans",
+      "author": "阿里云百炼",
+      "description": "面向会议、访谈和长录音的异步文件转写模型。本地音频会先上传到百炼临时存储，再获取带时间戳的完整识别结果。",
+      "capabilities": [
+        "ASR",
+        "文件转写",
+        "时间戳",
+        "最长 12 小时",
+        "多语言"
+      ],
+      "harnessCapability": "speech.transcribe",
+      "providerId": "api.bailian",
+      "adapter": "bailian-qwen-audio-asr",
+      "modelId": "qwen-audio-3.0-asr-flash-filetrans",
+      "aliases": [
+        "fun-asr"
+      ],
+      "streamingMode": "batch",
+      "featured": true,
+      "visible": true
+    },
+    {
+      "id": "bailian-qwen-audio-asr-flash",
+      "name": "Qwen-Audio-3.0-ASR-Flash",
+      "author": "阿里云百炼",
+      "description": "适合短音频快速识别，支持本地音频、语言提示、上下文增强以及句词级时间戳。",
+      "capabilities": [
+        "ASR",
+        "快速识别",
+        "时间戳",
+        "最长 5 分钟",
+        "多语言"
+      ],
+      "harnessCapability": "speech.transcribe",
+      "providerId": "api.bailian",
+      "adapter": "bailian-qwen-audio-asr",
+      "modelId": "qwen-audio-3.0-asr-flash",
+      "aliases": [
+        "fun-asr-flash"
+      ],
+      "streamingMode": "batch",
+      "featured": true,
+      "visible": true
+    },
+    {
+      "id": "bailian-funasr-realtime",
+      "name": "Qwen-Audio-3.0-ASR-Flash-Streaming",
+      "author": "阿里云百炼",
+      "description": "面向会议、客服和实时字幕场景的流式语音识别模型，支持多语言、语义断句、上下文增强与词级时间戳。",
+      "capabilities": [
+        "ASR",
+        "时间戳",
+        "实时",
+        "多语言"
+      ],
+      "harnessCapability": "speech.transcribe",
+      "providerId": "api.bailian",
+      "adapter": "bailian-funasr",
+      "modelId": "qwen-audio-3.0-asr-flash-streaming",
+      "aliases": [
+        "fun-asr-realtime"
+      ],
+      "streamingMode": "streaming",
+      "featured": true,
+      "visible": true
+    },
+    {
+      "id": "bailian-funasr-8k-realtime",
+      "name": "FunASR Flash 8K Realtime",
+      "author": "阿里云百炼",
+      "description": "为电话客服和语音信箱优化的 8 kHz 中文实时识别模型。",
+      "capabilities": [
+        "ASR",
+        "时间戳",
+        "实时",
+        "8 kHz",
+        "中文"
+      ],
+      "harnessCapability": "speech.transcribe",
+      "providerId": "api.bailian",
+      "adapter": "bailian-funasr",
+      "modelId": "fun-asr-flash-8k-realtime",
+      "aliases": [],
+      "streamingMode": "streaming",
+      "featured": false,
+      "visible": true
+    },
+    {
+      "id": "bailian-paraformer-realtime-v2",
+      "name": "Paraformer Realtime v2",
+      "author": "阿里云百炼",
+      "description": "面向直播与会议的实时识别模型，支持中文方言及英、日、韩等语言。",
+      "capabilities": [
+        "ASR",
+        "时间戳",
+        "实时",
+        "多语言",
+        "热词"
+      ],
+      "harnessCapability": "speech.transcribe",
+      "providerId": "api.bailian",
+      "adapter": "bailian-funasr",
+      "modelId": "paraformer-realtime-v2",
+      "aliases": [],
+      "streamingMode": "streaming",
+      "featured": false,
+      "visible": true
+    },
+    {
+      "id": "bailian-paraformer-8k-realtime-v2",
+      "name": "Paraformer Realtime 8K v2",
+      "author": "阿里云百炼",
+      "description": "为 8 kHz 电话音频优化的中文实时识别模型。",
+      "capabilities": [
+        "ASR",
+        "时间戳",
+        "实时",
+        "8 kHz",
+        "中文"
+      ],
+      "harnessCapability": "speech.transcribe",
+      "providerId": "api.bailian",
+      "adapter": "bailian-funasr",
+      "modelId": "paraformer-realtime-8k-v2",
+      "aliases": [],
+      "streamingMode": "streaming",
+      "featured": false,
+      "visible": true
+    },
+    {
+      "id": "bailian-qwen36-plus",
+      "name": "Qwen3.6 Plus",
+      "author": "阿里云百炼",
+      "description": "兼顾质量、速度与成本的通用大模型，适合语音对话、摘要、改写和工作流中的文本推理。",
+      "capabilities": [
+        "LLM",
+        "文本生成",
+        "1M 上下文"
+      ],
+      "harnessCapability": "text.generate",
+      "providerId": "api.bailian",
+      "adapter": "bailian-llm",
+      "modelId": "qwen3.6-plus",
+      "aliases": [],
+      "streamingMode": "batch",
+      "featured": false,
+      "visible": true
+    },
+    {
+      "id": "bailian-qwen37-plus",
+      "name": "Qwen3.7 Plus",
+      "author": "阿里云百炼",
+      "description": "千问旗舰 Plus 模型，强化复杂推理、编码与智能体能力，适合高质量语音助手和复杂任务。",
+      "capabilities": [
+        "LLM",
+        "旗舰",
+        "1M 上下文"
+      ],
+      "harnessCapability": "text.generate",
+      "providerId": "api.bailian",
+      "adapter": "bailian-llm",
+      "modelId": "qwen3.7-plus",
+      "aliases": [],
+      "streamingMode": "batch",
+      "featured": true,
+      "visible": true
+    }
+  ]
 }

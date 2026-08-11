@@ -373,7 +373,7 @@ export function WorkflowChatView({
       : streamingAsrConfig?.adapter === 'streaming-paraformer'
         ? 'Streaming Paraformer'
         : streamingAsrConfig?.adapter === 'bailian-funasr'
-          ? 'FunASR Realtime'
+          ? streamingAsrConfig.label
           : '流式 ASR'
   const transcriptExportEnabled =
     workflowSupportsTranscriptExport(workflowId)

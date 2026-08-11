@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
+import { readApiModelCatalog } from './lib/api-model-catalog.mjs'
 
 const sourcePath = resolve('src-tauri/src/plugins.rs')
 const args = process.argv.slice(2)
@@ -10,6 +11,7 @@ const outputPath = resolve(
     'catalog/model-catalog.json',
 )
 const source = await readFile(sourcePath, 'utf8')
+const apiModels = await readApiModelCatalog()
 const manifestPattern = /const\s+[A-Z0-9_]+_MANIFEST:\s*&str\s*=\s*r#"([\s\S]*?)"#;/g
 const sha256Pattern = /^[a-f0-9]{64}$/i
 
@@ -30,7 +32,7 @@ for (const match of source.matchAll(manifestPattern)) {
 }
 
 plugins.sort((left, right) => left.id.localeCompare(right.id))
-const catalog = { schemaVersion: 1, plugins, apiModels: [] }
+const catalog = { schemaVersion: 1, plugins, apiModels }
 if (checkOnly) {
   const existing = JSON.parse(await readFile(outputPath, 'utf8'))
   if (!isDeepStrictEqual(existing, catalog)) {

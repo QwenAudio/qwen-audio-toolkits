@@ -197,9 +197,9 @@ await smoke('云端实时助手模型链', async () => {
     capability: 'speech.transcribe',
     providerId: 'api.bailian',
     routing: 'quality',
-    title: 'Workflow · FunASR',
+    title: 'Workflow · Qwen Audio Streaming ASR',
     input: speech,
-    parameters: { modelId: 'fun-asr-realtime' },
+    parameters: { modelId: 'qwen-audio-3.0-asr-flash-streaming' },
   })
   const llm = await run({
     capability: 'text.generate',

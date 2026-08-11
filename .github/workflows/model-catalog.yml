@@ -1,0 +1,71 @@
+name: Publish model catalog
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'catalog/api-models.json'
+      - 'catalog/model-catalog.json'
+      - 'scripts/export-model-catalog.mjs'
+      - 'scripts/lib/api-model-catalog.mjs'
+      - 'scripts/prepare-published-model-catalog.mjs'
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: model-catalog-v1
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Sign and publish catalog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20.19
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Verify generated catalog
+        run: npm run catalog:export -- --check
+
+      - name: Merge ModelScope and API catalogs
+        run: node scripts/prepare-published-model-catalog.mjs /tmp/model-catalog.json
+
+      - name: Sign catalog
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          npx tauri signer sign /tmp/model-catalog.json
+          test -s /tmp/model-catalog.json.sig
+
+      - name: Publish catalog assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view model-catalog-v1 >/dev/null 2>&1; then
+            gh release upload model-catalog-v1 \
+              /tmp/model-catalog.json \
+              /tmp/model-catalog.json.sig \
+              --clobber
+          else
+            gh release create model-catalog-v1 \
+              /tmp/model-catalog.json \
+              /tmp/model-catalog.json.sig \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "QwenAudio Toolkits Model Catalog v1" \
+              --notes "Signed model metadata for QwenAudio Toolkits. This prerelease does not replace the latest desktop app release."
+          fi

@@ -271,7 +271,7 @@ export function workflowParametersForModel(
     return {
       ...parameters,
       language: 'auto',
-      ...(model.version === 'fun-asr-realtime' ? { context: '' } : {}),
+      ...(!model.version?.startsWith('paraformer-') ? { context: '' } : {}),
       semanticPunctuation: true,
     }
   }

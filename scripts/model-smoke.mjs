@@ -389,7 +389,9 @@ const localTests = [
 const cloudTests = [
   ...[
     'qwen-audio-3.0-asr-flash-filetrans',
+    'fun-asr',
     'qwen-audio-3.0-asr-flash',
+    'fun-asr-flash',
   ].map((modelId) => ({
     name: modelId,
     request: {
@@ -407,6 +409,7 @@ const cloudTests = [
   })),
   ...[
     'qwen3-asr-flash',
+    'qwen-audio-3.0-asr-flash-streaming',
     'fun-asr-realtime',
     'fun-asr-flash-8k-realtime',
     'paraformer-realtime-v2',
@@ -429,7 +432,9 @@ const cloudTests = [
               enableItn: true,
             }
           : {}),
-        ...(modelId === 'fun-asr-realtime'
+        ...(['fun-asr-realtime', 'qwen-audio-3.0-asr-flash-streaming'].includes(
+          modelId,
+        )
           ? { context: '语音工作台、阿里云百炼' }
           : {}),
       },

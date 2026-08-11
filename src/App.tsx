@@ -138,6 +138,7 @@ const DEFAULT_VOICE_WORKFLOW_MODELS_KEY =
   'qwen-audio-toolkits.default-voice-workflow-models-v2'
 const WORKFLOWS_ENABLED = false
 const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000
+const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000
 const DEFAULT_SIDEBAR_WIDTH = 240
 const COLLAPSED_SIDEBAR_WIDTH = 0
 const MIN_SIDEBAR_WIDTH = 240
@@ -799,6 +800,21 @@ function App() {
   useEffect(() => {
     if (!isTauriRuntime()) return
 
+    let disposed = false
+    const refreshCatalog = () => {
+      void refreshModelPlugins()
+        .then((nextPlugins) => {
+          if (!disposed) setPlugins(nextPlugins)
+          return listApiModelCatalog()
+        })
+        .then((nextApiModels) => {
+          if (!disposed) setApiModelCatalog(nextApiModels)
+        })
+        .catch(() => {
+          // Cached or built-in catalog remains available when the remote source is offline.
+        })
+    }
+
     invoke<RuntimeStatus>('runtime_status')
       .then(setRuntime)
       .catch(() => setRuntime(fallbackRuntime))
@@ -815,15 +831,12 @@ function App() {
       .then(setModelBindings)
       .catch(() => setModelBindings({}))
       .finally(() => setModelBindingsLoaded(true))
-    void refreshModelPlugins()
-      .then(setPlugins)
-      .then(() => listApiModelCatalog())
-      .then(setApiModelCatalog)
-      .catch(() => {
-        // Cached or built-in catalog remains available when the remote source is offline.
-      })
+    refreshCatalog()
+    const catalogRefreshTimer = window.setInterval(
+      refreshCatalog,
+      MODEL_CATALOG_REFRESH_INTERVAL_MS,
+    )
 
-    let disposed = false
     let unlisten: (() => void) | undefined
     void subscribeHarnessRuns((run) => {
       if (disposed) return
@@ -835,6 +848,7 @@ function App() {
 
     return () => {
       disposed = true
+      window.clearInterval(catalogRefreshTimer)
       unlisten?.()
     }
   }, [])
