@@ -327,6 +327,24 @@ const localTests = [
 
 const cloudTests = [
   ...[
+    'qwen-audio-3.0-asr-flash-filetrans',
+    'qwen-audio-3.0-asr-flash',
+  ].map((modelId) => ({
+    name: modelId,
+    request: {
+      capability: 'speech.transcribe',
+      providerId: 'api.bailian',
+      routing: 'quality',
+      title: `Smoke · ${modelId}`,
+      input: speech,
+      parameters: {
+        modelId,
+        language: 'zh',
+        context: '语音工作台、Qwen Audio、阿里云百炼',
+      },
+    },
+  })),
+  ...[
     'qwen3-asr-flash',
     'fun-asr-realtime',
     'fun-asr-flash-8k-realtime',
