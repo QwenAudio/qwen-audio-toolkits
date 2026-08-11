@@ -7312,6 +7312,10 @@ body.sidebar-resizing .model-app-frame {
   background: transparent;
 }
 
+.native-titlebar-enabled .sidebar-collapse-button {
+  top: 4px;
+}
+
 .native-titlebar-enabled .activity-rail-title-spacer {
   height: 82px;
   flex-basis: 82px;
