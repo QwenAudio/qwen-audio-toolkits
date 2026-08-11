@@ -663,6 +663,7 @@ export function ModelWorkspaceView({
     : plugin.installed
   const apiModel = plugin.providerId?.startsWith('api.') === true
   const funAsrModel = plugin.adapter === 'bailian-funasr'
+  const qwenAudioAsrModel = plugin.adapter === 'bailian-qwen-audio-asr'
   const qwen3AsrModel = plugin.adapter === 'qwen3-asr'
   const canaryModel = plugin.adapter === 'nemo-canary'
   const streamingAsrModel =
@@ -2021,6 +2022,12 @@ export function ModelWorkspaceView({
               semanticPunctuation,
               ...(speechSegments ? { speechSegments } : {}),
             }
+          : qwenAudioAsrModel
+          ? {
+              language: asrLanguage,
+              context: asrContext,
+              ...(speechSegments ? { speechSegments } : {}),
+            }
           : qwen3AsrModel
           ? {
               hotwords: asrContext,
@@ -3330,6 +3337,32 @@ export function ModelWorkspaceView({
                       }
                     />
                     <span>语义断句</span>
+                  </label>
+                </div>
+              )}
+              {qwenAudioAsrModel && (
+                <div className="model-parameter-bar funasr-parameters">
+                  <label>
+                    <span>语言</span>
+                    <select
+                      value={asrLanguage}
+                      onChange={(event) => setAsrLanguage(event.target.value)}
+                    >
+                      <option value="auto">自动识别</option>
+                      <option value="zh">中文</option>
+                      <option value="en">英文</option>
+                      <option value="ja">日语</option>
+                      <option value="ko">韩语</option>
+                    </select>
+                  </label>
+                  <label className="context-field">
+                    <span>上下文</span>
+                    <input
+                      value={asrContext}
+                      maxLength={400}
+                      placeholder="人名、术语或对话背景"
+                      onChange={(event) => setAsrContext(event.target.value)}
+                    />
                   </label>
                 </div>
               )}

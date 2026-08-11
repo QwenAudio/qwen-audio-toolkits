@@ -70,6 +70,8 @@ const SENSEVOICE_GGUF_PROVIDER_ID: &str = "plugin.funaudiollm.sensevoice-small-g
 const BAILIAN_TTS_MODEL: &str = "qwen-audio-3.0-tts-flash";
 const BAILIAN_TTS_PLUS_MODEL: &str = "qwen-audio-3.0-tts-plus";
 const BAILIAN_QWEN_ASR_MODEL: &str = "qwen3-asr-flash";
+const BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL: &str = "qwen-audio-3.0-asr-flash-filetrans";
+const BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL: &str = "qwen-audio-3.0-asr-flash";
 const BAILIAN_FUN_ASR_MODEL: &str = "fun-asr-realtime";
 const BAILIAN_FUN_ASR_8K_MODEL: &str = "fun-asr-flash-8k-realtime";
 const BAILIAN_PARAFORMER_MODEL: &str = "paraformer-realtime-v2";
@@ -108,7 +110,9 @@ fn bailian_model_kind(model: &str) -> Option<BailianModelKind> {
         | BAILIAN_COSYVOICE_3_PLUS_MODEL
         | BAILIAN_COSYVOICE_35_PLUS_MODEL
         | BAILIAN_COSYVOICE_35_FLASH_MODEL => Some(BailianModelKind::CosyVoice),
-        BAILIAN_QWEN_ASR_MODEL => Some(BailianModelKind::Asr),
+        BAILIAN_QWEN_ASR_MODEL
+        | BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL
+        | BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL => Some(BailianModelKind::Asr),
         BAILIAN_FUN_ASR_MODEL
         | BAILIAN_FUN_ASR_8K_MODEL
         | BAILIAN_PARAFORMER_MODEL
@@ -983,6 +987,18 @@ pub(crate) fn catalog_for_app(app: &AppHandle) -> HarnessCatalog {
                         ModelDescriptor {
                             id: BAILIAN_QWEN_ASR_MODEL.to_string(),
                             name: "Qwen3 ASR Flash".to_string(),
+                            installed: true,
+                            loaded: false,
+                        },
+                        ModelDescriptor {
+                            id: BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL.to_string(),
+                            name: "Qwen-Audio-3.0-ASR-Flash-Filetrans".to_string(),
+                            installed: true,
+                            loaded: false,
+                        },
+                        ModelDescriptor {
+                            id: BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL.to_string(),
+                            name: "Qwen-Audio-3.0-ASR-Flash".to_string(),
                             installed: true,
                             loaded: false,
                         },
@@ -3658,7 +3674,14 @@ async fn execute_request(
             if provider.adapter == "bailian-funasr" {
                 execute_bailian_funasr(&app, request, &provider.model_id, cancel).await?
             } else if provider.adapter == "bailian" {
-                execute_bailian_asr(&app, request, &provider.model_id, cancel).await?
+                execute_bailian_asr(
+                    &app,
+                    request,
+                    &provider.model_id,
+                    cancel,
+                    progress_callback.clone(),
+                )
+                .await?
             } else {
                 execute_api_asr(&app, request, cancel).await?
             }
@@ -4479,7 +4502,16 @@ async fn execute_bailian_asr(
     request: &HarnessTaskRequest,
     model_id: &str,
     cancel: Arc<AtomicBool>,
+    progress_callback: Option<AsrProgressCallback>,
 ) -> Result<Value, String> {
+    if model_id == BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL {
+        return execute_bailian_filetrans_asr(app, request, model_id, cancel, progress_callback)
+            .await;
+    }
+    if model_id == BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL {
+        return execute_bailian_flash_asr(app, request, model_id, cancel, progress_callback).await;
+    }
+
     let config = configured_bailian_provider(app)?;
     let audio_data_url = required_string(&request.input, "audioDataUrl")?;
     let clip_name = required_string(&request.input, "clipName")?;
@@ -4489,6 +4521,9 @@ async fn execute_bailian_asr(
     let audio = decode_wav_data_url(&audio_data_url)?;
     let duration = audio.duration();
     let started = Instant::now();
+    if let Some(callback) = progress_callback.as_ref() {
+        callback(24, "正在调用百炼语音识别".to_string());
+    }
     let response = api_client()?
         .post(format!(
             "{}/compatible-mode/v1/chat/completions",
@@ -4531,6 +4566,9 @@ async fn execute_bailian_asr(
         .and_then(Value::as_str)
         .unwrap_or("auto");
     let inference_seconds = started.elapsed().as_secs_f32();
+    if let Some(callback) = progress_callback.as_ref() {
+        callback(92, "百炼语音识别已完成".to_string());
+    }
 
     Ok(json!({
         "clipName": clip_name,
@@ -4549,6 +4587,536 @@ async fn execute_bailian_asr(
         "realTimeFactor": inference_seconds / duration.max(0.001),
         "engine": format!("百炼 · {model_id}")
     }))
+}
+
+async fn execute_bailian_flash_asr(
+    app: &AppHandle,
+    request: &HarnessTaskRequest,
+    model_id: &str,
+    cancel: Arc<AtomicBool>,
+    progress_callback: Option<AsrProgressCallback>,
+) -> Result<Value, String> {
+    let config = configured_bailian_provider(app)?;
+    let audio_data_url = required_string(&request.input, "audioDataUrl")?;
+    let clip_name = required_string(&request.input, "clipName")?;
+    let bytes = decode_data_url_bytes(&audio_data_url)?;
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err(
+            "Qwen-Audio-3.0-ASR-Flash 单次音频不得超过 10 MB，请改用 Filetrans 模型".to_string(),
+        );
+    }
+    let audio = decode_wav_data_url(&audio_data_url)?;
+    let duration = audio.duration();
+    if duration > 5.0 * 60.0 {
+        return Err(
+            "Qwen-Audio-3.0-ASR-Flash 单次音频不得超过 5 分钟，请改用 Filetrans 模型".to_string(),
+        );
+    }
+
+    let mut messages = Vec::new();
+    if let Some(context) = bailian_asr_context(request) {
+        messages.push(json!({
+            "role": "user",
+            "content": [{ "type": "input_text", "text": context }]
+        }));
+    }
+    messages.push(json!({
+        "role": "user",
+        "content": [{
+            "type": "input_audio",
+            "input_audio": { "data": audio_data_url }
+        }]
+    }));
+    let mut parameters = json!({
+        "format": "wav",
+        "sample_rate": audio.sample_rate.to_string()
+    });
+    if let Some(language) = bailian_asr_language(request) {
+        parameters["language_hints"] = json!([language]);
+    }
+
+    if let Some(callback) = progress_callback.as_ref() {
+        callback(24, "正在调用 Qwen Audio 3.0 ASR Flash".to_string());
+    }
+    let started = Instant::now();
+    let response = api_client()?
+        .post(format!(
+            "{}/api/v1/services/aigc/multimodal-generation/generation",
+            config.base_url.trim_end_matches('/')
+        ))
+        .bearer_auth(&config.api_key)
+        .header("X-DashScope-SSE", "disable")
+        .json(&json!({
+            "model": model_id,
+            "input": { "messages": messages },
+            "parameters": parameters
+        }))
+        .send()
+        .await
+        .map_err(|error| format!("Qwen Audio 3.0 ASR 请求失败: {error}"))?;
+    if cancel.load(Ordering::Relaxed) {
+        return Err("任务已取消".to_string());
+    }
+    let raw = checked_response(response, "Qwen Audio 3.0 ASR")
+        .await?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("Qwen Audio 3.0 ASR 没有返回有效 JSON: {error}"))?;
+    let text = raw
+        .pointer("/output/text")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| bailian_response_error("Qwen Audio 3.0 ASR", &raw))?
+        .to_string();
+    let segments = raw
+        .pointer("/output/sentence")
+        .and_then(|sentence| bailian_asr_sentence_segment(sentence, 0, duration))
+        .into_iter()
+        .collect::<Vec<_>>();
+    let speech_seconds = raw
+        .pointer("/usage/duration")
+        .and_then(Value::as_f64)
+        .map(|seconds| seconds as f32)
+        .unwrap_or(duration);
+    let language = raw
+        .pointer("/output/sentence/language")
+        .and_then(Value::as_str)
+        .or_else(|| bailian_asr_language(request))
+        .unwrap_or("auto");
+    let inference_seconds = started.elapsed().as_secs_f32();
+    if let Some(callback) = progress_callback.as_ref() {
+        callback(92, "Qwen Audio 3.0 ASR 识别已完成".to_string());
+    }
+
+    Ok(json!({
+        "clipName": clip_name,
+        "text": text,
+        "language": language,
+        "duration": duration,
+        "speechSeconds": speech_seconds,
+        "segments": if segments.is_empty() { vec![json!({
+            "id": "segment-1",
+            "start": 0.0,
+            "end": duration,
+            "text": text,
+            "tokens": []
+        })] } else { segments },
+        "inferenceSeconds": inference_seconds,
+        "realTimeFactor": inference_seconds / duration.max(0.001),
+        "engine": format!("百炼 · {model_id}")
+    }))
+}
+
+async fn execute_bailian_filetrans_asr(
+    app: &AppHandle,
+    request: &HarnessTaskRequest,
+    model_id: &str,
+    cancel: Arc<AtomicBool>,
+    progress_callback: Option<AsrProgressCallback>,
+) -> Result<Value, String> {
+    let config = configured_bailian_provider(app)?;
+    let audio_data_url = required_string(&request.input, "audioDataUrl")?;
+    let clip_name = required_string(&request.input, "clipName")?;
+    let bytes = decode_data_url_bytes(&audio_data_url)?;
+    let audio = decode_wav_data_url(&audio_data_url)?;
+    let duration = audio.duration();
+    if duration > 12.0 * 60.0 * 60.0 {
+        return Err("Qwen-Audio-3.0-ASR-Flash-Filetrans 单次音频不得超过 12 小时".to_string());
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("任务已取消".to_string());
+    }
+    if let Some(callback) = progress_callback.as_ref() {
+        callback(14, "正在上传音频到百炼临时存储".to_string());
+    }
+    let temporary_url =
+        upload_bailian_temporary_audio(&config, model_id, &clip_name, bytes, cancel.clone())
+            .await?;
+
+    let mut input = json!({ "file_urls": [temporary_url] });
+    if let Some(context) = bailian_asr_context(request) {
+        input["context"] = json!([{
+            "role": "user",
+            "content": [{ "type": "input_text", "text": context }]
+        }]);
+    }
+    let mut parameters = json!({ "channel_id": [0] });
+    if let Some(language) = bailian_asr_language(request) {
+        parameters["language_hints"] = json!([language]);
+    }
+    if let Some(callback) = progress_callback.as_ref() {
+        callback(32, "音频上传完成，正在提交异步转写".to_string());
+    }
+    let started = Instant::now();
+    let response = api_client()?
+        .post(format!(
+            "{}/api/v1/services/audio/asr/transcription",
+            config.base_url.trim_end_matches('/')
+        ))
+        .bearer_auth(&config.api_key)
+        .header("X-DashScope-Async", "enable")
+        .header("X-DashScope-OssResourceResolve", "enable")
+        .json(&json!({
+            "model": model_id,
+            "input": input,
+            "parameters": parameters
+        }))
+        .send()
+        .await
+        .map_err(|error| format!("Filetrans 任务提交失败: {error}"))?;
+    let submitted = checked_response(response, "Filetrans 任务提交")
+        .await?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("Filetrans 任务提交没有返回有效 JSON: {error}"))?;
+    let task_id = submitted
+        .pointer("/output/task_id")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| bailian_response_error("Filetrans 任务提交", &submitted))?;
+
+    let mut completed = None;
+    for poll_index in 0..3600_u32 {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("任务已取消".to_string());
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let response = api_client()?
+            .get(format!(
+                "{}/api/v1/tasks/{task_id}",
+                config.base_url.trim_end_matches('/')
+            ))
+            .bearer_auth(&config.api_key)
+            .send()
+            .await
+            .map_err(|error| format!("Filetrans 任务查询失败: {error}"))?;
+        let status_payload = checked_response(response, "Filetrans 任务查询")
+            .await?
+            .json::<Value>()
+            .await
+            .map_err(|error| format!("Filetrans 任务查询没有返回有效 JSON: {error}"))?;
+        let status = status_payload
+            .pointer("/output/task_status")
+            .and_then(Value::as_str)
+            .unwrap_or("UNKNOWN");
+        if let Some(callback) = progress_callback.as_ref() {
+            callback(
+                (36 + poll_index.min(52)) as u8,
+                format!("Filetrans 转写中 · {status}"),
+            );
+        }
+        match status {
+            "SUCCEEDED" => {
+                completed = Some(status_payload);
+                break;
+            }
+            "FAILED" | "CANCELED" | "UNKNOWN" => {
+                return Err(bailian_async_task_error("Filetrans 转写", &status_payload));
+            }
+            _ => {}
+        }
+    }
+    let completed = completed.ok_or_else(|| "Filetrans 转写等待超时".to_string())?;
+    let result = completed
+        .pointer("/output/results/0")
+        .ok_or_else(|| bailian_response_error("Filetrans 转写", &completed))?;
+    if result
+        .get("subtask_status")
+        .and_then(Value::as_str)
+        .is_some_and(|status| status != "SUCCEEDED")
+    {
+        return Err(bailian_async_task_error("Filetrans 转写", result));
+    }
+    let transcription_url = result
+        .get("transcription_url")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| bailian_response_error("Filetrans 转写", result))?;
+    if let Some(callback) = progress_callback.as_ref() {
+        callback(90, "正在下载 Filetrans 转写结果".to_string());
+    }
+    let response = api_client()?
+        .get(secure_audio_download_url(transcription_url))
+        .send()
+        .await
+        .map_err(|error| format!("Filetrans 结果下载失败: {error}"))?;
+    let transcription = checked_response(response, "Filetrans 结果下载")
+        .await?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("Filetrans 转写结果不是有效 JSON: {error}"))?;
+    let (text, segments, speech_seconds, language) =
+        parse_bailian_filetrans_result(&transcription, duration)?;
+    let inference_seconds = started.elapsed().as_secs_f32();
+
+    Ok(json!({
+        "clipName": clip_name,
+        "text": text,
+        "language": language.or_else(|| bailian_asr_language(request).map(str::to_string)).unwrap_or_else(|| "auto".to_string()),
+        "duration": duration,
+        "speechSeconds": speech_seconds,
+        "segments": segments,
+        "inferenceSeconds": inference_seconds,
+        "realTimeFactor": inference_seconds / duration.max(0.001),
+        "engine": format!("百炼 · {model_id}")
+    }))
+}
+
+async fn upload_bailian_temporary_audio(
+    config: &BailianProviderConfig,
+    model_id: &str,
+    clip_name: &str,
+    bytes: Vec<u8>,
+    cancel: Arc<AtomicBool>,
+) -> Result<String, String> {
+    let response = api_client()?
+        .get(format!(
+            "{}/api/v1/uploads",
+            config.base_url.trim_end_matches('/')
+        ))
+        .bearer_auth(&config.api_key)
+        .query(&[("action", "getPolicy"), ("model", model_id)])
+        .send()
+        .await
+        .map_err(|error| format!("无法获取百炼临时上传凭证: {error}"))?;
+    let policy = checked_response(response, "百炼临时上传凭证")
+        .await?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("百炼临时上传凭证不是有效 JSON: {error}"))?;
+    let data = policy
+        .get("data")
+        .ok_or_else(|| bailian_response_error("百炼临时上传凭证", &policy))?;
+    let required = |key: &str| {
+        data.get(key)
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| format!("百炼临时上传凭证缺少 {key}"))
+    };
+    let upload_host = required("upload_host")?;
+    if !upload_host.starts_with("https://") {
+        return Err("百炼临时上传地址不是安全的 HTTPS 地址".to_string());
+    }
+    let upload_dir = required("upload_dir")?;
+    let max_file_size_mb = data.get("max_file_size_mb").and_then(|value| {
+        value
+            .as_u64()
+            .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
+    });
+    if max_file_size_mb.is_some_and(|limit| bytes.len() as u64 > limit * 1024 * 1024) {
+        return Err(format!(
+            "音频超过百炼临时上传限制（最大 {} MB）",
+            max_file_size_mb.unwrap_or_default()
+        ));
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("任务已取消".to_string());
+    }
+    let safe_stem = Path::new(clip_name)
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("audio")
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '-'
+            }
+        })
+        .take(48)
+        .collect::<String>();
+    let file_name = format!(
+        "{}-{}.wav",
+        if safe_stem.is_empty() {
+            "audio"
+        } else {
+            &safe_stem
+        },
+        Uuid::new_v4()
+    );
+    let key = format!("{}/{file_name}", upload_dir.trim_end_matches('/'));
+    let file = Part::bytes(bytes)
+        .file_name(file_name)
+        .mime_str("audio/wav")
+        .map_err(|error| format!("无法创建百炼临时上传文件: {error}"))?;
+    let form = Form::new()
+        .text("OSSAccessKeyId", required("oss_access_key_id")?)
+        .text("Signature", required("signature")?)
+        .text("policy", required("policy")?)
+        .text("x-oss-object-acl", required("x_oss_object_acl")?)
+        .text(
+            "x-oss-forbid-overwrite",
+            required("x_oss_forbid_overwrite")?,
+        )
+        .text("key", key.clone())
+        .text("success_action_status", "200")
+        .part("file", file);
+    let response = api_client()?
+        .post(upload_host)
+        .multipart(form)
+        .send()
+        .await
+        .map_err(|error| format!("音频上传到百炼临时存储失败: {error}"))?;
+    checked_response(response, "百炼临时音频上传").await?;
+    Ok(format!("oss://{key}"))
+}
+
+fn bailian_asr_language(request: &HarnessTaskRequest) -> Option<&str> {
+    request
+        .parameters
+        .get("language")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && *value != "auto")
+}
+
+fn bailian_asr_context(request: &HarnessTaskRequest) -> Option<String> {
+    request
+        .parameters
+        .get("context")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(400).collect())
+}
+
+fn bailian_async_task_error(label: &str, raw: &Value) -> String {
+    let code = raw
+        .get("code")
+        .or_else(|| raw.pointer("/output/code"))
+        .and_then(Value::as_str)
+        .unwrap_or("UNKNOWN");
+    let message = raw
+        .get("message")
+        .or_else(|| raw.pointer("/output/message"))
+        .and_then(Value::as_str)
+        .unwrap_or("没有错误详情");
+    format!("{label}失败 ({code}): {message}")
+}
+
+fn bailian_asr_sentence_segment(sentence: &Value, index: usize, duration: f32) -> Option<Value> {
+    let text = sentence.get("text")?.as_str()?.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let start = sentence
+        .get("begin_time")
+        .and_then(Value::as_f64)
+        .unwrap_or(0.0)
+        / 1000.0;
+    let end = sentence
+        .get("end_time")
+        .and_then(Value::as_f64)
+        .unwrap_or(duration as f64 * 1000.0)
+        / 1000.0;
+    let tokens = sentence
+        .get("words")
+        .and_then(Value::as_array)
+        .map(|words| {
+            words
+                .iter()
+                .filter_map(|word| {
+                    let word_text = word.get("text")?.as_str()?;
+                    let punctuation = word
+                        .get("punctuation")
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    Some(json!({
+                        "text": format!("{word_text}{punctuation}"),
+                        "start": word.get("begin_time").and_then(Value::as_f64).unwrap_or(0.0) / 1000.0,
+                        "end": word.get("end_time").and_then(Value::as_f64).unwrap_or(0.0) / 1000.0
+                    }))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let mut segment = json!({
+        "id": format!("segment-{}", index + 1),
+        "start": start,
+        "end": end.max(start),
+        "text": text,
+        "tokens": tokens
+    });
+    if let Some(speaker) = sentence.get("speaker_id").and_then(Value::as_u64) {
+        segment["speakerIndex"] = json!(speaker);
+    }
+    Some(segment)
+}
+
+fn parse_bailian_filetrans_result(
+    raw: &Value,
+    fallback_duration: f32,
+) -> Result<(String, Vec<Value>, f32, Option<String>), String> {
+    let duration = raw
+        .pointer("/properties/original_duration_in_milliseconds")
+        .and_then(Value::as_f64)
+        .map(|milliseconds| milliseconds as f32 / 1000.0)
+        .unwrap_or(fallback_duration);
+    let transcripts = raw
+        .get("transcripts")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Filetrans 转写结果缺少 transcripts".to_string())?;
+    let mut segments = Vec::new();
+    let mut transcript_texts = Vec::new();
+    let mut language = None;
+    for transcript in transcripts {
+        if let Some(text) = transcript
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            transcript_texts.push(text.to_string());
+        }
+        if let Some(sentences) = transcript.get("sentences").and_then(Value::as_array) {
+            for sentence in sentences {
+                if language.is_none() {
+                    language = sentence
+                        .get("language")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
+                if let Some(segment) =
+                    bailian_asr_sentence_segment(sentence, segments.len(), duration)
+                {
+                    segments.push(segment);
+                }
+            }
+        }
+    }
+    let text = if segments.is_empty() {
+        transcript_texts.join("\n")
+    } else {
+        segments
+            .iter()
+            .filter_map(|segment| segment.get("text").and_then(Value::as_str))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    if text.trim().is_empty() {
+        return Err("Filetrans 没有识别出有效文本".to_string());
+    }
+    if segments.is_empty() {
+        segments.push(json!({
+            "id": "segment-1",
+            "start": 0.0,
+            "end": duration,
+            "text": text,
+            "tokens": []
+        }));
+    }
+    let speech_seconds = segments
+        .iter()
+        .map(|segment| {
+            let start = segment.get("start").and_then(Value::as_f64).unwrap_or(0.0);
+            let end = segment.get("end").and_then(Value::as_f64).unwrap_or(start);
+            (end - start).max(0.0)
+        })
+        .sum::<f64>() as f32;
+    Ok((text, segments, speech_seconds, language))
 }
 
 async fn execute_bailian_funasr(
@@ -5597,6 +6165,14 @@ mod tests {
             bailian_model_kind(BAILIAN_QWEN_ASR_MODEL),
             Some(BailianModelKind::Asr)
         );
+        for model in [
+            BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL,
+            BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL,
+        ] {
+            assert_eq!(bailian_model_kind(model), Some(BailianModelKind::Asr));
+            assert!(bailian_model_supports_capability(CAPABILITY_ASR, model));
+            assert_eq!(bailian_adapter_for(CAPABILITY_ASR, model), "bailian");
+        }
         assert_eq!(
             bailian_model_kind(BAILIAN_FUN_ASR_MODEL),
             Some(BailianModelKind::FunAsr)
@@ -5630,6 +6206,59 @@ mod tests {
             bailian_adapter_for(CAPABILITY_TTS, BAILIAN_COSYVOICE_MODEL),
             "bailian-cosyvoice"
         );
+    }
+
+    #[test]
+    fn flash_result_sentence_preserves_word_timestamps() {
+        let sentence = json!({
+            "begin_time": 760,
+            "end_time": 3800,
+            "text": "Hello World.",
+            "words": [
+                { "begin_time": 760, "end_time": 1040, "text": "Hello", "punctuation": "" },
+                { "begin_time": 1040, "end_time": 1240, "text": " World", "punctuation": "." }
+            ]
+        });
+
+        let segment =
+            bailian_asr_sentence_segment(&sentence, 0, 4.0).expect("parse Flash sentence");
+        assert_eq!(segment["id"], "segment-1");
+        assert_eq!(segment["start"], 0.76);
+        assert_eq!(segment["end"], 3.8);
+        assert_eq!(segment["tokens"][0]["text"], "Hello");
+        assert_eq!(segment["tokens"][1]["text"], " World.");
+    }
+
+    #[test]
+    fn filetrans_result_preserves_timestamps_words_and_speakers() {
+        let raw = json!({
+            "properties": { "original_duration_in_milliseconds": 4200 },
+            "transcripts": [{
+                "channel_id": 0,
+                "text": "Hello, world.",
+                "sentences": [{
+                    "begin_time": 100,
+                    "end_time": 3820,
+                    "text": "Hello, world.",
+                    "speaker_id": 2,
+                    "language": "en",
+                    "words": [
+                        { "begin_time": 100, "end_time": 600, "text": "Hello", "punctuation": "," },
+                        { "begin_time": 600, "end_time": 1000, "text": " world", "punctuation": "." }
+                    ]
+                }]
+            }]
+        });
+
+        let (text, segments, speech_seconds, language) =
+            parse_bailian_filetrans_result(&raw, 4.2).expect("parse Filetrans result");
+        assert_eq!(text, "Hello, world.");
+        assert_eq!(language.as_deref(), Some("en"));
+        assert!((speech_seconds - 3.72).abs() < 0.001);
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0]["speakerIndex"], 2);
+        assert_eq!(segments[0]["tokens"][0]["text"], "Hello,");
+        assert_eq!(segments[0]["tokens"][1]["text"], " world.");
     }
 
     #[test]

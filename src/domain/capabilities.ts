@@ -258,6 +258,16 @@ export function workflowParametersForModel(
       semanticPunctuation: true,
     }
   }
+  if (
+    capability === 'speech.transcribe' &&
+    model.adapter === 'bailian-qwen-audio-asr'
+  ) {
+    return {
+      ...parameters,
+      language: 'auto',
+      context: '',
+    }
+  }
   if (capability === 'speech.synthesize') {
     if (model.adapter === 'bailian-cosyvoice') {
       return { ...parameters, voice: 'longxiaochun_v2' }
@@ -381,6 +391,11 @@ const FUNASR_PARAMETERS: PluginParameterDefinition[] = [
   },
 ]
 
+const QWEN_AUDIO_ASR_PARAMETERS: PluginParameterDefinition[] =
+  FUNASR_PARAMETERS.filter(
+    (parameter) => parameter.name !== 'semanticPunctuation',
+  )
+
 export function parameterSchemaForModel(
   capability: HarnessCapabilityId,
   model: Pick<ModelPlugin, 'adapter' | 'parameterSchema'>,
@@ -391,6 +406,12 @@ export function parameterSchemaForModel(
     model.adapter === 'bailian-funasr'
   ) {
     return FUNASR_PARAMETERS
+  }
+  if (
+    capability === 'speech.transcribe' &&
+    model.adapter === 'bailian-qwen-audio-asr'
+  ) {
+    return QWEN_AUDIO_ASR_PARAMETERS
   }
   return COMMON_PARAMETER_SCHEMAS[capability] ?? []
 }
