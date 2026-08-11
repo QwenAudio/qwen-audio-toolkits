@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
 import { planWorkflow } from '../src/services/workflowPlanner.ts'
+import {
+  parameterSchemaForModel,
+  workflowParametersForModel,
+} from '../src/domain/capabilities.ts'
+import { modelInputProfile } from '../src/domain/modelInputs.ts'
 
 const input = {
   id: 'input',
@@ -155,6 +160,87 @@ const invalidCases = [
 for (const candidate of invalidCases) {
   assert.throws(() => planWorkflow(candidate))
 }
+
+for (const [capability, adapter] of [
+  ['speech.detect', 'funasr-fsmn-vad-gguf'],
+  ['audio.enhance', 'bailian-audio-process'],
+]) {
+  assert.deepEqual(
+    parameterSchemaForModel(capability, { adapter }),
+    [],
+    `${adapter} must not expose parameters that its runtime ignores`,
+  )
+  assert.deepEqual(
+    workflowParametersForModel(capability, { adapter }),
+    {},
+    `${adapter} must not persist parameters that its runtime ignores`,
+  )
+}
+
+const inputProfile = (model) =>
+  modelInputProfile({
+    id: 'test-model',
+    adapter: 'test-adapter',
+    providerId: 'plugin.test',
+    version: 'test-version',
+    inputs: [],
+    ...model,
+  })
+const expectProfile = (overrides) => ({
+  apiModel: false,
+  requiresCustomCosyVoice: false,
+  supportsCloudVoiceCreation: false,
+  supportsVoiceDesign: false,
+  supportsTtsInstruction: false,
+  requiresTtsReferenceAudio: false,
+  ttsReferenceAudioLabel: '参考音频',
+  requiresTtsReferenceText: false,
+  supportsTtsLanguage: false,
+  speakerCount: 0,
+  supportsSpeakerSelection: false,
+  ...overrides,
+})
+
+assert.deepEqual(
+  inputProfile({ adapter: 'pocket-tts' }),
+  expectProfile({ requiresTtsReferenceAudio: true }),
+)
+assert.deepEqual(
+  inputProfile({ adapter: 'zipvoice' }),
+  expectProfile({
+    requiresTtsReferenceAudio: true,
+    requiresTtsReferenceText: true,
+  }),
+)
+assert.deepEqual(
+  inputProfile({
+    providerId: 'api.bailian',
+    version: 'qwen-audio-3.0-tts-flash',
+  }),
+  expectProfile({
+    apiModel: true,
+    supportsCloudVoiceCreation: true,
+    supportsTtsInstruction: true,
+  }),
+)
+assert.deepEqual(
+  inputProfile({
+    providerId: 'api.bailian',
+    version: 'cosyvoice-v3-plus',
+  }),
+  expectProfile({
+    apiModel: true,
+    supportsCloudVoiceCreation: true,
+  }),
+)
+assert.deepEqual(
+  inputProfile({ adapter: 'supertonic' }),
+  expectProfile({ supportsTtsLanguage: true }),
+)
+assert.deepEqual(
+  inputProfile({ id: 'k2-fsa.vits-aishell3' }),
+  expectProfile({ speakerCount: 174, supportsSpeakerSelection: true }),
+)
 
 console.log(
   JSON.stringify({

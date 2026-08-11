@@ -1273,9 +1273,21 @@ function App() {
     const history = capability === 'text.generate'
       ? (textHistory[providerKey] ?? [])
       : []
-    const messages: { role: 'user' | 'assistant'; content: string }[] =
+    const systemPrompt = typeof modelParameters.systemPrompt === 'string'
+      ? modelParameters.systemPrompt.trim()
+      : ''
+    const messages: {
+      role: 'system' | 'user' | 'assistant'
+      content: string
+    }[] =
       capability === 'text.generate'
-        ? [...history, { role: 'user' as const, content: text }]
+        ? [
+            ...(systemPrompt
+              ? [{ role: 'system' as const, content: systemPrompt }]
+              : []),
+            ...history,
+            { role: 'user' as const, content: text },
+          ]
         : []
     const execution = await executeHarnessTask<
       TtsGenerateResult | TextGenerateResult | Record<string, unknown>

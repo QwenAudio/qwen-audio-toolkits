@@ -243,19 +243,44 @@ export function capabilityProducesAudio(
   return result === 'audio' || result === 'audio-tracks'
 }
 
+function modelUsesFixedParameters(
+  capability: HarnessCapabilityId,
+  adapter: string,
+): boolean {
+  return (
+    (capability === 'speech.detect' &&
+      adapter === 'funasr-fsmn-vad-gguf') ||
+    (capability === 'audio.enhance' && adapter === 'bailian-audio-process')
+  )
+}
+
 export function workflowParametersForModel(
   capability: HarnessCapabilityId,
-  model: { adapter: string; providerId?: string },
+  model: { adapter: string; providerId?: string; version?: string },
 ): Record<string, string | number | boolean> {
   const parameters = {
     ...capabilityDefinition(capability).defaultParameters,
   }
+  if (modelUsesFixedParameters(capability, model.adapter)) {
+    return {}
+  }
   if (capability === 'speech.transcribe' && model.adapter === 'bailian-funasr') {
+    if (model.version?.includes('-8k-')) {
+      return { ...parameters, semanticPunctuation: true }
+    }
+    return {
+      ...parameters,
+      language: 'auto',
+      ...(model.version === 'fun-asr-realtime' ? { context: '' } : {}),
+      semanticPunctuation: true,
+    }
+  }
+  if (capability === 'speech.transcribe' && model.adapter === 'bailian-asr') {
     return {
       ...parameters,
       language: 'auto',
       context: '',
-      semanticPunctuation: true,
+      enableItn: true,
     }
   }
   if (
@@ -362,50 +387,109 @@ const COMMON_PARAMETER_SCHEMAS: Partial<
   ],
 }
 
-const FUNASR_PARAMETERS: PluginParameterDefinition[] = [
-  {
+export const QWEN_ASR_LANGUAGE_OPTIONS = [
+  ['zh', '中文'], ['yue', '粤语'], ['en', 'English'], ['ja', '日本語'],
+  ['de', 'Deutsch'], ['ko', '한국어'], ['ru', 'Русский'], ['fr', 'Français'],
+  ['pt', 'Português'], ['ar', 'العربية'], ['it', 'Italiano'], ['es', 'Español'],
+  ['hi', 'हिन्दी'], ['id', 'Bahasa Indonesia'], ['th', 'ไทย'], ['tr', 'Türkçe'],
+  ['uk', 'Українська'], ['vi', 'Tiếng Việt'], ['cs', 'Čeština'], ['da', 'Dansk'],
+  ['fil', 'Filipino'], ['fi', 'Suomi'], ['is', 'Íslenska'], ['ms', 'Bahasa Melayu'],
+  ['no', 'Norsk'], ['pl', 'Polski'], ['sv', 'Svenska'],
+] as const
+
+export const FUN_ASR_LANGUAGE_OPTIONS = [
+  ['zh', '中文'], ['en', 'English'], ['ja', '日本語'], ['ko', '한국어'],
+  ['vi', 'Tiếng Việt'], ['th', 'ไทย'], ['id', 'Bahasa Indonesia'],
+  ['ms', 'Bahasa Melayu'], ['tl', 'Filipino'], ['hi', 'हिन्दी'],
+  ['ar', 'العربية'], ['fr', 'Français'], ['de', 'Deutsch'], ['es', 'Español'],
+  ['pt', 'Português'], ['ru', 'Русский'], ['it', 'Italiano'], ['nl', 'Nederlands'],
+  ['sv', 'Svenska'], ['da', 'Dansk'], ['fi', 'Suomi'], ['no', 'Norsk'],
+  ['el', 'Ελληνικά'], ['pl', 'Polski'], ['cs', 'Čeština'], ['hu', 'Magyar'],
+  ['ro', 'Română'], ['bg', 'Български'], ['hr', 'Hrvatski'], ['sk', 'Slovenčina'],
+] as const
+
+function languageParameter(
+  options: readonly (readonly [string, string])[],
+): PluginParameterDefinition {
+  return {
     name: 'language',
     label: '识别语言',
     type: 'enum',
     default: 'auto',
     options: [
       { label: '自动识别', value: 'auto' },
-      { label: '中文', value: 'zh' },
-      { label: '英文', value: 'en' },
-      { label: '日语', value: 'ja' },
-      { label: '韩语', value: 'ko' },
+      ...options.map(([value, label]) => ({ label, value })),
     ],
-  },
+  }
+}
+
+const CONTEXT_PARAMETER: PluginParameterDefinition = {
+  name: 'context',
+  label: '上下文',
+  type: 'string',
+  default: '',
+  multiline: true,
+}
+
+const SEMANTIC_PUNCTUATION_PARAMETER: PluginParameterDefinition = {
+  name: 'semanticPunctuation',
+  label: '语义断句',
+  type: 'boolean',
+  default: true,
+}
+
+const FUNASR_PARAMETERS: PluginParameterDefinition[] = [
+  languageParameter(FUN_ASR_LANGUAGE_OPTIONS),
+  CONTEXT_PARAMETER,
+  SEMANTIC_PUNCTUATION_PARAMETER,
+]
+
+const QWEN_AUDIO_ASR_PARAMETERS: PluginParameterDefinition[] = [
+  languageParameter(FUN_ASR_LANGUAGE_OPTIONS.slice(0, 4)),
+  CONTEXT_PARAMETER,
+]
+
+const QWEN3_ASR_PARAMETERS: PluginParameterDefinition[] = [
+  languageParameter(QWEN_ASR_LANGUAGE_OPTIONS),
+  { ...CONTEXT_PARAMETER, label: '识别提示' },
   {
-    name: 'context',
-    label: '上下文',
-    type: 'string',
-    default: '',
-    multiline: true,
-  },
-  {
-    name: 'semanticPunctuation',
-    label: '语义断句',
+    name: 'enableItn',
+    label: '数字格式化',
     type: 'boolean',
     default: true,
   },
 ]
 
-const QWEN_AUDIO_ASR_PARAMETERS: PluginParameterDefinition[] =
-  FUNASR_PARAMETERS.filter(
-    (parameter) => parameter.name !== 'semanticPunctuation',
-  )
-
 export function parameterSchemaForModel(
   capability: HarnessCapabilityId,
-  model: Pick<ModelPlugin, 'adapter' | 'parameterSchema'>,
+  model: Pick<ModelPlugin, 'adapter' | 'parameterSchema'> & {
+    version?: string
+  },
 ): PluginParameterDefinition[] {
   if (model.parameterSchema?.length) return model.parameterSchema
+  if (modelUsesFixedParameters(capability, model.adapter)) {
+    return []
+  }
   if (
     capability === 'speech.transcribe' &&
     model.adapter === 'bailian-funasr'
   ) {
+    if (model.version?.includes('-8k-')) {
+      return [SEMANTIC_PUNCTUATION_PARAMETER]
+    }
+    if (model.version?.startsWith('paraformer-')) {
+      return [
+        languageParameter(FUN_ASR_LANGUAGE_OPTIONS.slice(0, 2)),
+        SEMANTIC_PUNCTUATION_PARAMETER,
+      ]
+    }
     return FUNASR_PARAMETERS
+  }
+  if (
+    capability === 'speech.transcribe' &&
+    model.adapter === 'bailian-asr'
+  ) {
+    return QWEN3_ASR_PARAMETERS
   }
   if (
     capability === 'speech.transcribe' &&

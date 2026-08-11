@@ -21,13 +21,19 @@ for (const entry of entries.sort((left, right) => left.name.localeCompare(right.
   }
   plugins.push({
     ...manifest,
-    models: (manifest.models ?? []).map((model) => ({
-      ...model,
-      source: '',
-      sha256: '',
-      assets: [],
-      repositoryHosted: true,
-    })),
+    models: (manifest.models ?? []).map((model) => {
+      const repositoryHosted =
+        Boolean(model.source?.trim()) ||
+        (model.files?.length ?? 0) > 0 ||
+        (model.assets?.length ?? 0) > 0
+      return {
+        ...model,
+        source: '',
+        sha256: '',
+        assets: [],
+        repositoryHosted,
+      }
+    }),
   })
 }
 

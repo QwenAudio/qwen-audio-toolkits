@@ -3533,7 +3533,7 @@ async fn execute_request(
                 Some(text) => text,
                 None => required_string(&request.input, "text")?,
             };
-            let sid = number(&request.parameters, "sid").unwrap_or(3.0) as i32;
+            let sid = number(&request.parameters, "sid").unwrap_or(0.0) as i32;
             let speed = number(&request.parameters, "speed").unwrap_or(0.96) as f32;
             let silence_scale =
                 number(&request.parameters, "silenceScale").map(|value| value as f32);
@@ -3544,6 +3544,12 @@ async fn execute_request(
                 number(&request.parameters, "numSteps").map(|value| value.round() as i32);
             let language = optional_string(&request.parameters, "language");
             if provider.adapter == "cosyvoice-local" {
+                if let Some(callback) = progress_callback.as_ref() {
+                    callback(
+                        18,
+                        "正在运行 CosyVoice 本地推理（首次运行可能需要数分钟）".to_string(),
+                    );
+                }
                 execute_local_cosyvoice(
                     app.clone(),
                     text,
@@ -4408,6 +4414,18 @@ async fn execute_bailian_tts(
         .map(str::to_string)
         .or_else(|| (model_id == BAILIAN_COSYVOICE_MODEL).then(|| "longxiaochun_v2".to_string()))
         .ok_or_else(|| "CosyVoice v3.5 需要声音复刻或声音设计生成的音色 ID".to_string())?;
+    let instruction = optional_string(&request.parameters, "instruction")
+        .map(|value| value.chars().take(100).collect::<String>());
+    let mut input = json!({
+        "text": text,
+        "voice": voice,
+        "format": "wav",
+        "sample_rate": 24000,
+        "rate": speed
+    });
+    if let Some(instruction) = instruction {
+        input["instruction"] = json!(instruction);
+    }
     let started = Instant::now();
     let response = api_client()?
         .post(format!(
@@ -4415,16 +4433,7 @@ async fn execute_bailian_tts(
             config.base_url
         ))
         .bearer_auth(&config.api_key)
-        .json(&json!({
-            "model": model_id,
-            "input": {
-                "text": text,
-                "voice": voice,
-                "format": "wav",
-                "sample_rate": 24000,
-                "rate": speed
-            }
-        }))
+        .json(&json!({ "model": model_id, "input": input }))
         .send()
         .await
         .map_err(|error| format!("百炼语音合成请求失败: {error}"))?;
@@ -4524,6 +4533,26 @@ async fn execute_bailian_asr(
     if let Some(callback) = progress_callback.as_ref() {
         callback(24, "正在调用百炼语音识别".to_string());
     }
+    let mut messages = Vec::new();
+    if let Some(context) = bailian_asr_context(request) {
+        messages.push(json!({
+            "role": "system",
+            "content": [{ "type": "text", "text": context }]
+        }));
+    }
+    messages.push(json!({
+        "role": "user",
+        "content": [{
+            "type": "input_audio",
+            "input_audio": { "data": audio_data_url }
+        }]
+    }));
+    let mut asr_options = json!({
+        "enable_itn": request.parameters.get("enableItn").and_then(Value::as_bool).unwrap_or(true)
+    });
+    if let Some(language) = bailian_asr_language(request) {
+        asr_options["language"] = json!(language);
+    }
     let response = api_client()?
         .post(format!(
             "{}/compatible-mode/v1/chat/completions",
@@ -4532,19 +4561,9 @@ async fn execute_bailian_asr(
         .bearer_auth(&config.api_key)
         .json(&json!({
             "model": model_id,
-            "messages": [{
-                "role": "user",
-                "content": [{
-                    "type": "input_audio",
-                    "input_audio": {
-                        "data": audio_data_url
-                    }
-                }]
-            }],
+            "messages": messages,
             "stream": false,
-            "asr_options": {
-                "enable_itn": true
-            }
+            "asr_options": asr_options
         }))
         .send()
         .await

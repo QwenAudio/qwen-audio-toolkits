@@ -883,6 +883,7 @@ function WorkflowEditor({
       ? selectedNode.data.parameterSchema ??
         parameterSchemaForModel(selectedNode.data.capability, {
           adapter: selectedNode.data.adapter ?? '',
+          version: selectedNode.data.modelId,
         })
       : []
     return (

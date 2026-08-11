@@ -38,8 +38,11 @@ import { VoiceCombobox } from '../components/VoiceCombobox'
 import {
   capabilityAcceptsAudio,
   capabilityDefinition,
+  FUN_ASR_LANGUAGE_OPTIONS,
+  QWEN_ASR_LANGUAGE_OPTIONS,
 } from '../domain/capabilities'
 import { normalizeHarnessResult } from '../domain/results'
+import { modelInputProfile } from '../domain/modelInputs'
 import { cloudVoiceOptions, type VoiceOption } from '../domain/voices'
 import {
   finishFunAsrStream,
@@ -93,13 +96,6 @@ import type {
   TtsGenerateResult,
   VadDetectionResult,
 } from '../types'
-
-function ttsSpeakerCount(plugin: ModelPlugin): number | null {
-  if (plugin.adapter === 'kokoro') return 103
-  if (plugin.id === 'k2-fsa.vits-aishell3') return 174
-  if (plugin.id === 'k2-fsa.vits-melo-zh-en') return 1
-  return null
-}
 
 const DETAIL_WIDTH_STORAGE_KEY = 'qwen-audio-toolkits.result-detail-width-v1'
 const DEFAULT_DETAIL_WIDTH = 390
@@ -661,10 +657,24 @@ export function ModelWorkspaceView({
   const providerReady = provider
     ? provider.status === 'ready'
     : plugin.installed
-  const apiModel = plugin.providerId?.startsWith('api.') === true
+  const inputProfile = modelInputProfile(plugin)
+  const {
+    apiModel,
+    requiresCustomCosyVoice,
+    requiresTtsReferenceAudio,
+    requiresTtsReferenceText,
+    speakerCount,
+    supportsCloudVoiceCreation,
+    supportsSpeakerSelection,
+    supportsTtsInstruction,
+    supportsTtsLanguage,
+    supportsVoiceDesign,
+    ttsReferenceAudioLabel,
+  } = inputProfile
   const funAsrModel = plugin.adapter === 'bailian-funasr'
   const qwenAudioAsrModel = plugin.adapter === 'bailian-qwen-audio-asr'
-  const qwen3AsrModel = plugin.adapter === 'qwen3-asr'
+  const localQwen3AsrModel = plugin.adapter === 'qwen3-asr'
+  const cloudQwen3AsrModel = plugin.adapter === 'bailian-asr'
   const canaryModel = plugin.adapter === 'nemo-canary'
   const streamingAsrModel =
     capability === 'speech.transcribe' &&
@@ -677,21 +687,12 @@ export function ModelWorkspaceView({
     capability === 'audio.enhance' &&
     plugin.streamingMode === 'streaming'
   const speakerComparisonModel = capability === 'speaker.embed'
-  const requiresCustomCosyVoice = [
-    'cosyvoice-v3.5-plus',
-    'cosyvoice-v3.5-flash',
-  ].includes(plugin.version)
   const voiceOptions = cloudVoiceOptions(plugin)
-  const supportsCloudVoiceCreation =
-    plugin.providerId === 'api.bailian' &&
-    [
-      'qwen-audio-3.0-tts-flash',
-      'qwen-audio-3.0-tts-plus',
-      'cosyvoice-v3-plus',
-      'cosyvoice-v3.5-plus',
-      'cosyvoice-v3.5-flash',
-    ].includes(plugin.version)
-  const supportsVoiceDesign = plugin.version.startsWith('cosyvoice-v3.5-')
+  const funAsrSupportsContext = plugin.version === 'fun-asr-realtime'
+  const funAsrIs8k = plugin.version.includes('-8k-')
+  const paraformerModel = plugin.version.startsWith('paraformer-')
+  const adjustableVadModel = plugin.adapter === 'silero-vad'
+  const adjustableEnhanceModel = capability === 'audio.enhance' && !apiModel
   const modelRuns = useMemo(
     () =>
       runs
@@ -750,6 +751,7 @@ export function ModelWorkspaceView({
   }
   const [speakerId, setSpeakerId] = useState(3)
   const [speed, setSpeed] = useState(1)
+  const [ttsInstruction, setTtsInstruction] = useState('')
   const [ttsLanguage, setTtsLanguage] = useState('en')
   const [ttsReferenceClip, setTtsReferenceClip] = useState<AudioClip | null>(
     null,
@@ -767,6 +769,13 @@ export function ModelWorkspaceView({
   const [asrContext, setAsrContext] = useState('')
   const [asrTargetLanguage, setAsrTargetLanguage] = useState('en')
   const [semanticPunctuation, setSemanticPunctuation] = useState(true)
+  const [asrEnableItn, setAsrEnableItn] = useState(true)
+  const [vadThreshold, setVadThreshold] = useState(0.25)
+  const [vadMinSpeechDuration, setVadMinSpeechDuration] = useState(0.18)
+  const [vadMinSilenceDuration, setVadMinSilenceDuration] = useState(0.2)
+  const [textTemperature, setTextTemperature] = useState(0.7)
+  const [textMaxTokens, setTextMaxTokens] = useState(1024)
+  const [textSystemPrompt, setTextSystemPrompt] = useState('')
   const availableVoiceOptions = useMemo(
     () => [...voiceOptions, ...customVoices],
     [customVoices, voiceOptions],
@@ -1125,24 +1134,6 @@ export function ModelWorkspaceView({
     return null
   }, [asrPlaybackTime, execution])
   const Icon = capabilityIcon(capability)
-  const declaredTtsReferenceAudio = plugin.inputs?.find(
-    (port) => port.type === 'audio',
-  )
-  const requiresTtsReferenceAudio =
-    capability === 'speech.synthesize' &&
-    (Boolean(declaredTtsReferenceAudio) ||
-      ['zipvoice', 'pocket-tts', 'cosyvoice-local'].includes(plugin.adapter))
-  const ttsReferenceAudioLabel =
-    declaredTtsReferenceAudio?.label ?? '参考音频'
-  const requiresTtsReferenceText = [
-    'zipvoice',
-    'cosyvoice-local',
-  ].includes(plugin.adapter)
-  const supportsTtsLanguage = plugin.adapter === 'supertonic'
-  const speakerCount = ttsSpeakerCount(plugin)
-  const supportsSpeakerSelection =
-    !apiModel && speakerCount !== null && speakerCount > 1
-
   useEffect(() => {
     if (!supportsSpeakerSelection) {
       setSpeakerId(0)
@@ -1703,12 +1694,19 @@ export function ModelWorkspaceView({
         plugin.providerId,
         plugin.version,
         capability === 'text.generate'
-          ? { temperature: 0.7, maxTokens: 1024 }
+          ? {
+              temperature: textTemperature,
+              maxTokens: textMaxTokens,
+              systemPrompt: textSystemPrompt,
+            }
           : capability === 'speech.synthesize'
             ? {
               speed,
               ...(synthesisText !== input ? { synthesisText } : {}),
               ...(apiModel ? { voice } : {}),
+              ...(supportsTtsInstruction && ttsInstruction.trim()
+                ? { instruction: ttsInstruction.trim() }
+                : {}),
               ...(!apiModel
                 ? { sid: supportsSpeakerSelection ? speakerId : 0 }
                 : {}),
@@ -2017,8 +2015,8 @@ export function ModelWorkspaceView({
             }
           : funAsrModel
           ? {
-              language: asrLanguage,
-              context: asrContext,
+              ...(!funAsrIs8k ? { language: asrLanguage } : {}),
+              ...(funAsrSupportsContext ? { context: asrContext } : {}),
               semanticPunctuation,
               ...(speechSegments ? { speechSegments } : {}),
             }
@@ -2028,9 +2026,16 @@ export function ModelWorkspaceView({
               context: asrContext,
               ...(speechSegments ? { speechSegments } : {}),
             }
-          : qwen3AsrModel
+          : localQwen3AsrModel
           ? {
               hotwords: asrContext,
+              ...(speechSegments ? { speechSegments } : {}),
+            }
+          : cloudQwen3AsrModel
+          ? {
+              language: asrLanguage,
+              context: asrContext,
+              enableItn: asrEnableItn,
               ...(speechSegments ? { speechSegments } : {}),
             }
           : canaryModel
@@ -2044,6 +2049,12 @@ export function ModelWorkspaceView({
           ? {
               operations: ['denoise'],
               denoiseStrength,
+            }
+          : capability === 'speech.detect'
+          ? {
+              threshold: vadThreshold,
+              minSpeechDuration: vadMinSpeechDuration,
+              minSilenceDuration: vadMinSilenceDuration,
             }
           : speechSegments
             ? { speechSegments }
@@ -2944,6 +2955,19 @@ export function ModelWorkspaceView({
                       </select>
                     </label>
                   )}
+                  {supportsTtsInstruction && (
+                    <label className="context-field">
+                      <span>表达指令</span>
+                      <input
+                        value={ttsInstruction}
+                        maxLength={100}
+                        placeholder="例如：温柔、开心地朗读"
+                        onChange={(event) =>
+                          setTtsInstruction(event.target.value)
+                        }
+                      />
+                    </label>
+                  )}
                 </div>
               )}
               {capability === 'speech.synthesize' &&
@@ -3115,18 +3139,58 @@ export function ModelWorkspaceView({
                 </div>
               )}
               {capability === 'text.generate' && onClearTextHistory && (
-                <div className="text-composer-toolbar">
-                  <button
-                    className="text-composer-clear"
-                    type="button"
-                    onClick={() => {
-                      onClearTextHistory()
-                      setText('')
-                    }}
-                  >
-                    新对话
-                  </button>
-                </div>
+                <>
+                  <div className="model-parameter-bar">
+                    <label>
+                      <span>Temperature</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={2}
+                        step={0.1}
+                        value={textTemperature}
+                        onChange={(event) =>
+                          setTextTemperature(Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>最大输出</span>
+                      <input
+                        type="number"
+                        min={32}
+                        max={8192}
+                        step={32}
+                        value={textMaxTokens}
+                        onChange={(event) =>
+                          setTextMaxTokens(Number(event.target.value))
+                        }
+                      />
+                    </label>
+                    <label className="context-field">
+                      <span>System Prompt</span>
+                      <input
+                        value={textSystemPrompt}
+                        placeholder="可选：设定助手角色和回答方式"
+                        onChange={(event) =>
+                          setTextSystemPrompt(event.target.value)
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="text-composer-toolbar">
+                    <button
+                      className="text-composer-clear"
+                      type="button"
+                      onClick={() => {
+                        onClearTextHistory()
+                        setText('')
+                      }}
+                    >
+                      新对话
+                    </button>
+                  </div>
+                </>
               )}
               <div className="text-model-composer">
                 <textarea
@@ -3306,20 +3370,22 @@ export function ModelWorkspaceView({
               <div className="audio-input-stack">
               {funAsrModel && (
                 <div className="model-parameter-bar funasr-parameters">
-                  <label>
+                  {!funAsrIs8k && <label>
                     <span>语言</span>
                     <select
                       value={asrLanguage}
                       onChange={(event) => setAsrLanguage(event.target.value)}
                     >
                       <option value="auto">自动识别</option>
-                      <option value="zh">中文</option>
-                      <option value="en">英文</option>
-                      <option value="ja">日语</option>
-                      <option value="ko">韩语</option>
+                      {(paraformerModel
+                        ? FUN_ASR_LANGUAGE_OPTIONS.slice(0, 2)
+                        : FUN_ASR_LANGUAGE_OPTIONS
+                      ).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
                     </select>
-                  </label>
-                  <label className="context-field">
+                  </label>}
+                  {funAsrSupportsContext && <label className="context-field">
                     <span>上下文</span>
                     <input
                       value={asrContext}
@@ -3327,7 +3393,7 @@ export function ModelWorkspaceView({
                       placeholder="人名、术语或对话背景"
                       onChange={(event) => setAsrContext(event.target.value)}
                     />
-                  </label>
+                  </label>}
                   <label className="parameter-check">
                     <input
                       type="checkbox"
@@ -3366,7 +3432,40 @@ export function ModelWorkspaceView({
                   </label>
                 </div>
               )}
-              {qwen3AsrModel && (
+              {cloudQwen3AsrModel && (
+                <div className="model-parameter-bar funasr-parameters">
+                  <label>
+                    <span>语言</span>
+                    <select
+                      value={asrLanguage}
+                      onChange={(event) => setAsrLanguage(event.target.value)}
+                    >
+                      <option value="auto">自动识别</option>
+                      {QWEN_ASR_LANGUAGE_OPTIONS.map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="context-field">
+                    <span>识别提示</span>
+                    <input
+                      value={asrContext}
+                      maxLength={400}
+                      placeholder="背景信息、人名或术语说明"
+                      onChange={(event) => setAsrContext(event.target.value)}
+                    />
+                  </label>
+                  <label className="parameter-check">
+                    <input
+                      type="checkbox"
+                      checked={asrEnableItn}
+                      onChange={(event) => setAsrEnableItn(event.target.checked)}
+                    />
+                    <span>数字格式化</span>
+                  </label>
+                </div>
+              )}
+              {localQwen3AsrModel && (
                 <div className="model-parameter-bar">
                   <label className="context-field">
                     <span>热词</span>
@@ -3431,7 +3530,50 @@ export function ModelWorkspaceView({
                   </label>
                 </div>
               )}
-              {capability === 'audio.enhance' && (
+              {adjustableVadModel && (
+                <div className="model-parameter-bar">
+                  <label>
+                    <span>检测阈值</span>
+                    <input
+                      type="number"
+                      min={0.05}
+                      max={0.95}
+                      step={0.05}
+                      value={vadThreshold}
+                      onChange={(event) =>
+                        setVadThreshold(Number(event.target.value))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>最短语音（秒）</span>
+                    <input
+                      type="number"
+                      min={0.05}
+                      max={2}
+                      step={0.05}
+                      value={vadMinSpeechDuration}
+                      onChange={(event) =>
+                        setVadMinSpeechDuration(Number(event.target.value))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>结束静音（秒）</span>
+                    <input
+                      type="number"
+                      min={0.05}
+                      max={3}
+                      step={0.05}
+                      value={vadMinSilenceDuration}
+                      onChange={(event) =>
+                        setVadMinSilenceDuration(Number(event.target.value))
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+              {adjustableEnhanceModel && (
                 <div className="model-parameter-bar">
                   <label className="enhance-strength-field">
                     <span>降噪强度</span>

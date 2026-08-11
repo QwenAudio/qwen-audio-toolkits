@@ -1,55 +1,28 @@
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
+import {
+  appDataPath,
+  audioInput,
+  firstExistingPath,
+  macEnglishSpeechFixture,
+  modelRepositoryPath,
+  resolveAudioPath,
+} from './lib/model-smoke-fixtures.mjs'
 
 const api = process.env.QWEN_AUDIO_TOOLKITS_API ?? 'http://127.0.0.1:3847/v1'
-const appData = path.join(
-  os.homedir(),
-  'Library/Application Support/org.qwenaudio.toolkits',
-)
-const speechFile = path.join(
-  appData,
-  'recordings/smoke-speech.wav',
-)
-const noisyFile = path.join(
-  appData,
+const speechFile = appDataPath('recordings/smoke-speech.wav')
+const noisyFile = appDataPath(
   'recordings/test_with_noise_48k-1785405269614.wav',
 )
-const taggingFile = path.join(
-  appData,
+const taggingFile = appDataPath(
   'plugins/k2-fsa.audio-tagging/models/ced-tiny-int8/test_wavs/10.wav',
 )
-const keywordFile = path.join(
-  appData,
+const keywordFile = appDataPath(
   'plugins/k2-fsa.keyword-spotting/models/kws-zh-en-int8/test_wavs/en_0.wav',
 )
-const voiceRegistryFile = path.join(
-  appData,
-  'providers/bailian-voices.json',
+const sourceKeywordFile = modelRepositoryPath(
+  'k2-fsa.keyword-spotting/kws-zh-en-int8/test_wavs/en_0.wav',
 )
-
-function audioInput(filePath, fallbackPath) {
-  const resolvedPath = fs.existsSync(filePath) ? filePath : fallbackPath
-  if (!resolvedPath || !fs.existsSync(resolvedPath)) {
-    throw new Error(`Smoke test audio is missing: ${filePath}`)
-  }
-  const bytes = fs.readFileSync(resolvedPath)
-  return {
-    audioDataUrl: `data:audio/wav;base64,${bytes.toString('base64')}`,
-    clipName: path.basename(resolvedPath),
-  }
-}
-
-function resolveAudioPath(candidates, label) {
-  const resolved = candidates.find((candidate) => candidate && fs.existsSync(candidate))
-  if (!resolved) {
-    throw new Error(
-      `${label} audio fixture is missing. Set QWEN_AUDIO_TOOLKITS_${label.toUpperCase()}_WAV ` +
-        'or install the corresponding local model fixture.',
-    )
-  }
-  return resolved
-}
+const voiceRegistryFile = appDataPath('providers/bailian-voices.json')
 
 function savedVoice(targetModel) {
   if (!fs.existsSync(voiceRegistryFile)) return ''
@@ -124,7 +97,17 @@ const defaultNoisyFile = resolveAudioPath(
 const speech = audioInput(defaultSpeechFile)
 const noisy = audioInput(defaultNoisyFile, defaultSpeechFile)
 const tagging = audioInput(taggingFile, defaultSpeechFile)
-const keyword = audioInput(keywordFile, defaultSpeechFile)
+const keywordFixture = firstExistingPath([
+  process.env.QWEN_AUDIO_TOOLKITS_KEYWORD_WAV,
+  keywordFile,
+  sourceKeywordFile,
+])
+const keyword = keywordFixture ? audioInput(keywordFixture) : speech
+const canaryFixture = macEnglishSpeechFixture(
+  process.env.QWEN_AUDIO_TOOLKITS_CANARY_WAV,
+)
+const canary = canaryFixture ? audioInput(canaryFixture) : null
+const englishSpeech = canary ?? speech
 const text = '今天下午三点开会预算是一千七百九十九元请提前十分钟到'
 
 const localTests = [
@@ -166,14 +149,45 @@ const localTests = [
     },
   },
   {
-    name: 'DeepFilterNet3',
+    name: 'FSMN-VAD GGUF',
     request: {
-      capability: 'audio.enhance',
-      providerId: 'plugin.rikorose.deepfilternet3',
+      capability: 'speech.detect',
+      providerId: 'plugin.funaudiollm.fsmn-vad-gguf',
       routing: 'local',
-      title: 'Smoke · DeepFilterNet3',
-      input: noisy,
-      parameters: { operations: ['denoise'], denoiseStrength: 0.7 },
+      title: 'Smoke · FSMN-VAD GGUF',
+      input: speech,
+      parameters: {},
+    },
+  },
+  {
+    name: 'Canary 180M Flash',
+    skipReason: canary ? undefined : '缺少英文音频样本',
+    request: {
+      capability: 'speech.transcribe',
+      providerId: 'plugin.nvidia.canary-180m-flash',
+      routing: 'local',
+      title: 'Smoke · Canary 180M Flash',
+      input: canary ?? speech,
+      parameters: {
+        sourceLanguage: 'en',
+        targetLanguage: 'en',
+        punctuation: true,
+      },
+    },
+  },
+  {
+    name: 'Fun-CosyVoice3 Local',
+    request: {
+      capability: 'speech.synthesize',
+      providerId: 'plugin.lourdle.fun-cosyvoice3-local',
+      routing: 'local',
+      title: 'Smoke · Fun-CosyVoice3 Local',
+      input: { text: '你好，这是本地音色克隆测试。' },
+      parameters: {
+        speed: 1,
+        referenceAudioDataUrl: speech.audioDataUrl,
+        referenceText: '开放时间早上九点至下午五点。',
+      },
     },
   },
   {
@@ -270,13 +284,20 @@ const localTests = [
   },
   {
     name: 'Zipformer Keyword Spotting',
+    skipReason: keywordFixture ? undefined : '缺少关键词阳性音频样本',
     request: {
       capability: 'speech.keyword',
       providerId: 'plugin.k2-fsa.keyword-spotting',
       routing: 'local',
       title: 'Smoke · Keyword Spotting',
       input: keyword,
-      parameters: {},
+      parameters: { keywords: ['LIGHT UP'] },
+    },
+    validate(output) {
+      const value = output.output ?? output
+      if (value.detected !== true) {
+        throw new Error('known keyword fixture was not detected')
+      }
     },
   },
   {
@@ -312,17 +333,57 @@ const localTests = [
       parameters: {},
     },
   },
-  {
-    name: 'VITS AISHELL3 中文',
+  ...[
+    ['FireRedASR AED', 'plugin.firered.fire-red-asr-v1', speech],
+    ['FireRedASR2 CTC', 'plugin.firered.fire-red-asr2-ctc', speech],
+    ['FunASR Nano', 'plugin.k2-fsa.funasr-nano', speech],
+    ['Moonshine v2 Tiny English', 'plugin.usefulsensors.moonshine-v2-tiny-en', englishSpeech],
+    ['Paraformer GGUF', 'plugin.funaudiollm.paraformer-gguf', speech],
+    ['Parakeet TDT 0.6B v3', 'plugin.nvidia.parakeet-tdt-0.6b-v3', englishSpeech],
+    ['Qwen3-ASR 0.6B', 'plugin.qwen.qwen3-asr-0.6b', speech],
+    ['Streaming Paraformer', 'plugin.k2-fsa.streaming-paraformer', speech],
+    ['WeNetSpeech Yue U2++ CTC', 'plugin.wenet-e2e.wenetspeech-yue-u2pp-ctc', speech],
+  ].map(([name, providerId, input]) => ({
+    name,
+    request: {
+      capability: 'speech.transcribe',
+      providerId,
+      routing: 'local',
+      title: `Smoke · ${name}`,
+      input,
+      parameters: { language: 'auto' },
+    },
+  })),
+  ...[
+    ['KittenTTS Nano 英文', 'plugin.k2-fsa.kitten-nano-en', 'This is an English synthesis input test.', { sid: 0, speed: 1 }],
+    ['MatchaTTS 中英双语', 'plugin.k2-fsa.matcha-zh-en', '你好，这是中英文输入测试。Hello.', { sid: 0, speed: 1 }],
+    ['MeloTTS 中英双语', 'plugin.k2-fsa.vits-melo-zh-en', '你好，这是本地语音合成输入测试。', { sid: 0, speed: 1 }],
+    ['PocketTTS 英文音色克隆', 'plugin.k2-fsa.pocket-tts-en', 'This voice cloning input test is working.', {
+      speed: 1,
+      referenceAudioDataUrl: englishSpeech.audioDataUrl,
+    }],
+    ['SupertonicTTS 3 多语言', 'plugin.k2-fsa.supertonic-3', 'This is a multilingual synthesis input test.', {
+      sid: 0,
+      speed: 1,
+      language: 'en',
+    }],
+    ['ZipVoice 中英音色克隆', 'plugin.k2-fsa.zipvoice-zh-en', '你好，这是本地音色克隆输入测试。', {
+      speed: 1,
+      numSteps: 4,
+      referenceAudioDataUrl: speech.audioDataUrl,
+      referenceText: '开放时间早上九点至下午五点。',
+    }],
+  ].map(([name, providerId, synthesisText, parameters]) => ({
+    name,
     request: {
       capability: 'speech.synthesize',
-      providerId: 'plugin.k2-fsa.vits-aishell3',
+      providerId,
       routing: 'local',
-      title: 'Smoke · VITS AISHELL3',
-      input: { text: '你好，这是本地中文语音合成测试。' },
-      parameters: { sid: 0, speed: 1 },
+      title: `Smoke · ${name}`,
+      input: { text: synthesisText },
+      parameters,
     },
-  },
+  })),
 ]
 
 const cloudTests = [
@@ -360,8 +421,17 @@ const cloudTests = [
       input: speech,
       parameters: {
         modelId,
-        language: 'auto',
+        language: modelId.includes('-8k-') ? 'auto' : 'zh',
         semanticPunctuation: true,
+        ...(modelId === 'qwen3-asr-flash'
+          ? {
+              context: '背景术语：语音工作台、阿里云百炼。',
+              enableItn: true,
+            }
+          : {}),
+        ...(modelId === 'fun-asr-realtime'
+          ? { context: '语音工作台、阿里云百炼' }
+          : {}),
       },
     },
   })),
@@ -408,6 +478,10 @@ const cloudTests = [
           modelId,
           voice,
           speed: 1,
+          ...(modelId.startsWith('qwen-audio-3.0-tts-') ||
+          modelId.startsWith('cosyvoice-v3.5-')
+            ? { instruction: '自然、清晰地朗读。' }
+            : {}),
         },
       },
     })),
@@ -444,9 +518,38 @@ const selected = filter
     )
   : selectedByLocation
 const results = []
+const catalog = await json(`${api}/harness/catalog`)
+const readyProviderIds = new Set(
+  catalog.providers
+    .filter((provider) => provider.status === 'ready')
+    .map((provider) => provider.id),
+)
 
 for (const test of selected) {
   const startedAt = Date.now()
+  if (test.skipReason) {
+    results.push({
+      name: test.name,
+      status: 'skipped',
+      elapsedSeconds: 0,
+      reason: test.skipReason,
+    })
+    process.stderr.write(`SKIP ${test.name}\n`)
+    continue
+  }
+  if (
+    test.request.providerId.startsWith('plugin.') &&
+    !readyProviderIds.has(test.request.providerId)
+  ) {
+    results.push({
+      name: test.name,
+      status: 'skipped',
+      elapsedSeconds: 0,
+      reason: '模型未安装或未启用',
+    })
+    process.stderr.write(`SKIP ${test.name}\n`)
+    continue
+  }
   try {
     if (test.enable) {
       await json(`${api}/plugins/${test.enable}`, {
@@ -456,6 +559,7 @@ for (const test of selected) {
       })
     }
     const output = await execute(test.request)
+    test.validate?.(output)
     results.push({
       name: test.name,
       status: 'passed',

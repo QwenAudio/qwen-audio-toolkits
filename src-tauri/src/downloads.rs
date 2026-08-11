@@ -1,6 +1,6 @@
 use reqwest::{
     blocking::{Client, Response},
-    header::{CONTENT_RANGE, RANGE},
+    header::{CONTENT_LENGTH, CONTENT_RANGE, RANGE},
     StatusCode,
 };
 use serde::Serialize;
@@ -189,13 +189,14 @@ pub(crate) fn download_cached(
                 &format!("{label}分片连接不稳定，正在切换断点续传"),
             );
             let partial = cache.join(format!("{key}.part"));
-            download_sequential(app, &client, source, &partial, total, progress, label).map_err(
-                |fallback_error| format!("{parallel_error}；单连接重试也失败: {fallback_error}"),
-            )?;
+            download_sequential_with_retry(app, &client, source, &partial, total, progress, label)
+                .map_err(|fallback_error| {
+                    format!("{parallel_error}；单连接重试也失败: {fallback_error}")
+                })?;
             fs::rename(partial, &complete).map_err(|error| format!("无法保存下载缓存: {error}"))?;
         }
     } else {
-        download_sequential(
+        download_sequential_with_retry(
             app,
             &client,
             source,
@@ -213,6 +214,37 @@ pub(crate) fn download_cached(
         return Err("模型 SHA-256 校验失败，下载缓存已清理".to_string());
     }
     Ok(complete)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn download_sequential_with_retry(
+    app: &AppHandle,
+    client: &Client,
+    source: &str,
+    partial: &Path,
+    total: Option<u64>,
+    progress: DownloadProgressRange,
+    label: &str,
+) -> Result<(), String> {
+    let mut last_error = None;
+    for attempt in 0..3 {
+        match download_sequential(app, client, source, partial, total, progress, label) {
+            Ok(()) => return Ok(()),
+            Err(error) if download_was_canceled(&error) => return Err(error),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < 2 {
+                    emit_progress(
+                        app,
+                        progress.base,
+                        &format!("{label}连接中断，正在断点重试 ({}/3)", attempt + 2),
+                    );
+                    std::thread::sleep(Duration::from_millis(500 * (attempt + 1)));
+                }
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "模型下载失败".to_string()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -374,10 +406,18 @@ fn download_sequential(
     if existing > 0 {
         request = request.header(RANGE, format!("bytes={existing}-"));
     }
-    let response = request
+    let mut response = request
         .send()
         .map_err(|error| format!("模型下载失败: {error}"))?;
-    let append = existing > 0 && response.status() == StatusCode::PARTIAL_CONTENT;
+    if restart_without_range(existing, response.status()) {
+        drop(response);
+        existing = 0;
+        response = client
+            .get(source)
+            .send()
+            .map_err(|error| format!("模型完整重试失败: {error}"))?;
+    }
+    let append = existing > 0;
     if !response.status().is_success() {
         return Err(format!("模型下载失败: HTTP {}", response.status()));
     }
@@ -402,6 +442,10 @@ fn download_sequential(
         app,
         label,
     )
+}
+
+fn restart_without_range(existing: u64, status: StatusCode) -> bool {
+    existing > 0 && status != StatusCode::PARTIAL_CONTENT
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -429,7 +473,7 @@ fn stream_response(
         wait_for_download_permission()?;
         let count = response
             .read(&mut buffer)
-            .map_err(|error| format!("读取模型下载内容失败: {error}"))?;
+            .map_err(|error| format!("读取模型下载内容失败: {error:?}"))?;
         if count == 0 {
             break;
         }
@@ -502,6 +546,18 @@ fn emit_progress(app: &AppHandle, progress: u8, detail: &str) {
 }
 
 fn probe_range_size(client: &Client, source: &str) -> Option<u64> {
+    if let Ok(head) = client.head(source).send() {
+        if head.status().is_success() {
+            if let Some(total) = head
+                .headers()
+                .get(CONTENT_LENGTH)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.parse().ok())
+            {
+                return Some(total);
+            }
+        }
+    }
     let response = client.get(source).header(RANGE, "bytes=0-0").send().ok()?;
     if response.status() != StatusCode::PARTIAL_CONTENT {
         return None;
@@ -547,6 +603,7 @@ fn cache_key(source: &str) -> String {
 fn download_client() -> Result<Client, String> {
     Client::builder()
         .user_agent("QwenAudio-Toolkits/0.1")
+        .http1_only()
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(30 * 60))
         .tcp_keepalive(Duration::from_secs(30))
@@ -569,14 +626,23 @@ fn format_size(bytes: f64) -> String {
 mod tests {
     use super::{
         begin_download_task, cache_key, cancel_download, clear_completed_downloads_in,
-        parse_content_range, set_download_paused, wait_for_download_permission,
+        parse_content_range, restart_without_range, set_download_paused,
+        wait_for_download_permission,
     };
+    use reqwest::StatusCode;
     use std::{env, fs, sync::mpsc, thread, time::Duration};
 
     #[test]
     fn parses_range_total() {
         assert_eq!(parse_content_range("bytes 0-0/123456"), Some(123456));
         assert_eq!(parse_content_range("invalid"), None);
+    }
+
+    #[test]
+    fn non_partial_resume_restarts_as_a_full_download() {
+        assert!(restart_without_range(40_960, StatusCode::OK));
+        assert!(!restart_without_range(40_960, StatusCode::PARTIAL_CONTENT));
+        assert!(!restart_without_range(0, StatusCode::OK));
     }
 
     #[test]

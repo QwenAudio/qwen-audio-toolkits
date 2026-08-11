@@ -1,42 +1,24 @@
 import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
+import {
+  appDataPath,
+  audioInput,
+  firstExistingPath,
+  modelRepositoryPath,
+  resolveAudioPath,
+} from './lib/model-smoke-fixtures.mjs'
 
 const api = process.env.QWEN_AUDIO_API ?? 'http://127.0.0.1:3847'
-const appData = path.join(
-  os.homedir(),
-  'Library/Application Support/org.qwenaudio.toolkits',
-)
-const samplePath = path.join(
-  appData,
-  'recordings/smoke-speech.wav',
-)
-const englishSamplePath = path.join(
-  appData,
+const samplePath = appDataPath('recordings/smoke-speech.wav')
+const englishSamplePath = appDataPath(
   'plugins/usefulsensors.moonshine-v2-tiny-en/models/moonshine-v2-tiny-en-quantized/test_wavs/0.wav',
 )
-const senseVoiceEnglishSamplePath = path.join(
-  appData,
-  'recordings/smoke-english.wav',
+const senseVoiceEnglishSamplePath = appDataPath('recordings/smoke-english.wav')
+const keywordSamplePath = appDataPath(
+  'plugins/k2-fsa.keyword-spotting/models/kws-zh-en-int8/test_wavs/en_0.wav',
 )
-
-function audioInput(filePath) {
-  return {
-    audioDataUrl: `data:audio/wav;base64,${fs.readFileSync(filePath).toString('base64')}`,
-    clipName: path.basename(filePath),
-  }
-}
-
-function resolveAudioPath(candidates, label) {
-  const resolved = candidates.find((candidate) => candidate && fs.existsSync(candidate))
-  if (!resolved) {
-    throw new Error(
-      `${label} audio fixture is missing. Set QWEN_AUDIO_TOOLKITS_${label.toUpperCase()}_WAV ` +
-        'or install the corresponding local model fixture.',
-    )
-  }
-  return resolved
-}
+const sourceKeywordSamplePath = modelRepositoryPath(
+  'k2-fsa.keyword-spotting/kws-zh-en-int8/test_wavs/en_0.wav',
+)
 
 function wavSpec(bytes) {
   if (
@@ -92,6 +74,12 @@ const englishAudioInput = audioInput(
         ? senseVoiceEnglishSamplePath
         : defaultAudioPath,
 )
+const keywordAudioPath = firstExistingPath([
+  process.env.QWEN_AUDIO_TOOLKITS_KEYWORD_WAV,
+  keywordSamplePath,
+  sourceKeywordSamplePath,
+])
+const keywordAudioInput = keywordAudioPath ? audioInput(keywordAudioPath) : null
 
 async function jsonFetch(url, init) {
   const response = await fetch(`${api}${url}`, init)
@@ -142,10 +130,13 @@ function requestFor(plugin) {
   } else if (capability === 'audio.enhance') {
     parameters.operations = ['denoise']
   } else if (capability === 'speech.keyword') {
-    parameters.keywords = (process.env.QWEN_AUDIO_TOOLKITS_KEYWORDS ?? '')
+    const keywords = (process.env.QWEN_AUDIO_TOOLKITS_KEYWORDS ?? '')
       .split(',')
       .map((keyword) => keyword.trim())
       .filter(Boolean)
+    if (keywords.length) parameters.keywords = keywords
+    else if (keywordAudioInput) parameters.keywords = ['LIGHT UP']
+    if (keywordAudioInput) Object.assign(input, keywordAudioInput)
   } else if (capability === 'speaker.embed') {
     input.comparisonAudioDataUrl = englishAudioInput.audioDataUrl
     input.comparisonClipName = englishAudioInput.clipName
@@ -160,7 +151,7 @@ function requestFor(plugin) {
   }
 }
 
-function assertOutput(capability, response) {
+function assertOutput(capability, response, expectsKeywordMatch = false) {
   const output = response.output ?? response
   const artifacts = response.run?.artifacts ?? []
   const audioArtifacts = artifacts.filter((artifact) => artifact.kind === 'audio')
@@ -240,14 +231,18 @@ function assertOutput(capability, response) {
   if (capability === 'speech.keyword' && typeof output.detected !== 'boolean') {
     throw new Error('keyword detection result is missing')
   }
+  if (capability === 'speech.keyword' && expectsKeywordMatch && !output.detected) {
+    throw new Error('known keyword fixture was not detected')
+  }
 }
 
 async function runPlugin(plugin, timeoutMs = 10 * 60_000) {
   const started = Date.now()
+  const request = requestFor(plugin)
   const run = await jsonFetch('/v1/runs', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(requestFor(plugin)),
+    body: JSON.stringify(request),
   })
   while (Date.now() - started < timeoutMs) {
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -255,7 +250,11 @@ async function runPlugin(plugin, timeoutMs = 10 * 60_000) {
     if (!['completed', 'failed', 'canceled', 'cancelled'].includes(current.status)) continue
     if (current.status === 'completed') {
       const output = await jsonFetch(`/v1/runs/${run.id}/output`)
-      assertOutput(plugin.harnessCapabilities[0], output)
+      assertOutput(
+        plugin.harnessCapabilities[0],
+        output,
+        Array.isArray(request.parameters.keywords) && request.parameters.keywords.length > 0,
+      )
     }
     return {
       id: plugin.id,

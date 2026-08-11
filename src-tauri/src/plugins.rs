@@ -39,6 +39,7 @@ const MODEL_PROGRESS_SPAN: u8 = 28;
 const ASSET_PROGRESS_BASE: u8 = 70;
 const ASSET_PROGRESS_SPAN: u8 = 4;
 const FINAL_INSTALL_PROGRESS: u8 = 94;
+const MODELSCOPE_FILE_CONCURRENCY: usize = 4;
 const SHARED_RUNTIME_PROGRESS: DownloadProgressRange = DownloadProgressRange {
     base: SHARED_RUNTIME_PROGRESS_BASE,
     span: SHARED_RUNTIME_PROGRESS_SPAN,
@@ -3241,7 +3242,7 @@ fn download_modelscope_directory_filtered(
         &format!("正在从 ModelScope 下载 {label}"),
     );
     let total = payload.len();
-    for (chunk_index, chunk) in payload.chunks(4).enumerate() {
+    for (chunk_index, chunk) in payload.chunks(MODELSCOPE_FILE_CONCURRENCY).enumerate() {
         std::thread::scope(|scope| {
             let mut handles = Vec::with_capacity(chunk.len());
             for (index, (path, relative)) in chunk.iter().enumerate() {
@@ -3249,7 +3250,7 @@ fn download_modelscope_directory_filtered(
                 let destination = destination.to_path_buf();
                 let path = path.clone();
                 let relative = relative.clone();
-                let global_index = chunk_index * 4 + index;
+                let global_index = chunk_index * MODELSCOPE_FILE_CONCURRENCY + index;
                 let file_progress_base =
                     batch_progress(progress.base, progress.span, global_index, total);
                 let file_progress_end =
@@ -3276,7 +3277,7 @@ fn download_modelscope_directory_filtered(
             }
             Ok::<(), String>(())
         })?;
-        let completed = ((chunk_index + 1) * 4).min(total);
+        let completed = ((chunk_index + 1) * MODELSCOPE_FILE_CONCURRENCY).min(total);
         emit_install(
             app,
             "downloading",
@@ -3402,7 +3403,8 @@ fn download_modelscope_file(
         "",
         progress,
         &format!("正在下载 ModelScope 模型文件 ({}/{})", index + 1, total),
-    )?;
+    )
+    .map_err(|error| format!("下载 ModelScope 文件 {relative} 失败: {error}"))?;
     copy_download_atomically(&cached, &target, "ModelScope 模型文件")?;
     let _ = fs::remove_file(cached);
     Ok(())
@@ -3417,6 +3419,13 @@ fn install_remote_model(
     let Some(model) = manifest.model.as_ref() else {
         return Ok(());
     };
+    if model.files.is_empty()
+        && model.source.trim().is_empty()
+        && model.assets.is_empty()
+        && manifest.runtime_package.is_empty()
+    {
+        return Ok(());
+    }
     if !prefer_modelscope
         && model.source.trim().is_empty()
         && model.assets.is_empty()
