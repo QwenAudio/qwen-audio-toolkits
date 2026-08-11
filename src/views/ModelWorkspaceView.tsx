@@ -21,7 +21,6 @@ import {
   LoaderCircle,
   Mic,
   MonitorSpeaker,
-  PanelLeftClose,
   SlidersHorizontal,
   Sparkles,
   Upload,
@@ -34,6 +33,7 @@ import { InlineAudioPlayer } from '../components/InlineAudioPlayer'
 import { AudioAssetPreview } from '../components/AudioAssetPreview'
 import { AudioFileDropZone } from '../components/AudioFileDropZone'
 import { RecordingWaveform } from '../components/RecordingWaveform'
+import { SidebarCollapseIcon } from '../components/SidebarCollapseIcon'
 import { VoiceCombobox } from '../components/VoiceCombobox'
 import {
   capabilityAcceptsAudio,
@@ -2552,7 +2552,7 @@ export function ModelWorkspaceView({
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => setSelectedRunId(null)}
           >
-            <PanelLeftClose size={15} strokeWidth={1.8} />
+            <SidebarCollapseIcon />
           </button>
         )}
       </header>

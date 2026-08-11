@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react'
 import { ModelCapabilityIcon } from './components/ModelCapabilityIcon'
+import { SidebarCollapseIcon } from './components/SidebarCollapseIcon'
 import { initialPlugins, fallbackRuntime } from './data'
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
 import { capabilityDefinition } from './domain/capabilities'
@@ -325,26 +326,6 @@ function sidebarGroupIcon(group: SidebarModelGroupId) {
     default:
       return null
   }
-}
-
-function SidebarCollapseIcon({ collapsed }: { collapsed: boolean }) {
-  return (
-    <svg
-      className="sidebar-collapse-icon"
-      width="16"
-      height="16"
-      viewBox="0 0 16 16"
-      fill="none"
-      aria-hidden="true"
-    >
-      <rect x="1.75" y="1.75" width="12.5" height="12.5" rx="2.75" />
-      {collapsed ? (
-        <path d="M4.75 5v6" />
-      ) : (
-        <path d="M6.75 2.25v11.5" />
-      )}
-    </svg>
-  )
 }
 
 function startModelNameScroll(button: HTMLButtonElement) {
