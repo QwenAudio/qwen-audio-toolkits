@@ -265,6 +265,24 @@ const cloudCatalog = {
       capabilities: ['speech.transcribe'],
       models: [],
     },
+    {
+      id: 'api.openai-compatible',
+      name: 'Local Ollama',
+      kind: 'api',
+      runtime: 'localhost:11434',
+      status: 'ready',
+      configured: true,
+      local: false,
+      capabilities: ['text.generate'],
+      models: [
+        {
+          id: 'qwen3:8b',
+          name: 'qwen3:8b',
+          installed: true,
+          loaded: false,
+        },
+      ],
+    },
   ],
 }
 const streamingCloudModel = cloudModelsFromCatalog(cloudCatalog, [
@@ -276,6 +294,117 @@ assert.equal(
 )
 assert.deepEqual(streamingCloudModel?.apiAliases, ['fun-asr-realtime'])
 assert.equal(streamingCloudModel?.installed, true)
+
+const customLlm = cloudModelsFromCatalog(
+  cloudCatalog,
+  ['custom-qwen3-8b'],
+  [],
+  [
+    {
+      id: 'custom-qwen3-8b',
+      name: 'Qwen 3 Local',
+      modelId: 'qwen3:8b',
+      providerId: 'api.openai-compatible',
+      capability: 'text.generate',
+    },
+  ],
+).find((entry) => entry.id === 'custom-qwen3-8b')
+assert.equal(customLlm?.name, 'Qwen 3 Local')
+assert.equal(customLlm?.author, 'Local Ollama')
+assert.equal(customLlm?.version, 'qwen3:8b')
+assert.equal(customLlm?.providerId, 'api.openai-compatible')
+assert.equal(customLlm?.adapter, 'compatible-llm')
+assert.equal(customLlm?.installed, true)
+
+const unconfiguredCustomCatalog = structuredClone(cloudCatalog)
+unconfiguredCustomCatalog.providers[1].status = 'unconfigured'
+unconfiguredCustomCatalog.providers[1].configured = false
+const unavailableCustomLlm = cloudModelsFromCatalog(
+  unconfiguredCustomCatalog,
+  [],
+  [],
+  [
+    {
+      id: 'custom-qwen3-8b',
+      name: 'Qwen 3 Local',
+      modelId: 'qwen3:8b',
+      providerId: 'api.openai-compatible',
+      capability: 'text.generate',
+    },
+  ],
+).find((entry) => entry.id === 'custom-qwen3-8b')
+assert.equal(unavailableCustomLlm?.enabled, false)
+
+const customAsr = cloudModelsFromCatalog(
+  cloudCatalog,
+  ['custom-asr'],
+  [],
+  [
+    {
+      id: 'custom-asr',
+      name: 'OpenAI Transcribe',
+      modelId: 'gpt-4o-mini-transcribe',
+      providerId: 'api.openai-compatible',
+      capability: 'speech.transcribe',
+    },
+  ],
+).find((entry) => entry.id === 'custom-asr')
+assert.deepEqual(customAsr?.harnessCapabilities, ['speech.transcribe'])
+assert.equal(customAsr?.adapter, 'compatible-asr')
+
+const customTts = cloudModelsFromCatalog(
+  cloudCatalog,
+  ['custom-tts'],
+  [],
+  [
+    {
+      id: 'custom-tts',
+      name: 'OpenAI Speech',
+      modelId: 'gpt-4o-mini-tts',
+      providerId: 'api.openai-compatible',
+      capability: 'speech.synthesize',
+      defaultVoice: 'alloy',
+    },
+  ],
+).find((entry) => entry.id === 'custom-tts')
+assert.deepEqual(customTts?.harnessCapabilities, ['speech.synthesize'])
+assert.equal(customTts?.adapter, 'compatible-tts')
+assert.equal(customTts?.defaultVoice, 'alloy')
+
+const multiProviderTts = cloudModelsFromCatalog(
+  {
+    ...cloudCatalog,
+    providers: [
+      ...cloudCatalog.providers,
+      {
+        id: 'api.custom.voice-service',
+        name: 'Voice Service',
+        kind: 'api',
+        runtime: 'https://voice.example.com/v1',
+        status: 'ready',
+        configured: true,
+        local: false,
+        capabilities: ['speech.synthesize'],
+        models: [],
+      },
+    ],
+  },
+  ['custom-provider-tts'],
+  [],
+  [
+    {
+      id: 'custom-provider-tts',
+      name: 'Custom Voice',
+      modelId: 'voice-model-v1',
+      providerId: 'api.custom.voice-service',
+      capability: 'speech.synthesize',
+      defaultVoice: 'voice-1',
+    },
+  ],
+).find((entry) => entry.id === 'custom-provider-tts')
+assert.equal(multiProviderTts?.providerId, 'api.custom.voice-service')
+assert.equal(multiProviderTts?.author, 'Voice Service')
+assert.equal(multiProviderTts?.adapter, 'compatible-tts')
 
 const hiddenStreamingModel = {
   id: 'bailian-funasr-realtime',

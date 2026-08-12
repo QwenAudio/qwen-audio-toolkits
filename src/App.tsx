@@ -33,6 +33,10 @@ import {
   X,
 } from 'lucide-react'
 import { ModelCapabilityIcon } from './components/ModelCapabilityIcon'
+import {
+  ProviderSettings,
+  type ProviderSettingsKind,
+} from './components/ProviderSettings'
 import { SidebarCollapseIcon } from './components/SidebarCollapseIcon'
 import { initialPlugins, fallbackRuntime } from './data'
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
@@ -73,6 +77,7 @@ import type {
   AsrTranscriptionResult,
   AudioClip,
   AudioProcessResult,
+  CustomApiModelDefinition,
   HarnessCatalog,
   HarnessExecution,
   HarnessRun,
@@ -126,6 +131,8 @@ type AppUpdateState = {
 }
 
 const CLOUD_MODELS_STORAGE_KEY = 'qwen-audio-toolkits.installed-cloud-models-v1'
+const CUSTOM_API_MODELS_STORAGE_KEY =
+  'qwen-audio-toolkits.custom-api-models-v1'
 const SIDEBAR_MODEL_ORDER_KEY = 'qwen-audio-toolkits.model-sidebar-order-v1'
 const SIDEBAR_PINNED_MODELS_KEY = 'qwen-audio-toolkits.sidebar-pinned-models-v1'
 const SIDEBAR_WIDTH_KEY = 'qwen-audio-toolkits.sidebar-width-v8'
@@ -264,6 +271,49 @@ function getInitialCloudModels(): string[] {
       return next
     }
     return installed
+  } catch {
+    return []
+  }
+}
+
+function getInitialCustomApiModels(): CustomApiModelDefinition[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const value = JSON.parse(
+      window.localStorage.getItem(CUSTOM_API_MODELS_STORAGE_KEY) ?? '[]',
+    )
+    if (!Array.isArray(value)) return []
+    return value.flatMap((item): CustomApiModelDefinition[] => {
+      if (
+        !item ||
+        typeof item.id !== 'string' ||
+        typeof item.name !== 'string' ||
+        typeof item.modelId !== 'string' ||
+        typeof item.providerId !== 'string' ||
+        !item.providerId.startsWith('api.')
+      ) {
+        return []
+      }
+      const capability = [
+        'text.generate',
+        'speech.transcribe',
+        'speech.synthesize',
+      ].includes(item.capability)
+        ? item.capability
+        : 'text.generate'
+      return [
+        {
+          id: item.id,
+          name: item.name,
+          modelId: item.modelId,
+          providerId: item.providerId,
+          capability,
+          ...(typeof item.defaultVoice === 'string'
+            ? { defaultVoice: item.defaultVoice }
+            : {}),
+        } as CustomApiModelDefinition,
+      ]
+    })
   } catch {
     return []
   }
@@ -420,6 +470,9 @@ function App() {
   const [installedCloudModelIds, setInstalledCloudModelIds] = useState<string[]>(
     getInitialCloudModels,
   )
+  const [customApiModels, setCustomApiModels] = useState<
+    CustomApiModelDefinition[]
+  >(getInitialCustomApiModels)
   const [modelBindings, setModelBindings] = useState<ModelDependencyBindings>(
     {},
   )
@@ -428,9 +481,6 @@ function App() {
   )
   const [selectedPluginId, setSelectedPluginId] =
     useState(getInitialSelectedPluginId)
-  const [apiConfigurationTargetId, setApiConfigurationTargetId] = useState<
-    string | null
-  >(null)
   const [workflows, setWorkflows] = useState<SavedWorkflow[]>(
     listSavedWorkflows,
   )
@@ -474,6 +524,14 @@ function App() {
     top: number
   } | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<
+    'general' | 'providers'
+  >('general')
+  const [settingsProvider, setSettingsProvider] =
+    useState<ProviderSettingsKind>('bailian')
+  const [settingsCustomProviderId, setSettingsCustomProviderId] = useState(
+    'api.openai-compatible',
+  )
   const [clearingHistory, setClearingHistory] = useState(false)
   const [appUpdate, setAppUpdate] = useState<AppUpdateState>({ status: 'idle' })
   const appUpdateStatusRef = useRef<AppUpdateState['status']>('idle')
@@ -542,8 +600,21 @@ function App() {
       catalog,
       installedCloudModelIds,
       apiModelCatalog,
+      customApiModels,
     ).filter((plugin) => plugin.installed)
-  }, [apiModelCatalog, catalog, installedCloudModelIds])
+  }, [apiModelCatalog, catalog, customApiModels, installedCloudModelIds])
+
+  const saveCustomApiModels = (models: CustomApiModelDefinition[]) => {
+    setCustomApiModels(models)
+    try {
+      window.localStorage.setItem(
+        CUSTOM_API_MODELS_STORAGE_KEY,
+        JSON.stringify(models),
+      )
+    } catch {
+      // Keep the current session state when storage is unavailable.
+    }
+  }
 
   useEffect(() => {
     if (!modelBindingsLoaded) return
@@ -1175,6 +1246,23 @@ function App() {
     setSidebarOpen(false)
   }
 
+  const openProviderSettings = (providerId: string) => {
+    if (
+      providerId === 'api.openai-compatible' ||
+      providerId.startsWith('api.custom.')
+    ) {
+      setSettingsCustomProviderId(providerId)
+    }
+    setSettingsProvider(
+      providerId === 'api.openai-compatible' ||
+        providerId.startsWith('api.custom.')
+        ? 'custom'
+        : 'bailian',
+    )
+    setSettingsSection('providers')
+    setSettingsOpen(true)
+  }
+
   const selectPlugin = (pluginId: string) => {
     setSelectedPluginId(pluginId)
     setWorkflowSelected(false)
@@ -1361,6 +1449,27 @@ function App() {
       delete next[providerId]
       return next
     })
+  }
+
+  const clearConversationRuns = async (runIds: string[]): Promise<boolean> => {
+    const removableIds = runIds.filter((id) => !activeRunIds.has(id))
+    if (!removableIds.length) {
+      notify('当前没有可清除的对话记录')
+      return false
+    }
+    if (!window.confirm(`确定清除当前模型的 ${removableIds.length} 条对话记录吗？`)) {
+      return false
+    }
+    try {
+      await Promise.all(removableIds.map((id) => deleteHarnessRun(id)))
+      const removed = new Set(removableIds)
+      setRuns((current) => current.filter((run) => !removed.has(run.id)))
+      notify('当前模型的对话记录已清除')
+      return true
+    } catch (error) {
+      notify(`清除失败：${error instanceof Error ? error.message : String(error)}`)
+      return false
+    }
   }
 
   const runAudio = async (
@@ -1917,18 +2026,15 @@ function App() {
                 runs={runs}
                 onRunText={runText}
                 onRunAudio={runAudio}
-                onOpenStore={() => {
-                  setApiConfigurationTargetId(
-                    selectedPlugin.providerId?.startsWith('api.')
-                      ? selectedPlugin.id
-                      : null,
-                  )
-                  changeView('plugins')
-                }}
+                onOpenStore={() => changeView('plugins')}
+                onConfigureProvider={() =>
+                  openProviderSettings(selectedPlugin.providerId ?? '')
+                }
                 onAction={notify}
                 onClearTextHistory={() =>
                   clearTextHistory(selectedPlugin.providerId ?? '')
                 }
+                onClearConversation={clearConversationRuns}
               />
             )
           )}
@@ -1939,11 +2045,10 @@ function App() {
               runtime={runtime}
               catalog={catalog}
               apiModelCatalog={apiModelCatalog}
+              customApiModels={customApiModels}
               installedCloudModelIds={installedCloudModelIds}
-              configureApiPluginId={apiConfigurationTargetId}
-              onApiConfigurationHandled={() =>
-                setApiConfigurationTargetId(null)
-              }
+              onCustomApiModelsChanged={saveCustomApiModels}
+              onConfigureProvider={openProviderSettings}
               onPluginsChanged={setPlugins}
               onModelBindingsChanged={setModelBindings}
               onRemoveModelBindings={removeModelBindings}
@@ -1997,7 +2102,7 @@ function App() {
           }}
         >
           <section
-            className="settings-dialog compact-settings"
+            className="settings-dialog application-settings-dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby="settings-title"
@@ -2016,7 +2121,27 @@ function App() {
                 <X size={17} />
               </button>
             </div>
-            <div className="settings-content">
+            <div className="settings-layout">
+              <nav aria-label="设置分类">
+                <button
+                  className={settingsSection === 'general' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setSettingsSection('general')}
+                >
+                  <SlidersHorizontal size={14} />
+                  通用
+                </button>
+                <button
+                  className={settingsSection === 'providers' ? 'active' : ''}
+                  type="button"
+                  onClick={() => setSettingsSection('providers')}
+                >
+                  <BrainCircuit size={14} />
+                  Provider
+                </button>
+              </nav>
+              {settingsSection === 'general' ? (
+                <div className="settings-content general-settings-content">
               <div className="settings-row theme-settings-row">
                 <span>
                   <strong>外观主题</strong>
@@ -2148,6 +2273,20 @@ function App() {
                 <ShoppingBag size={15} />
                 管理模型与插件
               </button>
+                </div>
+              ) : (
+                <div className="settings-content provider-settings-content">
+                  <ProviderSettings
+                    provider={settingsProvider}
+                    onProviderChange={setSettingsProvider}
+                    runtime={runtime}
+                    catalog={catalog}
+                    onCatalogChanged={setCatalog}
+                    onAction={notify}
+                    customProviderId={settingsCustomProviderId}
+                  />
+                </div>
+              )}
             </div>
           </section>
         </div>

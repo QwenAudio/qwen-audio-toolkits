@@ -1,4 +1,5 @@
 import {
+  Fragment,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   useCallback,
@@ -21,8 +22,10 @@ import {
   LoaderCircle,
   Mic,
   MonitorSpeaker,
+  SquarePen,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   Upload,
   WandSparkles,
   X,
@@ -167,8 +170,10 @@ interface ModelWorkspaceViewProps {
     >
   >
   onOpenStore: () => void
+  onConfigureProvider: () => void
   onAction: (message: string) => void
   onClearTextHistory?: () => void
+  onClearConversation?: (runIds: string[]) => Promise<boolean>
 }
 
 const statusLabels: Record<HarnessRun['status'], string> = {
@@ -656,8 +661,10 @@ export function ModelWorkspaceView({
   onRunText,
   onRunAudio,
   onOpenStore,
+  onConfigureProvider,
   onAction,
   onClearTextHistory,
+  onClearConversation,
 }: ModelWorkspaceViewProps) {
   const capability =
     plugin.harnessCapabilities[0] ?? 'speech.synthesize'
@@ -682,10 +689,15 @@ export function ModelWorkspaceView({
     supportsVoiceDesign,
     ttsReferenceAudioLabel,
   } = inputProfile
+  const openRequiredSetup = () => {
+    if (apiModel) onConfigureProvider()
+    else onOpenStore()
+  }
   const funAsrModel = plugin.adapter === 'bailian-funasr'
   const qwenAudioAsrModel = plugin.adapter === 'bailian-qwen-audio-asr'
   const localQwen3AsrModel = plugin.adapter === 'qwen3-asr'
   const cloudQwen3AsrModel = plugin.adapter === 'bailian-asr'
+  const compatibleAsrModel = plugin.adapter === 'compatible-asr'
   const canaryModel = plugin.adapter === 'nemo-canary'
   const streamingAsrModel =
     capability === 'speech.transcribe' &&
@@ -728,6 +740,8 @@ export function ModelWorkspaceView({
     ],
   )
   const [text, setText] = useState('')
+  const [conversationBreaks, setConversationBreaks] = useState<number[]>([])
+  const [clearingConversation, setClearingConversation] = useState(false)
   const [voice, setVoice] = useState('longanhuan_v3.6')
   const [customVoices, setCustomVoices] = useState<VoiceOption[]>([])
   const [voiceDialogOpen, setVoiceDialogOpen] = useState(false)
@@ -953,9 +967,11 @@ export function ModelWorkspaceView({
     const stored = window.localStorage.getItem(voiceStorageKey)
     setVoice(
       stored ??
-        (requiresCustomCosyVoice ? '' : (voiceOptions[0]?.id ?? '')),
+        (requiresCustomCosyVoice
+          ? ''
+          : (plugin.defaultVoice ?? voiceOptions[0]?.id ?? '')),
     )
-  }, [requiresCustomCosyVoice, voiceOptions, voiceStorageKey])
+  }, [plugin.defaultVoice, requiresCustomCosyVoice, voiceOptions, voiceStorageKey])
   const [streamingRunId, setStreamingRunId] = useState<string | null>(null)
   const [liveTranscript, setLiveTranscript] = useState('')
   const liveTranscriptRef = useRef('')
@@ -1015,6 +1031,40 @@ export function ModelWorkspaceView({
   const systemAudioChunksRef = useRef<string[]>([])
   const systemAudioUnlistenRef = useRef<(() => void) | null>(null)
   const systemAudioRunIdRef = useRef<string | null>(null)
+
+  const startNewConversation = () => {
+    if (!onClearTextHistory || busy) return
+    onClearTextHistory()
+    setText('')
+    setConversationBreaks((current) => [...current, Date.now()])
+    window.requestAnimationFrame(() => {
+      const container = conversationRef.current
+      if (container) container.scrollTop = container.scrollHeight
+    })
+  }
+
+  const clearConversation = async () => {
+    if (!onClearConversation || clearingConversation || busy) return
+    setClearingConversation(true)
+    try {
+      const cleared = await onClearConversation(modelRuns.map(({ id }) => id))
+      if (!cleared) return
+      onClearTextHistory?.()
+      setConversationBreaks([])
+      setSelectedRunId(null)
+      setVisibleRunId(null)
+      setText('')
+    } finally {
+      setClearingConversation(false)
+    }
+  }
+
+  const conversationBreakPositions = conversationBreaks.map(
+    (createdAt, order) => ({
+      key: `${createdAt}-${order}`,
+      runIndex: modelRuns.findIndex((run) => run.createdAt >= createdAt),
+    }),
+  )
 
   const beginDetailResize = (
     event: ReactPointerEvent<HTMLDivElement>,
@@ -1094,6 +1144,7 @@ export function ModelWorkspaceView({
     setExecution(null)
     setDependencyExecutions([])
     setDependencyLoading(false)
+    setConversationBreaks([])
     setDetailLoading(true)
     setSelectedRunId(runId)
     setDetailRequestVersion((version) => version + 1)
@@ -1971,10 +2022,10 @@ export function ModelWorkspaceView({
     if (!providerReady) {
       onAction(
         apiModel
-          ? `请先配置 ${plugin.name} 的 API Key`
+          ? `请先配置 ${provider?.name ?? '模型服务商'} Provider`
           : `请先在模型商店启用 ${plugin.name}`,
       )
-      onOpenStore()
+      openRequiredSetup()
       return
     }
     setBusy(true)
@@ -2048,6 +2099,12 @@ export function ModelWorkspaceView({
               language: asrLanguage,
               context: asrContext,
               enableItn: asrEnableItn,
+              ...(speechSegments ? { speechSegments } : {}),
+            }
+          : compatibleAsrModel
+          ? {
+              language: asrLanguage,
+              context: asrContext,
               ...(speechSegments ? { speechSegments } : {}),
             }
           : canaryModel
@@ -2612,7 +2669,7 @@ export function ModelWorkspaceView({
                 <button
                   className="secondary-action"
                   type="button"
-                  onClick={onOpenStore}
+                  onClick={openRequiredSetup}
                 >
                   {apiModel ? '配置 API' : '打开模型商店'}
                 </button>
@@ -2620,7 +2677,7 @@ export function ModelWorkspaceView({
             </div>
           )}
 
-          {modelRuns.map((run) => {
+          {modelRuns.map((run, index) => {
             const inlineOutput = inlineOutputs[run.id]
             const inlineAudioUrl =
               inlineOutput &&
@@ -2660,11 +2717,22 @@ export function ModelWorkspaceView({
                 : 0)
             const comparisonInputAudio = comparisonAttachments[run.id]
             return (
-              <div
+              <Fragment key={run.id}>
+                {conversationBreakPositions
+                  .filter(({ runIndex }) => runIndex === index)
+                  .map(({ key }) => (
+                    <div
+                      className="model-conversation-divider"
+                      role="separator"
+                      key={key}
+                    >
+                      <span>新对话</span>
+                    </div>
+                  ))}
+                <div
                 className="model-exchange"
                 data-run-id={run.id}
                 id={`model-exchange-${run.id}`}
-                key={run.id}
               >
                 <div className="model-user-message">
                   <div>
@@ -2781,9 +2849,21 @@ export function ModelWorkspaceView({
                     </button>
                   )}
                 </article>
-              </div>
+                </div>
+              </Fragment>
             )
           })}
+          {conversationBreakPositions
+            .filter(({ runIndex }) => runIndex === -1)
+            .map(({ key }) => (
+              <div
+                className="model-conversation-divider"
+                role="separator"
+                key={key}
+              >
+                <span>新对话</span>
+              </div>
+            ))}
         </div>
 
         {!providerReady && modelRuns.length > 0 && (
@@ -2801,7 +2881,7 @@ export function ModelWorkspaceView({
             <button
               className="primary-action"
               type="button"
-              onClick={onOpenStore}
+              onClick={openRequiredSetup}
             >
               {apiModel ? '配置 API' : '打开模型商店'}
             </button>
@@ -3149,60 +3229,74 @@ export function ModelWorkspaceView({
                 </div>
               )}
               {capability === 'text.generate' && onClearTextHistory && (
-                <>
-                  <div className="model-parameter-bar">
-                    <label>
-                      <span>Temperature</span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={2}
-                        step={0.1}
-                        value={textTemperature}
-                        onChange={(event) =>
-                          setTextTemperature(Number(event.target.value))
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>最大输出</span>
-                      <input
-                        type="number"
-                        min={32}
-                        max={8192}
-                        step={32}
-                        value={textMaxTokens}
-                        onChange={(event) =>
-                          setTextMaxTokens(Number(event.target.value))
-                        }
-                      />
-                    </label>
-                    <label className="context-field">
-                      <span>System Prompt</span>
-                      <input
-                        value={textSystemPrompt}
-                        placeholder="可选：设定助手角色和回答方式"
-                        onChange={(event) =>
-                          setTextSystemPrompt(event.target.value)
-                        }
-                      />
-                    </label>
-                  </div>
-                  <div className="text-composer-toolbar">
-                    <button
-                      className="text-composer-clear"
-                      type="button"
-                      onClick={() => {
-                        onClearTextHistory()
-                        setText('')
-                      }}
-                    >
-                      新对话
-                    </button>
-                  </div>
-                </>
+                <div className="model-parameter-bar">
+                  <label>
+                    <span>Temperature</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={2}
+                      step={0.1}
+                      value={textTemperature}
+                      onChange={(event) =>
+                        setTextTemperature(Number(event.target.value))
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>最大输出</span>
+                    <input
+                      type="number"
+                      min={32}
+                      max={8192}
+                      step={32}
+                      value={textMaxTokens}
+                      onChange={(event) =>
+                        setTextMaxTokens(Number(event.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="context-field">
+                    <span>System Prompt</span>
+                    <input
+                      value={textSystemPrompt}
+                      placeholder="可选：设定助手角色和回答方式"
+                      onChange={(event) =>
+                        setTextSystemPrompt(event.target.value)
+                      }
+                    />
+                  </label>
+                </div>
               )}
               <div className="text-model-composer">
+                {capability === 'text.generate' && onClearTextHistory && (
+                  <div className="text-composer-actions">
+                    <button
+                      type="button"
+                      title="新对话"
+                      aria-label="新对话"
+                      disabled={busy}
+                      onClick={startNewConversation}
+                    >
+                      <SquarePen size={15} strokeWidth={1.8} />
+                    </button>
+                    {onClearConversation && (
+                      <button
+                        type="button"
+                        title="清空对话"
+                        aria-label="清空对话"
+                        disabled={busy || clearingConversation || !modelRuns.length}
+                        onClick={() => void clearConversation()}
+                      >
+                        {clearingConversation ? (
+                          <LoaderCircle className="model-spin" size={15} />
+                        ) : (
+                          <Trash2 size={15} strokeWidth={1.8} />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
                 <textarea
                   value={text}
                   rows={2}
@@ -3472,6 +3566,31 @@ export function ModelWorkspaceView({
                       onChange={(event) => setAsrEnableItn(event.target.checked)}
                     />
                     <span>数字格式化</span>
+                  </label>
+                </div>
+              )}
+              {compatibleAsrModel && (
+                <div className="model-parameter-bar funasr-parameters">
+                  <label>
+                    <span>语言</span>
+                    <select
+                      value={asrLanguage}
+                      onChange={(event) => setAsrLanguage(event.target.value)}
+                    >
+                      <option value="auto">自动识别</option>
+                      {QWEN_ASR_LANGUAGE_OPTIONS.map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="context-field">
+                    <span>识别提示</span>
+                    <input
+                      value={asrContext}
+                      maxLength={400}
+                      placeholder="人名、术语或上下文"
+                      onChange={(event) => setAsrContext(event.target.value)}
+                    />
                   </label>
                 </div>
               )}

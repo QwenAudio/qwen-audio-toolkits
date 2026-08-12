@@ -3,7 +3,6 @@ import { listen } from '@tauri-apps/api/event'
 import {
   Boxes,
   BrainCircuit,
-  Check,
   CirclePlus,
   Cpu,
   Download,
@@ -15,8 +14,6 @@ import {
   Play,
   RefreshCw,
   Search,
-  ShieldCheck,
-  Sparkles,
   TerminalSquare,
   Trash2,
   Waves,
@@ -24,14 +21,12 @@ import {
   X,
 } from 'lucide-react'
 import {
-  getBailianProviderSettings,
   getHarnessCatalog,
   installCatalogModel,
   installRecommendedModelDependency,
   isTauriRuntime,
   listModelPlugins,
   cancelModelDownload,
-  saveBailianProviderSettings,
   setModelPluginSidebarVisible,
   setModelDownloadPaused,
   uninstallModelPlugin,
@@ -49,9 +44,8 @@ import {
 } from '../services/installProgress'
 import type {
   ApiModelCatalogEntry,
-  BailianProviderSettings,
+  CustomApiModelDefinition,
   HarnessCatalog,
-  HarnessProvider,
   ModelDependencyBindings,
   ModelPlugin,
   RuntimeStatus,
@@ -63,9 +57,10 @@ interface PluginsViewProps {
   runtime: RuntimeStatus
   catalog: HarnessCatalog | null
   apiModelCatalog: ApiModelCatalogEntry[]
+  customApiModels: CustomApiModelDefinition[]
   installedCloudModelIds: string[]
-  configureApiPluginId?: string | null
-  onApiConfigurationHandled?: () => void
+  onCustomApiModelsChanged: (models: CustomApiModelDefinition[]) => void
+  onConfigureProvider: (providerId: string) => void
   onPluginsChanged: (plugins: ModelPlugin[]) => void
   onModelBindingsChanged: (bindings: ModelDependencyBindings) => void
   onRemoveModelBindings: (pluginId: string) => void
@@ -109,181 +104,6 @@ type CatalogInstallJob = {
 
 type CatalogInstallState = 'queued' | 'running' | 'paused' | 'canceling'
 
-const fallbackBailianSettings: BailianProviderSettings = {
-  id: 'api.bailian',
-  name: '阿里云百炼',
-  apiKeyConfigured: false,
-  enabled: false,
-  status: 'unconfigured',
-}
-
-const providerStatusLabels: Record<HarnessProvider['status'], string> = {
-  ready: '已连接',
-  missing: '组件缺失',
-  disabled: '已停用',
-  unconfigured: '未配置',
-}
-
-function BailianProviderPanel({
-  runtime,
-  catalog,
-  onCatalogChanged,
-  onAction,
-}: {
-  runtime: RuntimeStatus
-  catalog: HarnessCatalog | null
-  onCatalogChanged: (catalog: HarnessCatalog) => void
-  onAction: (message: string) => void
-}) {
-  const [settings, setSettings] = useState<BailianProviderSettings>(
-    fallbackBailianSettings,
-  )
-  const [apiKey, setApiKey] = useState('')
-  const [saving, setSaving] = useState(false)
-  const desktopRuntime = isTauriRuntime()
-
-  useEffect(() => {
-    if (!desktopRuntime) return
-    void getBailianProviderSettings()
-      .then(setSettings)
-      .catch((error) =>
-        onAction(
-          `无法读取百炼配置：${error instanceof Error ? error.message : String(error)}`,
-        ),
-      )
-  }, [desktopRuntime, onAction])
-
-  const save = async () => {
-    if (!desktopRuntime || saving) return
-    if (!settings.apiKeyConfigured && !apiKey.trim()) {
-      onAction('请先填写百炼 Access Key')
-      return
-    }
-    setSaving(true)
-    try {
-      const next = await saveBailianProviderSettings({
-        apiKey: apiKey.trim() || undefined,
-      })
-      setSettings(next)
-      setApiKey('')
-      onCatalogChanged(await getHarnessCatalog())
-      onAction('百炼 AK 已保存')
-    } catch (error) {
-      onAction(
-        `保存失败：${error instanceof Error ? error.message : String(error)}`,
-      )
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const provider = catalog?.providers.find((item) => item.id === 'api.bailian')
-
-  return (
-    <div className="api-provider-workspace">
-      <section className="api-provider-form">
-        <div className="api-provider-heading">
-          <span className="plugin-logo tone-violet">
-            <Sparkles size={20} />
-          </span>
-          <div>
-            <div className="api-provider-tags">
-              <span className="execution-mode-tag api">
-                <Wifi size={11} />
-                云端 API
-              </span>
-              <span className="adapter-installed-tag">
-                <PackageCheck size={11} />
-                适配器已安装
-              </span>
-            </div>
-            <h2>阿里云百炼</h2>
-            <p>保存访问凭据后，可在模型商店中按需添加在线模型。</p>
-          </div>
-          <span
-            className={`provider-health ${settings.status === 'ready' ? 'ready' : ''}`}
-          >
-            <i />
-            {settings.status === 'ready' ? 'AK 已配置' : '待配置 AK'}
-          </span>
-        </div>
-
-        <div className="provider-form-grid">
-          <label className="provider-key-field">
-            <span>Access Key（AK）</span>
-            <input
-              type="password"
-              value={apiKey}
-              autoComplete="off"
-              placeholder={
-                settings.apiKeyConfigured
-                  ? 'AK 已保存 · 留空保持不变'
-                  : '输入百炼 AK'
-              }
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-          </label>
-        </div>
-
-        <div className="provider-save-row provider-save-row-simple">
-          <span className="provider-storage-note">
-            <ShieldCheck size={15} />
-            AK 仅保存在本机应用配置
-          </span>
-          <button
-            className="primary-action"
-            type="button"
-            disabled={saving}
-            onClick={() => void save()}
-          >
-            {saving ? <RefreshCw size={15} /> : <Check size={15} />}
-            {saving ? '保存中' : '保存'}
-          </button>
-        </div>
-      </section>
-
-      <aside className="api-provider-summary">
-        <span className="section-kicker">PROVIDER</span>
-        <h2>连接状态</h2>
-        <p className="provider-summary-copy">
-          凭据只用于连接服务。需要使用的模型请在商店中单独添加。
-        </p>
-        <dl className="provider-contract-facts">
-          <div>
-            <dt>状态</dt>
-            <dd>
-              {providerStatusLabels[provider?.status ?? settings.status]}
-            </dd>
-          </div>
-          <div>
-            <dt>本地 API</dt>
-            <dd>{runtime.apiUrl}</dd>
-          </div>
-          <div>
-            <dt>模型参数</dt>
-            <dd>对话时选择</dd>
-          </div>
-        </dl>
-        <div className="provider-safety-note">
-          <ShieldCheck size={16} />
-          <span>
-            <strong>显式云端执行</strong>
-            <small>只有选择百炼模型时，输入才会发送到百炼 API。</small>
-          </span>
-        </div>
-      </aside>
-    </div>
-  )
-}
-
-function CloudApiWorkspace(props: {
-  runtime: RuntimeStatus
-  catalog: HarnessCatalog | null
-  onCatalogChanged: (catalog: HarnessCatalog) => void
-  onAction: (message: string) => void
-}) {
-  return <BailianProviderPanel {...props} />
-}
 
 export function PluginsView({
   plugins,
@@ -291,9 +111,10 @@ export function PluginsView({
   runtime,
   catalog,
   apiModelCatalog,
+  customApiModels,
   installedCloudModelIds,
-  configureApiPluginId,
-  onApiConfigurationHandled,
+  onCustomApiModelsChanged,
+  onConfigureProvider,
   onPluginsChanged,
   onModelBindingsChanged,
   onRemoveModelBindings,
@@ -337,7 +158,56 @@ export function PluginsView({
   const [selectedVariants, setSelectedVariants] = useState<
     Record<string, string>
   >({})
-  const [configProvider, setConfigProvider] = useState<'bailian' | null>(null)
+  const [customModelEditorOpen, setCustomModelEditorOpen] = useState(false)
+  const [customModelName, setCustomModelName] = useState('')
+  const [customModelServiceId, setCustomModelServiceId] = useState('')
+  const [customModelCapability, setCustomModelCapability] = useState<
+    CustomApiModelDefinition['capability']
+  >('text.generate')
+  const customProviders = useMemo(
+    () =>
+      catalog?.providers.filter(
+        ({ id }) =>
+          id === 'api.openai-compatible' || id.startsWith('api.custom.'),
+      ) ?? [],
+    [catalog],
+  )
+  const [customModelProviderId, setCustomModelProviderId] = useState(
+    customProviders[0]?.id ?? 'api.openai-compatible',
+  )
+  const selectedCustomProvider = customProviders.find(
+    ({ id }) => id === customModelProviderId,
+  )
+  const customCapabilityOptions = [
+    ...(selectedCustomProvider?.capabilities.includes('text.generate') !== false
+      ? [{ value: 'text.generate' as const, label: 'LLM · 文本生成' }]
+      : []),
+    ...(selectedCustomProvider?.capabilities.includes('speech.transcribe') !== false
+      ? [{ value: 'speech.transcribe' as const, label: 'ASR · 语音识别' }]
+      : []),
+    ...(selectedCustomProvider?.capabilities.includes('speech.synthesize') !== false
+      ? [{ value: 'speech.synthesize' as const, label: 'TTS · 语音合成' }]
+      : []),
+  ]
+  useEffect(() => {
+    const provider = customProviders.find(
+      ({ id }) => id === customModelProviderId,
+    )
+    if (!provider && customProviders[0]) {
+      setCustomModelProviderId(customProviders[0].id)
+      setCustomModelCapability(
+        customProviders[0]
+          .capabilities[0] as CustomApiModelDefinition['capability'],
+      )
+      return
+    }
+    if (provider && !provider.capabilities.includes(customModelCapability)) {
+      setCustomModelCapability(
+        provider.capabilities[0] as CustomApiModelDefinition['capability'],
+      )
+    }
+  }, [customModelCapability, customModelProviderId, customProviders])
+  const [customModelVoice, setCustomModelVoice] = useState('alloy')
   const desktopRuntime = isTauriRuntime()
   const installProgressLabel = `${Math.round(installProgress)}%`
   const compactInstallProgress = installSpeed
@@ -349,8 +219,9 @@ export function PluginsView({
         catalog,
         installedCloudModelIds,
         apiModelCatalog,
+        customApiModels,
       ),
-    [apiModelCatalog, catalog, installedCloudModelIds],
+    [apiModelCatalog, catalog, customApiModels, installedCloudModelIds],
   )
   const allModels = useMemo(
     () => [...plugins, ...cloudModels].sort(compareCatalogModels),
@@ -477,26 +348,37 @@ export function PluginsView({
     plugin.selectedVariantId ??
     plugin.defaultVariantId
 
-  const openApiConfig = (plugin: ModelPlugin) => {
-    if (plugin.providerId === 'api.bailian') setConfigProvider('bailian')
-  }
-
-  useEffect(() => {
-    if (!configureApiPluginId) return
-    const target = allModels.find(
-      (plugin) => plugin.id === configureApiPluginId,
-    )
-    onApiConfigurationHandled?.()
-    if (!target || !isApiPlugin(target)) return
-
-    setSearch('')
-    setFilter('all')
-    setRuntimeFilter('api')
-    setSelectedId(target.id)
-    if (target.installed && target.providerId === 'api.bailian') {
-      setConfigProvider('bailian')
+  const addCustomApiModel = () => {
+    const modelId = customModelServiceId.trim()
+    if (!modelId) {
+      onAction('请填写 Model ID')
+      return
     }
-  }, [allModels, configureApiPluginId, onApiConfigurationHandled])
+    const id = `custom-api-${crypto.randomUUID()}`
+    onCustomApiModelsChanged([
+      ...customApiModels,
+      {
+        id,
+        name: customModelName.trim() || modelId,
+        modelId,
+        providerId: customModelProviderId,
+        capability: customModelCapability,
+        ...(customModelCapability === 'speech.synthesize'
+          ? { defaultVoice: customModelVoice.trim() || 'alloy' }
+          : {}),
+      },
+    ])
+    setCustomModelName('')
+    setCustomModelServiceId('')
+    setCustomModelCapability('text.generate')
+    setCustomModelProviderId(customProviders[0]?.id ?? 'api.openai-compatible')
+    setCustomModelVoice('alloy')
+    setCustomModelEditorOpen(false)
+    setFilter('text')
+    setRuntimeFilter('api')
+    setSelectedId(id)
+    onAction('自定义 API 模型已添加到模型商店')
+  }
 
   const setCloudModelInstalled = async (
     plugin: ModelPlugin,
@@ -846,6 +728,14 @@ export function PluginsView({
             音频生成
           </button>
         </div>
+        <button
+          className="catalog-add-api-model"
+          type="button"
+          onClick={() => setCustomModelEditorOpen(true)}
+        >
+          <CirclePlus size={13} />
+          添加 API 模型
+        </button>
       </div>
 
       <div className="plugins-workspace">
@@ -911,6 +801,7 @@ export function PluginsView({
             )}
             {filteredPlugins.map((plugin) => {
               const apiPlugin = isApiPlugin(plugin)
+              const requiresApiConfig = apiPlugin && !plugin.enabled
               const installState = installJobs[plugin.id]
               const isQueued = installState === 'queued'
               const isCloudBusy = cloudBusyIds.has(plugin.id)
@@ -1068,7 +959,9 @@ export function PluginsView({
                         onClick={(event) => {
                           event.stopPropagation()
                           if (apiPlugin) {
-                            if (plugin.installed) {
+                            if (requiresApiConfig) {
+                              onConfigureProvider(plugin.providerId ?? '')
+                            } else if (plugin.installed) {
                               void removePlugin(plugin)
                             } else {
                               void setCloudModelInstalled(plugin, true)
@@ -1089,12 +982,18 @@ export function PluginsView({
                           </>
                         ) : apiPlugin ? (
                           <>
-                            {plugin.installed ? (
+                            {requiresApiConfig ? (
+                              <KeyRound size={15} />
+                            ) : plugin.installed ? (
                               <Trash2 size={15} />
                             ) : (
                               <CirclePlus size={15} />
                             )}
-                            {plugin.installed ? '删除' : '添加'}
+                            {requiresApiConfig
+                              ? '配置'
+                              : plugin.installed
+                                ? '删除'
+                                : '添加'}
                           </>
                         ) : plugin.installed ? (
                           <>
@@ -1177,7 +1076,9 @@ export function PluginsView({
                   </strong>
                   <small>
                     {isApiPlugin(selectedPlugin)
-                      ? '添加到工作台即可使用'
+                      ? selectedPlugin.enabled
+                        ? '添加到工作台即可使用'
+                        : '先配置 Provider，再添加到工作台'
                       : '模型权重保存在本机，音频无需上传到云端'}
                   </small>
                 </span>
@@ -1205,8 +1106,10 @@ export function PluginsView({
                     }
                     onClick={() =>
                       selectedIsApi
-                        ? selectedPlugin.installed
-                          ? openApiConfig(selectedPlugin)
+                        ? selectedPlugin.installed || !selectedPlugin.enabled
+                          ? onConfigureProvider(
+                              selectedPlugin.providerId ?? '',
+                            )
                           : void setCloudModelInstalled(selectedPlugin, true)
                         : void installOrAddPlugin(selectedPlugin)
                     }
@@ -1238,14 +1141,16 @@ export function PluginsView({
                     </>
                   ) : selectedIsApi ? (
                     <>
-                      {selectedPlugin.installed ? (
+                      {selectedPlugin.installed || !selectedPlugin.enabled ? (
                         <KeyRound size={16} />
                       ) : (
                         <CirclePlus size={16} />
                       )}
                       {selectedPlugin.installed
                         ? '管理 API 配置'
-                        : '添加到工作台'}
+                        : selectedPlugin.enabled
+                          ? '添加到工作台'
+                          : '配置 Provider'}
                     </>
                   ) : selectedPlugin.installed ? (
                     <>
@@ -1415,7 +1320,9 @@ export function PluginsView({
                     {selectedIsApi
                       ? selectedPlugin.enabled
                         ? '配置就绪'
-                        : '待配置 AK'
+                        : selectedPlugin.providerId === 'api.bailian'
+                          ? '待配置 AK'
+                          : '待配置 Provider'
                       : '运行正常'}
                   </small>
                 </header>
@@ -1508,46 +1415,129 @@ export function PluginsView({
         </aside>
       </div>
 
-      {configProvider && (
+      {customModelEditorOpen && (
         <div
           className="modal-backdrop"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setConfigProvider(null)
+            if (event.target === event.currentTarget) {
+              setCustomModelEditorOpen(false)
+            }
           }}
         >
           <section
-            className="provider-config-dialog"
+            className="custom-model-dialog"
             role="dialog"
             aria-modal="true"
-            aria-label="配置云端模型"
+            aria-labelledby="custom-model-title"
           >
             <div className="dialog-heading">
               <div>
-                <span className="section-kicker">API PROVIDER</span>
-                <h2>配置云端模型</h2>
+                <span className="section-kicker">API MODEL</span>
+                <h2 id="custom-model-title">添加自定义 API 模型</h2>
               </div>
               <button
                 className="icon-button"
                 type="button"
-                title="关闭"
                 aria-label="关闭"
-                onClick={() => setConfigProvider(null)}
+                onClick={() => setCustomModelEditorOpen(false)}
               >
                 <X size={17} />
               </button>
             </div>
-            <div className="provider-config-body">
-              <CloudApiWorkspace
-                runtime={runtime}
-                catalog={catalog}
-                onCatalogChanged={onCatalogChanged}
-                onAction={onAction}
-              />
+            <div className="custom-model-form">
+              <label>
+                <span>Provider</span>
+                <select value={customModelProviderId} onChange={(event) => {
+                  const providerId = event.target.value
+                  const provider = customProviders.find(({ id }) => id === providerId)
+                  const nextCapability = provider?.capabilities.includes(customModelCapability)
+                    ? customModelCapability
+                    : (provider?.capabilities[0] as CustomApiModelDefinition['capability'] | undefined)
+                  setCustomModelProviderId(providerId)
+                  if (nextCapability) setCustomModelCapability(nextCapability)
+                }}>
+                  {customProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>{provider.name}</option>
+                  ))}
+                </select>
+                <small>连接信息在“设置 → Provider”中统一管理。</small>
+              </label>
+              <label>
+                <span>模型名称</span>
+                <input
+                  value={customModelName}
+                  placeholder="留空则使用 Model ID"
+                  onChange={(event) => setCustomModelName(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>模型类型</span>
+                <select
+                  value={customModelCapability}
+                  onChange={(event) =>
+                    setCustomModelCapability(
+                      event.target.value as CustomApiModelDefinition['capability'],
+                    )
+                  }
+                >
+                  {customCapabilityOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Model ID</span>
+                <input
+                  value={customModelServiceId}
+                  placeholder={
+                    customModelCapability === 'speech.transcribe'
+                      ? '例如 gpt-4o-mini-transcribe 或 whisper-1'
+                      : customModelCapability === 'speech.synthesize'
+                        ? '例如 gpt-4o-mini-tts 或 tts-1'
+                        : '例如 qwen3:8b 或 gpt-4o-mini'
+                  }
+                  onChange={(event) =>
+                    setCustomModelServiceId(event.target.value)
+                  }
+                />
+              </label>
+              {customModelCapability === 'speech.synthesize' && (
+                <label>
+                  <span>默认音色</span>
+                  <input
+                    value={customModelVoice}
+                    placeholder="例如 alloy"
+                    onChange={(event) => setCustomModelVoice(event.target.value)}
+                  />
+                  <small>使用时仍可在对话窗口临时切换音色。</small>
+                </label>
+              )}
+              <div className="custom-model-actions">
+                <button
+                  className="secondary-action"
+                  type="button"
+                  onClick={() =>
+                    onConfigureProvider(customModelProviderId)
+                  }
+                >
+                  <KeyRound size={15} />
+                  配置 Provider
+                </button>
+                <button
+                  className="primary-action"
+                  type="button"
+                  onClick={addCustomApiModel}
+                >
+                  <CirclePlus size={15} />
+                  添加模型
+                </button>
+              </div>
             </div>
           </section>
         </div>
       )}
+
     </div>
   )
 }

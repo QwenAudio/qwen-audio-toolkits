@@ -1,6 +1,7 @@
 import builtinApiModels from '../catalog/api-models.json'
 import type {
   ApiModelCatalogEntry,
+  CustomApiModelDefinition,
   HarnessCatalog,
   ModelPlugin,
 } from './types'
@@ -26,6 +27,7 @@ export function cloudModelsFromCatalog(
   catalog: HarnessCatalog | null,
   installedModelIds: readonly string[] = [],
   remoteModels: readonly ApiModelCatalogEntry[] = [],
+  customModels: readonly CustomApiModelDefinition[] = [],
 ): ModelPlugin[] {
   if (!catalog) return []
 
@@ -38,7 +40,7 @@ export function cloudModelsFromCatalog(
   for (const entry of remoteModels) entries.set(entry.id, entry)
 
   const installedIds = new Set(installedModelIds)
-  return Array.from(entries.values())
+  const models: ModelPlugin[] = Array.from(entries.values())
     .filter(supportedEntry)
     .flatMap((entry) => {
       const provider = catalog.providers.find(
@@ -76,4 +78,57 @@ export function cloudModelsFromCatalog(
         },
       ]
     })
+
+  for (const definition of customModels) {
+    const customProvider = catalog.providers.find(
+      ({ id }) => id === definition.providerId,
+    )
+    if (!customProvider || !definition.modelId.trim()) continue
+    const presentation =
+      definition.capability === 'speech.transcribe'
+        ? {
+            description: `通过 ${customProvider.name || '自定义 Provider'} 调用的语音识别模型。`,
+            capabilities: ['ASR', '语音识别', 'Custom API'],
+            adapter: 'compatible-asr',
+          }
+        : definition.capability === 'speech.synthesize'
+          ? {
+              description: `通过 ${customProvider.name || '自定义 Provider'} 调用的语音合成模型。`,
+              capabilities: ['TTS', '语音合成', 'Custom API'],
+              adapter: 'compatible-tts',
+            }
+          : {
+              description: `通过 ${customProvider.name || '自定义 Provider'} 调用的 LLM。`,
+              capabilities: ['LLM', '文本生成', 'Custom API'],
+              adapter: 'compatible-llm',
+            }
+    models.push({
+      id: definition.id,
+      name: definition.name.trim() || definition.modelId,
+      author: customProvider.name || 'Custom Provider',
+      engineAuthor: customProvider.name || 'Custom Provider',
+      description: presentation.description,
+      capabilities: presentation.capabilities,
+      harnessCapabilities: [definition.capability],
+      runtime: 'Compatible API',
+      acceleration: ['云端'],
+      version: definition.modelId,
+      size: '',
+      installed: installedIds.has(definition.id),
+      enabled: customProvider.status === 'ready',
+      builtin: true,
+      featured: false,
+      installCount: 0,
+      tone: 'violet',
+      providerId: definition.providerId,
+      adapter: presentation.adapter,
+      installPath: '',
+      catalogManaged: true,
+      streamingMode: 'batch',
+      apiAliases: [],
+      defaultVoice: definition.defaultVoice,
+    })
+  }
+
+  return models
 }

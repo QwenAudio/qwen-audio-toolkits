@@ -238,8 +238,16 @@ export function getHarnessCatalog(): Promise<HarnessCatalog> {
   return invoke<HarnessCatalog>('harness_catalog')
 }
 
-export function getApiProviderSettings(): Promise<ApiProviderSettings> {
-  return invoke<ApiProviderSettings>('harness_api_provider_settings')
+export function getApiProviderSettings(): Promise<ApiProviderSettings[]> {
+  return invoke<ApiProviderSettings[]>('harness_api_provider_settings')
+}
+
+export function deleteApiProviderSettings(
+  providerId: string,
+): Promise<ApiProviderSettings[]> {
+  return invoke<ApiProviderSettings[]>('harness_delete_api_provider', {
+    providerId,
+  })
 }
 
 export function saveApiProviderSettings(

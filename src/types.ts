@@ -61,6 +61,7 @@ export interface ModelPlugin {
   catalogManaged?: boolean
   streamingMode?: 'streaming' | 'batch'
   apiAliases?: string[]
+  defaultVoice?: string
   variants?: ModelVariant[]
   selectedVariantId?: string
   defaultVariantId?: string
@@ -106,6 +107,18 @@ export interface ApiModelCatalogEntry {
   streamingMode: 'streaming' | 'batch'
   featured: boolean
   visible: boolean
+}
+
+export interface CustomApiModelDefinition {
+  id: string
+  name: string
+  modelId: string
+  providerId: string
+  capability: Extract<
+    HarnessCapabilityId,
+    'text.generate' | 'speech.transcribe' | 'speech.synthesize'
+  >
+  defaultVoice?: string
 }
 
 export type PluginPortType =
@@ -493,17 +506,67 @@ export interface ApiProviderSettings {
   llmModel: string
   enabled: boolean
   status: 'ready' | 'unconfigured'
+  llmEnabled: boolean
+  asrEnabled: boolean
+  ttsEnabled: boolean
+  authType: ApiAuthType
+  authHeader: string
+  extraHeaders: Record<string, string>
+  llmPath: string
+  asrMode: ApiAsrMode
+  asrPath: string
+  asrBodyTemplate: string
+  asrModelField: string
+  asrLanguageField: string
+  asrPromptField: string
+  asrTextPointer: string
+  ttsMode: ApiTtsMode
+  ttsPath: string
+  ttsBodyTemplate: string
+  ttsResponseEncoding: ApiAudioResponseEncoding
+  ttsAudioPointer: string
+  ttsAudioFormat: ApiAudioFormat
+  ttsSampleRate: number
 }
 
+export type ApiAuthType = 'bearer' | 'token' | 'custom-header' | 'none'
+export type ApiAsrMode = 'multipart' | 'binary' | 'template-json-base64'
+export type ApiTtsMode =
+  | 'standard-json'
+  | 'voice-path-json'
+  | 'nested-voice-json'
+  | 'query-model-json'
+  | 'template-json'
+export type ApiAudioResponseEncoding = 'raw' | 'hex' | 'base64' | 'stream-base64'
+export type ApiAudioFormat = 'wav' | 'pcm16'
+
 export interface ApiProviderUpdate {
+  id?: string
   name: string
   baseUrl: string
   apiKey?: string
-  ttsModel: string
-  ttsVoice: string
-  asrModel: string
-  llmModel: string
   enabled: boolean
+  llmEnabled: boolean
+  asrEnabled: boolean
+  ttsEnabled: boolean
+  authType: ApiAuthType
+  authHeader: string
+  extraHeaders: Record<string, string>
+  llmPath: string
+  asrMode: ApiAsrMode
+  asrPath: string
+  asrBodyTemplate: string
+  asrModelField: string
+  asrLanguageField: string
+  asrPromptField: string
+  asrTextPointer: string
+  ttsMode: ApiTtsMode
+  ttsPath: string
+  ttsBodyTemplate: string
+  ttsResponseEncoding: ApiAudioResponseEncoding
+  ttsAudioPointer: string
+  ttsAudioFormat: ApiAudioFormat
+  ttsSampleRate: number
 }
 
 export interface BailianProviderSettings {

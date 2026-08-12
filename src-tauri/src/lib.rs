@@ -23,12 +23,13 @@ use axum::{
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use harness::{
     harness_api_provider_settings, harness_bailian_provider_settings, harness_cancel_run,
-    harness_catalog, harness_create_bailian_voice, harness_delete_bailian_voice,
-    harness_delete_run, harness_finish_enhancement_stream, harness_finish_funasr_stream,
-    harness_finish_vad_stream, harness_get_run, harness_get_run_output, harness_get_run_preview,
-    harness_list_bailian_voices, harness_list_runs, harness_push_enhancement_stream,
-    harness_push_funasr_stream, harness_push_vad_stream, harness_retry_run,
-    harness_save_api_provider, harness_save_bailian_provider, harness_start_cosyvoice_stream,
+    harness_catalog, harness_create_bailian_voice, harness_delete_api_provider,
+    harness_delete_bailian_voice, harness_delete_run, harness_finish_enhancement_stream,
+    harness_finish_funasr_stream, harness_finish_vad_stream, harness_get_run,
+    harness_get_run_output, harness_get_run_preview, harness_list_bailian_voices,
+    harness_list_runs, harness_push_enhancement_stream, harness_push_funasr_stream,
+    harness_push_vad_stream, harness_retry_run, harness_save_api_provider,
+    harness_save_bailian_provider, harness_start_cosyvoice_stream,
     harness_start_enhancement_stream, harness_start_funasr_stream, harness_start_run,
     harness_start_vad_stream, ApiProviderSettings, ApiProviderUpdate, BailianProviderSettings,
     BailianProviderUpdate, HarnessCatalog, HarnessExecution, HarnessRun, HarnessRuntime,
@@ -484,7 +485,7 @@ async fn api_delete_run(
 
 async fn api_provider_settings(
     AxumState(state): AxumState<LocalApiState>,
-) -> ApiResult<ApiProviderSettings> {
+) -> ApiResult<Vec<ApiProviderSettings>> {
     harness::provider_settings(&state.app)
         .map(Json)
         .map_err(api_internal_error)
@@ -495,6 +496,15 @@ async fn api_save_provider(
     Json(update): Json<ApiProviderUpdate>,
 ) -> ApiResult<ApiProviderSettings> {
     harness::harness_save_api_provider(state.app, update)
+        .map(Json)
+        .map_err(api_bad_request)
+}
+
+async fn api_delete_provider(
+    AxumState(state): AxumState<LocalApiState>,
+    AxumPath(provider_id): AxumPath<String>,
+) -> ApiResult<Vec<ApiProviderSettings>> {
+    harness::harness_delete_api_provider(state.app, provider_id)
         .map(Json)
         .map_err(api_bad_request)
 }
@@ -557,6 +567,10 @@ fn start_local_api(state: LocalApiState) {
             .route(
                 "/v1/providers/openai-compatible",
                 get(api_provider_settings).put(api_save_provider),
+            )
+            .route(
+                "/v1/providers/openai-compatible/{provider_id}",
+                delete(api_delete_provider),
             )
             .route(
                 "/v1/providers/bailian",
@@ -683,6 +697,7 @@ pub fn run() {
             harness_delete_run,
             harness_api_provider_settings,
             harness_save_api_provider,
+            harness_delete_api_provider,
             harness_bailian_provider_settings,
             harness_save_bailian_provider,
             harness_list_bailian_voices,

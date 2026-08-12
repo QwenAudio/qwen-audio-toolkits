@@ -29,6 +29,15 @@ an already supported cloud provider. Bundled API metadata is maintained in
 overrides it. Adding metadata or another model using a reviewed adapter does
 not require frontend code.
 
+Users can configure multiple custom REST providers in Settings and attach custom
+LLM, ASR, and TTS definitions to them from the model store. Provider connection,
+authentication, capability paths, request profiles, and response decoding are
+persisted separately from model capability/display name/ID. The generic adapter
+supports Chat Completions; multipart, binary, or Base64 JSON ASR; configurable
+headers and JSON request templates; and common JSON TTS shapes with raw
+WAV/PCM16, JSON Hex/Base64, or streamed NDJSON/SSE Base64 responses. Changing
+these settings does not require a catalog or desktop release.
+
 An API model entry uses `name` as its canonical display name, `modelId` as the
 preferred service identifier, and `aliases` for service identifiers retained
 for compatibility and search. Keep the stable catalog `id` unchanged when a

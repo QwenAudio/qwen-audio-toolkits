@@ -69,10 +69,30 @@ remain separate models and can be changed in model details.
 
 ## Configure a cloud model
 
-QwenAudio Toolkits currently exposes Alibaba Cloud Model Studio models. Open
-**Settings**, enter the provider API key, then add individual cloud models from
-the store. The key configures the provider only; voice, language, speed, and
-other model parameters are selected in the model conversation.
+QwenAudio Toolkits exposes Alibaba Cloud Model Studio and custom REST API
+providers. Open **Settings → Provider** to configure Alibaba Cloud Bailian or
+one or more custom providers. A custom provider stores its display name, API
+Base URL, authentication, enabled capabilities, and capability-level protocol.
+HTTPS is required for remote endpoints;
+local `localhost`, `127.0.0.1`, and `[::1]` HTTP endpoints may omit the API key.
+
+The default profile uses Chat Completions, multipart speech recognition, and
+JSON-to-WAV speech synthesis. Authentication can use Bearer, Token, a custom
+header, or no key for trusted local services. ASR paths, multipart field names,
+JSON text pointers, Base64 audio JSON bodies, and custom request templates are
+configurable. TTS supports standard JSON, voice-in-path JSON, nested voice
+settings, model-in-path/query requests, or a custom JSON template, with raw
+WAV/PCM16, JSON Hex/Base64, or streamed NDJSON/SSE Base64 responses. Paths and
+headers may contain `{model}`, `{voice}`, `{speed}`, or `{uuid}` variables. Add
+models separately from **Model Store → Add API Model**; each model stores only
+its Provider, capability, display name, Model ID, and an optional default voice.
+These settings do not require a desktop release.
+Capabilities on one provider share the same Base URL and authentication. If a
+service exposes LLM, ASR, or TTS on different hosts or keys, create separate
+providers and enable only the matching capability on each one.
+
+The key configures the provider only; voice, language, speed, and other model
+parameters are selected in the model conversation.
 
 Cloud execution sends the selected input to the configured provider. Local
 models continue to run without reading cloud credentials.

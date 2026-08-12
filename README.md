@@ -84,8 +84,8 @@ model installation, cloud configuration, and local data locations.
 ## Use a model
 
 1. Open **Model Store**.
-2. Choose an **Offline** model or a cloud model exposed by a configured
-   provider.
+2. Choose an **Offline** model, a bundled cloud model, or configure a custom
+   REST LLM, ASR, or TTS model.
 3. Select a model variant when available and start the installation.
 4. Open the installed model from the sidebar.
 5. Upload or drag in audio, record from the microphone, or enter text according
@@ -97,8 +97,8 @@ reference transcription, remain separate models and can be selected from the
 model details.
 
 Cloud execution sends the selected input to the configured provider. Configure
-provider credentials in **Settings**; local models continue to run without
-access to those credentials.
+provider credentials under **Settings → Provider**; local models continue to
+run without access to those credentials.
 
 ## Updates, models, and privacy
 

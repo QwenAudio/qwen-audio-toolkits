@@ -356,8 +356,9 @@ struct ModelDescriptor {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 struct ApiProviderConfig {
+    id: String,
     name: String,
     base_url: String,
     api_key: String,
@@ -367,6 +368,30 @@ struct ApiProviderConfig {
     #[serde(default = "default_llm_model")]
     llm_model: String,
     enabled: bool,
+    llm_enabled: bool,
+    asr_enabled: bool,
+    tts_enabled: bool,
+    auth_type: String,
+    auth_header: String,
+    #[serde(default)]
+    extra_headers: HashMap<String, String>,
+    llm_path: String,
+    asr_mode: String,
+    asr_path: String,
+    #[serde(default)]
+    asr_body_template: String,
+    asr_model_field: String,
+    asr_language_field: String,
+    asr_prompt_field: String,
+    asr_text_pointer: String,
+    tts_mode: String,
+    tts_path: String,
+    #[serde(default)]
+    tts_body_template: String,
+    tts_response_encoding: String,
+    tts_audio_pointer: String,
+    tts_audio_format: String,
+    tts_sample_rate: u32,
 }
 
 fn default_llm_model() -> String {
@@ -376,7 +401,8 @@ fn default_llm_model() -> String {
 impl Default for ApiProviderConfig {
     fn default() -> Self {
         Self {
-            name: "OpenAI-compatible API".to_string(),
+            id: API_PROVIDER_ID.to_string(),
+            name: "Custom Provider".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
             api_key: String::new(),
             tts_model: "gpt-4o-mini-tts".to_string(),
@@ -384,37 +410,96 @@ impl Default for ApiProviderConfig {
             asr_model: "gpt-4o-mini-transcribe".to_string(),
             llm_model: default_llm_model(),
             enabled: false,
+            llm_enabled: true,
+            asr_enabled: true,
+            tts_enabled: true,
+            auth_type: "bearer".to_string(),
+            auth_header: "x-api-key".to_string(),
+            extra_headers: HashMap::new(),
+            llm_path: "/chat/completions".to_string(),
+            asr_mode: "multipart".to_string(),
+            asr_path: "/audio/transcriptions".to_string(),
+            asr_body_template: String::new(),
+            asr_model_field: "model".to_string(),
+            asr_language_field: "language".to_string(),
+            asr_prompt_field: "prompt".to_string(),
+            asr_text_pointer: "/text".to_string(),
+            tts_mode: "standard-json".to_string(),
+            tts_path: "/audio/speech".to_string(),
+            tts_body_template: String::new(),
+            tts_response_encoding: "raw".to_string(),
+            tts_audio_pointer: "/data/audio".to_string(),
+            tts_audio_format: "wav".to_string(),
+            tts_sample_rate: 24_000,
         }
     }
 }
 
 impl ApiProviderConfig {
     fn configured(&self) -> bool {
-        let local = self.base_url.starts_with("http://127.0.0.1")
-            || self.base_url.starts_with("http://localhost");
+        let local = api_provider_endpoint_is_local(&self.base_url);
         self.enabled
-            && (self.base_url.starts_with("https://") || local)
-            && (local || !self.api_key.trim().is_empty())
+            && api_provider_endpoint_is_valid(&self.base_url)
+            && (local || self.auth_type == "none" || !self.api_key.trim().is_empty())
     }
+}
+
+fn api_provider_endpoint_is_local(value: &str) -> bool {
+    reqwest::Url::parse(value).ok().is_some_and(|url| {
+        url.scheme() == "http"
+            && matches!(
+                url.host_str(),
+                Some("localhost" | "127.0.0.1" | "::1" | "[::1]")
+            )
+    })
+}
+
+fn api_provider_endpoint_is_valid(value: &str) -> bool {
+    reqwest::Url::parse(value).ok().is_some_and(|url| {
+        url.username().is_empty()
+            && url.password().is_none()
+            && (url.scheme() == "https" || api_provider_endpoint_is_local(value))
+    })
 }
 
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiProviderUpdate {
+    id: Option<String>,
     name: String,
     base_url: String,
     api_key: Option<String>,
-    tts_model: String,
-    tts_voice: String,
-    asr_model: String,
-    llm_model: String,
     enabled: bool,
+    llm_enabled: bool,
+    asr_enabled: bool,
+    tts_enabled: bool,
+    auth_type: String,
+    auth_header: String,
+    #[serde(default)]
+    extra_headers: HashMap<String, String>,
+    llm_path: String,
+    asr_mode: String,
+    asr_path: String,
+    #[serde(default)]
+    asr_body_template: String,
+    asr_model_field: String,
+    asr_language_field: String,
+    asr_prompt_field: String,
+    asr_text_pointer: String,
+    tts_mode: String,
+    tts_path: String,
+    #[serde(default)]
+    tts_body_template: String,
+    tts_response_encoding: String,
+    tts_audio_pointer: String,
+    tts_audio_format: String,
+    tts_sample_rate: u32,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiProviderSettings {
-    id: &'static str,
+    id: String,
     name: String,
     base_url: String,
     api_key_configured: bool,
@@ -424,6 +509,27 @@ pub struct ApiProviderSettings {
     llm_model: String,
     enabled: bool,
     status: &'static str,
+    llm_enabled: bool,
+    asr_enabled: bool,
+    tts_enabled: bool,
+    auth_type: String,
+    auth_header: String,
+    extra_headers: HashMap<String, String>,
+    llm_path: String,
+    asr_mode: String,
+    asr_path: String,
+    asr_body_template: String,
+    asr_model_field: String,
+    asr_language_field: String,
+    asr_prompt_field: String,
+    asr_text_pointer: String,
+    tts_mode: String,
+    tts_path: String,
+    tts_body_template: String,
+    tts_response_encoding: String,
+    tts_audio_pointer: String,
+    tts_audio_format: String,
+    tts_sample_rate: u32,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -781,6 +887,8 @@ pub fn harness_catalog(app: AppHandle) -> HarnessCatalog {
 
 pub(crate) fn catalog_for_app(app: &AppHandle) -> HarnessCatalog {
     let bailian = read_bailian_provider_config(app).unwrap_or_default();
+    let compatible_apis =
+        read_api_provider_configs(app).unwrap_or_else(|_| vec![ApiProviderConfig::default()]);
     let model = |status: Option<Value>, fallback_id: &str, fallback_name: &str| {
         let installed = status
             .as_ref()
@@ -1093,6 +1201,31 @@ pub(crate) fn catalog_for_app(app: &AppHandle) -> HarnessCatalog {
                     ],
                 },
             ];
+            providers.extend(compatible_apis.into_iter().map(|config| {
+                let configured = config.configured();
+                let local = api_provider_endpoint_is_local(&config.base_url);
+                let mut capabilities = Vec::new();
+                if config.llm_enabled {
+                    capabilities.push(CAPABILITY_TEXT.to_string());
+                }
+                if config.asr_enabled {
+                    capabilities.push(CAPABILITY_ASR.to_string());
+                }
+                if config.tts_enabled {
+                    capabilities.push(CAPABILITY_TTS.to_string());
+                }
+                ProviderDescriptor {
+                    id: config.id,
+                    name: config.name,
+                    kind: "api".to_string(),
+                    runtime: trim_endpoint(&config.base_url),
+                    status: if configured { "ready" } else { "unconfigured" }.to_string(),
+                    configured,
+                    local,
+                    capabilities,
+                    models: Vec::new(),
+                }
+            }));
             if let Ok(plugin_providers) = plugins::installed_providers(app) {
                 providers.extend(
                     plugin_providers
@@ -1457,15 +1590,14 @@ pub(crate) fn retry_run(
 }
 
 #[tauri::command]
-pub fn harness_api_provider_settings(app: AppHandle) -> Result<ApiProviderSettings, String> {
+pub fn harness_api_provider_settings(app: AppHandle) -> Result<Vec<ApiProviderSettings>, String> {
     provider_settings(&app)
 }
 
-pub(crate) fn provider_settings(app: &AppHandle) -> Result<ApiProviderSettings, String> {
-    let config = read_api_provider_config(app)?;
+fn api_provider_settings(config: ApiProviderConfig) -> ApiProviderSettings {
     let configured = config.configured();
-    Ok(ApiProviderSettings {
-        id: API_PROVIDER_ID,
+    ApiProviderSettings {
+        id: config.id,
         name: config.name,
         base_url: config.base_url,
         api_key_configured: !config.api_key.trim().is_empty(),
@@ -1475,7 +1607,33 @@ pub(crate) fn provider_settings(app: &AppHandle) -> Result<ApiProviderSettings, 
         llm_model: config.llm_model,
         enabled: config.enabled,
         status: if configured { "ready" } else { "unconfigured" },
-    })
+        llm_enabled: config.llm_enabled,
+        asr_enabled: config.asr_enabled,
+        tts_enabled: config.tts_enabled,
+        auth_type: config.auth_type,
+        auth_header: config.auth_header,
+        extra_headers: config.extra_headers,
+        llm_path: config.llm_path,
+        asr_mode: config.asr_mode,
+        asr_path: config.asr_path,
+        asr_body_template: config.asr_body_template,
+        asr_model_field: config.asr_model_field,
+        asr_language_field: config.asr_language_field,
+        asr_prompt_field: config.asr_prompt_field,
+        asr_text_pointer: config.asr_text_pointer,
+        tts_mode: config.tts_mode,
+        tts_path: config.tts_path,
+        tts_body_template: config.tts_body_template,
+        tts_response_encoding: config.tts_response_encoding,
+        tts_audio_pointer: config.tts_audio_pointer,
+        tts_audio_format: config.tts_audio_format,
+        tts_sample_rate: config.tts_sample_rate,
+    }
+}
+
+pub(crate) fn provider_settings(app: &AppHandle) -> Result<Vec<ApiProviderSettings>, String> {
+    read_api_provider_configs(app)
+        .map(|configs| configs.into_iter().map(api_provider_settings).collect())
 }
 
 #[tauri::command]
@@ -1483,13 +1641,32 @@ pub fn harness_save_api_provider(
     app: AppHandle,
     update: ApiProviderUpdate,
 ) -> Result<ApiProviderSettings, String> {
-    if !(update.base_url.starts_with("https://")
-        || update.base_url.starts_with("http://127.0.0.1")
-        || update.base_url.starts_with("http://localhost"))
-    {
+    if !api_provider_endpoint_is_valid(update.base_url.trim()) {
         return Err("API 地址必须使用 HTTPS；本机服务可使用 localhost".to_string());
     }
-    let mut current = read_api_provider_config(&app)?;
+    if update.name.trim().is_empty() {
+        return Err("请填写 Provider 名称".to_string());
+    }
+    validate_api_provider_update(&update)?;
+    let mut providers = read_api_provider_configs(&app)?;
+    let requested_id = update
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let id = requested_id
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("api.custom.{}", Uuid::new_v4()));
+    if id != API_PROVIDER_ID && !id.starts_with("api.custom.") {
+        return Err("Provider ID 无效".to_string());
+    }
+    let existing_index = providers.iter().position(|provider| provider.id == id);
+    let mut current = existing_index
+        .map(|index| providers[index].clone())
+        .unwrap_or_else(|| ApiProviderConfig {
+            id: id.clone(),
+            ..Default::default()
+        });
     current.name = update.name.trim().to_string();
     current.base_url = update.base_url.trim_end_matches('/').to_string();
     if let Some(api_key) = update.api_key {
@@ -1497,12 +1674,49 @@ pub fn harness_save_api_provider(
             current.api_key = api_key.trim().to_string();
         }
     }
-    current.tts_model = update.tts_model.trim().to_string();
-    current.tts_voice = update.tts_voice.trim().to_string();
-    current.asr_model = update.asr_model.trim().to_string();
-    current.llm_model = update.llm_model.trim().to_string();
     current.enabled = update.enabled;
-    write_api_provider_config(&app, &current)?;
+    current.llm_enabled = update.llm_enabled;
+    current.asr_enabled = update.asr_enabled;
+    current.tts_enabled = update.tts_enabled;
+    current.auth_type = update.auth_type;
+    current.auth_header = update.auth_header.trim().to_string();
+    current.extra_headers = update.extra_headers;
+    current.llm_path = normalize_api_path(&update.llm_path)?;
+    current.asr_mode = update.asr_mode;
+    current.asr_path = normalize_api_path(&update.asr_path)?;
+    current.asr_body_template = update.asr_body_template.trim().to_string();
+    current.asr_model_field = update.asr_model_field.trim().to_string();
+    current.asr_language_field = update.asr_language_field.trim().to_string();
+    current.asr_prompt_field = update.asr_prompt_field.trim().to_string();
+    current.asr_text_pointer = normalize_json_pointer(&update.asr_text_pointer)?;
+    current.tts_mode = update.tts_mode;
+    current.tts_path = normalize_api_path(&update.tts_path)?;
+    current.tts_body_template = update.tts_body_template.trim().to_string();
+    current.tts_response_encoding = update.tts_response_encoding;
+    current.tts_audio_pointer = normalize_json_pointer(&update.tts_audio_pointer)?;
+    current.tts_audio_format = update.tts_audio_format;
+    current.tts_sample_rate = update.tts_sample_rate.clamp(8_000, 96_000);
+    if let Some(index) = existing_index {
+        providers[index] = current.clone();
+    } else {
+        providers.push(current.clone());
+    }
+    write_api_provider_configs(&app, &providers)?;
+    Ok(api_provider_settings(current))
+}
+
+#[tauri::command]
+pub fn harness_delete_api_provider(
+    app: AppHandle,
+    provider_id: String,
+) -> Result<Vec<ApiProviderSettings>, String> {
+    let mut providers = read_api_provider_configs(&app)?;
+    let before = providers.len();
+    providers.retain(|provider| provider.id != provider_id);
+    if providers.len() == before {
+        return Err("Provider 不存在".to_string());
+    }
+    write_api_provider_configs(&app, &providers)?;
     provider_settings(&app)
 }
 
@@ -2498,6 +2712,8 @@ async fn run_cosyvoice_stream(
     persist_api_tts_output(
         app,
         &wav,
+        "wav",
+        24_000,
         started,
         &format!("百炼 · {BAILIAN_COSYVOICE_MODEL}"),
         "cosyvoice-stream",
@@ -3617,7 +3833,7 @@ async fn execute_request(
             if matches!(provider.adapter.as_str(), "bailian" | "bailian-cosyvoice") {
                 execute_bailian_tts(&app, request, &provider.model_id, cancel).await?
             } else {
-                execute_api_tts(&app, request, cancel).await?
+                execute_api_tts(&app, request, &provider.id, &provider.model_id, cancel).await?
             }
         }
         (CAPABILITY_ASR, false) => {
@@ -3716,7 +3932,7 @@ async fn execute_request(
                 )
                 .await?
             } else {
-                execute_api_asr(&app, request, cancel).await?
+                execute_api_asr(&app, request, &provider.id, &provider.model_id, cancel).await?
             }
         }
         (CAPABILITY_VAD, false) => {
@@ -4219,9 +4435,11 @@ fn bailian_audio_process_event_error(event: &Value) -> String {
 async fn execute_api_tts(
     app: &AppHandle,
     request: &HarnessTaskRequest,
+    provider_id: &str,
+    model_id: &str,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
-    let config = configured_api_provider(app)?;
+    let config = configured_api_provider(app, provider_id)?;
     let text = required_string(&request.input, "text")?;
     let speed = number(&request.parameters, "speed").unwrap_or(1.0);
     let voice = request
@@ -4231,17 +4449,70 @@ async fn execute_api_tts(
         .filter(|value| !value.trim().is_empty())
         .unwrap_or(&config.tts_voice);
     let started = Instant::now();
-    let response = with_api_auth(
-        api_client()?.post(format!("{}/audio/speech", config.base_url)),
-        &config.api_key,
-    )
-    .json(&json!({
-        "model": config.tts_model,
-        "input": text,
-        "voice": voice,
-        "response_format": "wav",
-        "speed": speed
-    }))
+    let request_id = Uuid::new_v4().to_string();
+    let path = expand_api_path(&config.tts_path, model_id, voice, speed)?;
+    let mut payload = match config.tts_mode.as_str() {
+        "standard-json" => json!({
+            "model": model_id,
+            "input": text,
+            "voice": voice,
+            "response_format": api_audio_format(&config.tts_audio_format),
+            "speed": speed.clamp(0.25, 4.0)
+        }),
+        "voice-path-json" => json!({
+            "text": text,
+            "model_id": model_id,
+            "voice_settings": { "speed": speed.clamp(0.5, 2.0) }
+        }),
+        "nested-voice-json" => json!({
+            "model": model_id,
+            "text": text,
+            "stream": false,
+            "voice_setting": {
+                "voice_id": voice,
+                "speed": speed.clamp(0.5, 2.0),
+                "vol": 1.0,
+                "pitch": 0
+            },
+            "audio_setting": {
+                "sample_rate": config.tts_sample_rate,
+                "bitrate": 128000,
+                "format": api_audio_format(&config.tts_audio_format),
+                "channel": 1
+            },
+            "subtitle_enable": false,
+            "output_format": config.tts_response_encoding
+        }),
+        "query-model-json" => json!({ "text": text }),
+        "template-json" => expand_api_json_template(
+            &config.tts_body_template,
+            &api_template_values(&ApiTemplateContext {
+                model_id,
+                voice,
+                text: &text,
+                audio_base64: "",
+                language: "",
+                speed,
+                sample_rate: config.tts_sample_rate,
+                audio_format: &config.tts_audio_format,
+                request_id: &request_id,
+            }),
+        )?,
+        _ => return Err("Provider 的 TTS 请求格式无效".to_string()),
+    };
+    if config.tts_mode == "standard-json" {
+        if let Some(instruction) = optional_string(&request.parameters, "instruction") {
+            payload["instructions"] = json!(instruction);
+        }
+    }
+    let response = apply_api_request_headers(
+        api_client()?.post(api_endpoint(&config.base_url, &path)),
+        &config,
+        model_id,
+        voice,
+        &request_id,
+    )?
+    .json(&payload)
     .send()
     .await
     .map_err(|error| format!("语音 API 请求失败: {error}"))?;
@@ -4249,16 +4520,39 @@ async fn execute_api_tts(
         return Err("任务已取消".to_string());
     }
     let response = checked_response(response, "语音 API").await?;
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| format!("无法读取语音 API 输出: {error}"))?
-        .to_vec();
+    let bytes = match config.tts_response_encoding.as_str() {
+        "raw" => response
+            .bytes()
+            .await
+            .map_err(|error| format!("无法读取语音 API 输出: {error}"))?
+            .to_vec(),
+        "hex" | "base64" => {
+            let raw = response
+                .json::<Value>()
+                .await
+                .map_err(|error| format!("语音 API 没有返回有效 JSON: {error}"))?;
+            decode_json_audio(
+                &raw,
+                &config.tts_audio_pointer,
+                &config.tts_response_encoding,
+            )?
+        }
+        "stream-base64" => {
+            let bytes = response
+                .bytes()
+                .await
+                .map_err(|error| format!("无法读取语音 API 流式输出: {error}"))?;
+            decode_streamed_json_audio(&bytes, &config.tts_audio_pointer)?
+        }
+        _ => return Err("Provider 的 TTS 响应编码无效".to_string()),
+    };
     persist_api_tts_output(
         app,
         &bytes,
+        &config.tts_audio_format,
+        config.tts_sample_rate,
         started,
-        &format!("API · {}", config.tts_model),
+        &format!("{} · {model_id}", config.name),
         "api-tts",
     )
 }
@@ -4266,13 +4560,18 @@ async fn execute_api_tts(
 fn persist_api_tts_output(
     app: &AppHandle,
     bytes: &[u8],
+    audio_format: &str,
+    sample_rate: u32,
     started: Instant,
     engine: &str,
     file_prefix: &str,
 ) -> Result<Value, String> {
     let bytes = repair_streaming_wav_lengths(bytes);
-    let mut audio =
-        decode_wav_bytes(&bytes).map_err(|error| format!("API 必须返回 WAV 音频: {error}"))?;
+    let mut audio = if audio_format == "pcm16" {
+        decode_pcm16_audio(&bytes, sample_rate)?
+    } else {
+        decode_wav_bytes(&bytes).map_err(|error| format!("API 必须返回有效 WAV 音频: {error}"))?
+    };
     normalize_generated_speech(&mut audio);
     let bytes = encode_wav_bytes(&audio)?;
     let duration = audio.duration();
@@ -4327,30 +4626,78 @@ fn repair_streaming_wav_lengths(bytes: &[u8]) -> Vec<u8> {
 async fn execute_api_asr(
     app: &AppHandle,
     request: &HarnessTaskRequest,
+    provider_id: &str,
+    model_id: &str,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
-    let config = configured_api_provider(app)?;
+    let config = configured_api_provider(app, provider_id)?;
     let audio_data_url = required_string(&request.input, "audioDataUrl")?;
     let clip_name = required_string(&request.input, "clipName")?;
     let bytes = decode_data_url_bytes(&audio_data_url)?;
     let audio = decode_wav_data_url(&audio_data_url)?;
     let started = Instant::now();
-    let part = Part::bytes(bytes)
-        .file_name(clip_name.clone())
-        .mime_str("audio/wav")
-        .map_err(|error| format!("无法创建识别请求: {error}"))?;
-    let form = Form::new()
-        .part("file", part)
-        .text("model", config.asr_model.clone())
-        .text("response_format", "verbose_json")
-        .text("timestamp_granularities[]", "segment");
-    let response = with_api_auth(
-        api_client()?.post(format!("{}/audio/transcriptions", config.base_url)),
-        &config.api_key,
-    )
-    .multipart(form)
-    .send()
-    .await
+    let request_id = Uuid::new_v4().to_string();
+    let path = expand_api_path(&config.asr_path, model_id, "", 1.0)?;
+    let builder = apply_api_request_headers(
+        api_client()?.post(api_endpoint(&config.base_url, &path)),
+        &config,
+        model_id,
+        "",
+        &request_id,
+    )?;
+    let language = optional_string(&request.parameters, "language")
+        .filter(|value| value != "auto")
+        .unwrap_or_default();
+    let prompt = optional_string(&request.parameters, "context").unwrap_or_default();
+    let response = match config.asr_mode.as_str() {
+        "binary" => {
+            builder
+                .header(reqwest::header::CONTENT_TYPE, "audio/wav")
+                .body(bytes)
+                .send()
+                .await
+        }
+        "template-json-base64" => {
+            let payload = expand_api_json_template(
+                &config.asr_body_template,
+                &api_template_values(&ApiTemplateContext {
+                    model_id,
+                    voice: "",
+                    text: "",
+                    audio_base64: &STANDARD.encode(&bytes),
+                    language: &language,
+                    speed: 1.0,
+                    sample_rate: audio.sample_rate,
+                    audio_format: "wav",
+                    request_id: &request_id,
+                })
+                .into_iter()
+                .chain([("{prompt}".to_string(), json!(prompt))])
+                .collect(),
+            )?;
+            builder.json(&payload).send().await
+        }
+        "multipart" => {
+            let part = Part::bytes(bytes)
+                .file_name(clip_name.clone())
+                .mime_str("audio/wav")
+                .map_err(|error| format!("无法创建识别请求: {error}"))?;
+            let mut form = Form::new()
+                .part("file", part)
+                .text(config.asr_model_field.clone(), model_id.to_string());
+            if config.asr_model_field == "model" {
+                form = form.text("response_format", "json");
+            }
+            if !language.is_empty() && !config.asr_language_field.is_empty() {
+                form = form.text(config.asr_language_field.clone(), language);
+            }
+            if !prompt.is_empty() && !config.asr_prompt_field.is_empty() {
+                form = form.text(config.asr_prompt_field.clone(), prompt);
+            }
+            builder.multipart(form).send().await
+        }
+        _ => return Err("Provider 的 ASR 请求格式无效".to_string()),
+    }
     .map_err(|error| format!("识别 API 请求失败: {error}"))?;
     if cancel.load(Ordering::Relaxed) {
         return Err("任务已取消".to_string());
@@ -4365,7 +4712,7 @@ async fn execute_api_asr(
         .and_then(Value::as_f64)
         .unwrap_or_else(|| audio.duration() as f64) as f32;
     let text = raw
-        .get("text")
+        .pointer(&config.asr_text_pointer)
         .and_then(Value::as_str)
         .unwrap_or_default()
         .trim()
@@ -4415,13 +4762,13 @@ async fn execute_api_asr(
     Ok(json!({
         "clipName": clip_name,
         "text": text,
-        "language": raw.get("language").and_then(Value::as_str).unwrap_or("auto"),
+        "language": raw.get("language").or_else(|| raw.get("language_code")).and_then(Value::as_str).unwrap_or("auto"),
         "duration": duration,
         "speechSeconds": speech_seconds,
         "segments": segments,
         "inferenceSeconds": inference_seconds,
         "realTimeFactor": inference_seconds / duration.max(0.001),
-        "engine": format!("API · {}", config.asr_model)
+        "engine": format!("{} · {model_id}", config.name)
     }))
 }
 
@@ -4489,6 +4836,8 @@ async fn execute_bailian_tts(
     persist_api_tts_output(
         app,
         &bytes,
+        "wav",
+        24_000,
         started,
         &format!("百炼 · {model_id}"),
         "bailian-tts",
@@ -5533,7 +5882,7 @@ async fn execute_api_text(
             config.api_key,
         )
     } else {
-        let config = configured_api_provider(app)?;
+        let config = configured_api_provider(app, &provider.id)?;
         (config.base_url, config.api_key)
     };
     let messages = request
@@ -5554,19 +5903,35 @@ async fn execute_api_text(
         .unwrap_or(512.0)
         .clamp(1.0, 8192.0) as u64;
     let started = Instant::now();
-    let response = with_api_auth(
-        api_client()?.post(format!("{}/chat/completions", base_url)),
-        &api_key,
-    )
-    .json(&json!({
-        "model": provider.model_id,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens
-    }))
-    .send()
-    .await
-    .map_err(|error| format!("文本生成 API 请求失败: {error}"))?;
+    let api_config = (provider.id != BAILIAN_PROVIDER_ID)
+        .then(|| configured_api_provider(app, &provider.id))
+        .transpose()?;
+    let path = api_config
+        .as_ref()
+        .map(|config| config.llm_path.as_str())
+        .unwrap_or("/chat/completions");
+    let builder = api_client()?.post(api_endpoint(&base_url, path));
+    let builder = if let Some(config) = api_config.as_ref() {
+        apply_api_request_headers(
+            builder,
+            config,
+            &provider.model_id,
+            "",
+            &Uuid::new_v4().to_string(),
+        )?
+    } else {
+        with_api_auth(builder, &api_key)
+    };
+    let response = builder
+        .json(&json!({
+            "model": provider.model_id,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }))
+        .send()
+        .await
+        .map_err(|error| format!("文本生成 API 请求失败: {error}"))?;
     if cancel.load(Ordering::Relaxed) {
         return Err("任务已取消".to_string());
     }
@@ -5615,6 +5980,347 @@ fn api_client() -> Result<reqwest::Client, String> {
         .timeout(Duration::from_secs(180))
         .build()
         .map_err(|error| format!("无法创建 API 客户端: {error}"))
+}
+
+fn api_endpoint(base_url: &str, path: &str) -> String {
+    format!("{}{}", base_url.trim_end_matches('/'), path)
+}
+
+fn normalize_api_path(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty()
+        || !value.starts_with('/')
+        || value.contains("://")
+        || value.contains('#')
+        || value.contains("..")
+        || value.len() > 300
+    {
+        return Err("接口路径必须是以 / 开头的相对路径".to_string());
+    }
+    Ok(value.to_string())
+}
+
+fn normalize_json_pointer(value: &str) -> Result<String, String> {
+    let value = value.trim();
+    if value.is_empty() || !value.starts_with('/') || value.len() > 300 {
+        return Err("JSON 字段路径必须使用 / 开头的 JSON Pointer".to_string());
+    }
+    Ok(value.to_string())
+}
+
+fn validate_api_field(value: &str, label: &str) -> Result<(), String> {
+    if value.trim().is_empty()
+        || !value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+    {
+        return Err(format!("{label} 只能包含字母、数字、下划线或连字符"));
+    }
+    Ok(())
+}
+
+fn validate_api_provider_update(update: &ApiProviderUpdate) -> Result<(), String> {
+    if !update.llm_enabled && !update.asr_enabled && !update.tts_enabled {
+        return Err("请至少启用一种 Provider 能力".to_string());
+    }
+    if !matches!(
+        update.auth_type.as_str(),
+        "bearer" | "token" | "custom-header" | "none"
+    ) {
+        return Err("鉴权方式无效".to_string());
+    }
+    if update.auth_type == "custom-header" {
+        validate_api_field(&update.auth_header, "鉴权 Header")?;
+    }
+    if !matches!(
+        update.asr_mode.as_str(),
+        "multipart" | "binary" | "template-json-base64"
+    ) {
+        return Err("ASR 请求格式无效".to_string());
+    }
+    if update.asr_mode == "multipart" {
+        validate_api_field(&update.asr_model_field, "模型字段")?;
+    }
+    for (value, label) in [
+        (&update.asr_language_field, "语言字段"),
+        (&update.asr_prompt_field, "提示词字段"),
+    ] {
+        if !value.trim().is_empty() {
+            validate_api_field(value, label)?;
+        }
+    }
+    if update.asr_mode == "template-json-base64" {
+        validate_api_json_template(&update.asr_body_template, "ASR")?;
+    }
+    for (name, value) in &update.extra_headers {
+        validate_api_field(name, "附加 Header")?;
+        if value.contains(['\r', '\n']) {
+            return Err("附加 Header 值不能包含换行".to_string());
+        }
+    }
+    if !matches!(
+        update.tts_mode.as_str(),
+        "standard-json"
+            | "voice-path-json"
+            | "nested-voice-json"
+            | "query-model-json"
+            | "template-json"
+    ) {
+        return Err("TTS 请求格式无效".to_string());
+    }
+    if update.tts_mode == "template-json" {
+        validate_api_json_template(&update.tts_body_template, "TTS")?;
+    }
+    if !matches!(
+        update.tts_response_encoding.as_str(),
+        "raw" | "hex" | "base64" | "stream-base64"
+    ) || !matches!(update.tts_audio_format.as_str(), "wav" | "pcm16")
+    {
+        return Err("TTS 音频格式无效".to_string());
+    }
+    Ok(())
+}
+
+fn percent_encode_path_value(value: &str) -> String {
+    value
+        .bytes()
+        .flat_map(|byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+                vec![byte as char]
+            } else {
+                format!("%{byte:02X}").chars().collect()
+            }
+        })
+        .collect()
+}
+
+fn expand_api_path(path: &str, model_id: &str, voice: &str, speed: f64) -> Result<String, String> {
+    let path = normalize_api_path(path)?;
+    Ok(path
+        .replace("{model}", &percent_encode_path_value(model_id))
+        .replace("{voice}", &percent_encode_path_value(voice))
+        .replace("{speed}", &format!("{:.2}", speed.clamp(0.25, 4.0))))
+}
+
+fn validate_api_json_template(template: &str, label: &str) -> Result<(), String> {
+    if template.trim().is_empty() {
+        return Err(format!("{label} JSON 模板不能为空"));
+    }
+    serde_json::from_str::<Value>(template)
+        .map(|_| ())
+        .map_err(|error| format!("{label} JSON 模板无效: {error}"))
+}
+
+struct ApiTemplateContext<'a> {
+    model_id: &'a str,
+    voice: &'a str,
+    text: &'a str,
+    audio_base64: &'a str,
+    language: &'a str,
+    speed: f64,
+    sample_rate: u32,
+    audio_format: &'a str,
+    request_id: &'a str,
+}
+
+fn api_template_values(context: &ApiTemplateContext<'_>) -> HashMap<String, Value> {
+    HashMap::from([
+        ("{model}".to_string(), json!(context.model_id)),
+        ("{voice}".to_string(), json!(context.voice)),
+        ("{text}".to_string(), json!(context.text)),
+        ("{audioBase64}".to_string(), json!(context.audio_base64)),
+        ("{language}".to_string(), json!(context.language)),
+        ("{speed}".to_string(), json!(context.speed.clamp(0.25, 4.0))),
+        (
+            "{speechRate}".to_string(),
+            json!(((context.speed.clamp(0.5, 2.0) - 1.0) * 100.0).round() as i32),
+        ),
+        ("{sampleRate}".to_string(), json!(context.sample_rate)),
+        (
+            "{audioFormat}".to_string(),
+            json!(api_audio_format(context.audio_format)),
+        ),
+        ("{uuid}".to_string(), json!(context.request_id)),
+    ])
+}
+
+fn expand_api_json_template(
+    template: &str,
+    values: &HashMap<String, Value>,
+) -> Result<Value, String> {
+    let mut value = serde_json::from_str::<Value>(template)
+        .map_err(|error| format!("JSON 请求模板无效: {error}"))?;
+    expand_api_json_value(&mut value, values);
+    Ok(value)
+}
+
+fn expand_api_json_value(value: &mut Value, values: &HashMap<String, Value>) {
+    match value {
+        Value::String(text) => {
+            if let Some(replacement) = values.get(text) {
+                *value = replacement.clone();
+                return;
+            }
+            for (placeholder, replacement) in values {
+                let replacement = replacement
+                    .as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| replacement.to_string());
+                *text = text.replace(placeholder, &replacement);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                expand_api_json_value(item, values);
+            }
+        }
+        Value::Object(object) => {
+            for item in object.values_mut() {
+                expand_api_json_value(item, values);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn expand_api_header_value(value: &str, model_id: &str, voice: &str, request_id: &str) -> String {
+    value
+        .replace("{model}", model_id)
+        .replace("{voice}", voice)
+        .replace("{uuid}", request_id)
+}
+
+fn apply_api_request_headers(
+    builder: reqwest::RequestBuilder,
+    config: &ApiProviderConfig,
+    model_id: &str,
+    voice: &str,
+    request_id: &str,
+) -> Result<reqwest::RequestBuilder, String> {
+    let mut builder = apply_api_auth(builder, config)?;
+    for (name, value) in &config.extra_headers {
+        let name = reqwest::header::HeaderName::from_bytes(name.as_bytes())
+            .map_err(|_| "附加 Header 名称无效".to_string())?;
+        let value = expand_api_header_value(value, model_id, voice, request_id);
+        let value = reqwest::header::HeaderValue::from_str(&value)
+            .map_err(|_| "附加 Header 值无效".to_string())?;
+        builder = builder.header(name, value);
+    }
+    Ok(builder)
+}
+
+fn apply_api_auth(
+    builder: reqwest::RequestBuilder,
+    config: &ApiProviderConfig,
+) -> Result<reqwest::RequestBuilder, String> {
+    if config.api_key.trim().is_empty() || config.auth_type == "none" {
+        return Ok(builder);
+    }
+    match config.auth_type.as_str() {
+        "bearer" => Ok(builder.bearer_auth(&config.api_key)),
+        "token" => Ok(builder.header(
+            reqwest::header::AUTHORIZATION,
+            format!("Token {}", config.api_key),
+        )),
+        "custom-header" => {
+            let name = reqwest::header::HeaderName::from_bytes(config.auth_header.as_bytes())
+                .map_err(|_| "鉴权 Header 名称无效".to_string())?;
+            Ok(builder.header(name, &config.api_key))
+        }
+        _ => Err("鉴权方式无效".to_string()),
+    }
+}
+
+fn decode_hex_audio(value: &str) -> Result<Vec<u8>, String> {
+    if !value.is_ascii() {
+        return Err("Hex 音频包含无效字符".to_string());
+    }
+    if value.len() % 2 != 0 || value.len() > crate::audio_io::MAX_AUDIO_BYTES * 2 {
+        return Err("Hex 音频长度无效".to_string());
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| "Hex 音频包含无效字符".to_string())
+        })
+        .collect()
+}
+
+fn api_audio_format(value: &str) -> &str {
+    if value == "pcm16" {
+        "pcm"
+    } else {
+        value
+    }
+}
+
+fn decode_json_audio(raw: &Value, pointer: &str, encoding: &str) -> Result<Vec<u8>, String> {
+    let value = raw
+        .pointer(pointer)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| format!("语音 API 响应缺少 {pointer}"))?;
+    match encoding {
+        "hex" => decode_hex_audio(value),
+        "base64" => STANDARD
+            .decode(value)
+            .map_err(|error| format!("语音 Base64 解码失败: {error}")),
+        _ => Err("JSON 音频编码无效".to_string()),
+    }
+}
+
+fn decode_streamed_json_audio(bytes: &[u8], pointer: &str) -> Result<Vec<u8>, String> {
+    let text =
+        std::str::from_utf8(bytes).map_err(|_| "语音 API 流式响应不是有效 UTF-8".to_string())?;
+    let mut output = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let json_line = line.strip_prefix("data:").map(str::trim).unwrap_or(line);
+        if json_line.is_empty() || json_line.starts_with("event:") || json_line == "[DONE]" {
+            continue;
+        }
+        let event = serde_json::from_str::<Value>(json_line)
+            .map_err(|error| format!("语音 API 流式 JSON 无效: {error}"))?;
+        if let Some(encoded) = event.pointer(pointer).and_then(Value::as_str) {
+            let chunk = STANDARD
+                .decode(encoded)
+                .map_err(|error| format!("Base64 音频无效: {error}"))?;
+            if output.len().saturating_add(chunk.len()) > crate::audio_io::MAX_AUDIO_BYTES {
+                return Err("语音 API 返回的音频过大".to_string());
+            }
+            output.extend_from_slice(&chunk);
+        } else if event
+            .get("code")
+            .and_then(Value::as_i64)
+            .is_some_and(|code| code != 0 && code != 20_000_000)
+        {
+            return Err(event
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("语音 API 流式合成失败")
+                .to_string());
+        }
+    }
+    if output.is_empty() {
+        Err("语音 API 流式响应未包含音频".to_string())
+    } else {
+        Ok(output)
+    }
+}
+
+fn decode_pcm16_audio(bytes: &[u8], sample_rate: u32) -> Result<PcmAudio, String> {
+    if bytes.is_empty() || bytes.len() % 2 != 0 {
+        return Err("PCM16 音频长度无效".to_string());
+    }
+    Ok(PcmAudio {
+        samples: bytes
+            .chunks_exact(2)
+            .map(|sample| i16::from_le_bytes([sample[0], sample[1]]) as f32 / i16::MAX as f32)
+            .collect(),
+        sample_rate,
+        channels: 1,
+    })
 }
 
 fn with_api_auth(builder: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
@@ -5931,26 +6637,53 @@ fn resolve_provider(
             model_path: None,
         });
     }
-    let api_config = read_api_provider_config(app)?;
+    let api_configs = read_api_provider_configs(app)?;
+    let api_config = api_configs
+        .iter()
+        .find(|config| config.id == requested)
+        .or_else(|| api_configs.first());
     let quality_api = request.routing.as_deref() == Some("quality")
         && matches!(
             request.capability.as_str(),
             CAPABILITY_TTS | CAPABILITY_ASR | CAPABILITY_TEXT
         )
-        && api_config.configured();
-    let use_api = requested == API_PROVIDER_ID || (requested == "auto" && quality_api);
+        && api_config.is_some_and(ApiProviderConfig::configured);
+    let use_api = requested.starts_with("api.custom.")
+        || requested == API_PROVIDER_ID
+        || (requested == "auto" && quality_api);
     if use_api {
+        let api_config = if requested == "auto" {
+            api_config.cloned()
+        } else {
+            api_configs
+                .iter()
+                .find(|config| config.id == requested)
+                .cloned()
+        }
+        .ok_or_else(|| format!("Provider {requested} 不存在"))?;
         if !api_config.configured() {
             return Err("API Provider 尚未配置，请先填写地址与密钥".to_string());
         }
+        let requested_model = request
+            .parameters
+            .get("modelId")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let model_id = match request.capability.as_str() {
-            CAPABILITY_TTS => api_config.tts_model,
-            CAPABILITY_ASR => api_config.asr_model,
-            CAPABILITY_TEXT => api_config.llm_model,
+            CAPABILITY_TTS if api_config.tts_enabled => requested_model
+                .map(str::to_string)
+                .unwrap_or(api_config.tts_model),
+            CAPABILITY_ASR if api_config.asr_enabled => requested_model
+                .map(str::to_string)
+                .unwrap_or(api_config.asr_model),
+            CAPABILITY_TEXT if api_config.llm_enabled => requested_model
+                .map(str::to_string)
+                .unwrap_or(api_config.llm_model),
             _ => return Err("该 API Provider 不支持所选能力".to_string()),
         };
         return Ok(ResolvedProvider {
-            id: API_PROVIDER_ID.to_string(),
+            id: api_config.id,
             name: api_config.name,
             model_id,
             is_api: true,
@@ -6240,12 +6973,133 @@ mod tests {
     fn localhost_provider_does_not_require_an_api_key() {
         assert!(provider("http://127.0.0.1:11434/v1", "").configured());
         assert!(provider("http://localhost:1234/v1", "").configured());
+        assert!(provider("http://[::1]:1234/v1", "").configured());
     }
 
     #[test]
     fn remote_provider_requires_an_api_key() {
         assert!(!provider("https://example.com/v1", "").configured());
         assert!(provider("https://example.com/v1", "secret").configured());
+        assert!(!provider("http://example.com/v1", "secret").configured());
+        assert!(!provider("http://localhost.example.com/v1", "").configured());
+    }
+
+    #[test]
+    fn api_paths_are_relative_and_expand_encoded_variables() {
+        assert_eq!(
+            expand_api_path(
+                "/speech/{voice}?model={model}&speed={speed}",
+                "model/a",
+                "voice one",
+                1.25,
+            )
+            .expect("expand path"),
+            "/speech/voice%20one?model=model%2Fa&speed=1.25"
+        );
+        assert!(normalize_api_path("https://example.com/speech").is_err());
+        assert!(normalize_api_path("/../private").is_err());
+        assert_eq!(
+            normalize_json_pointer("/data/audio").unwrap(),
+            "/data/audio"
+        );
+    }
+
+    #[test]
+    fn json_audio_supports_hex_and_base64() {
+        let raw = json!({ "data": { "audio": "52494646" } });
+        assert_eq!(
+            decode_json_audio(&raw, "/data/audio", "hex").unwrap(),
+            b"RIFF"
+        );
+        let raw = json!({ "audio": STANDARD.encode(b"WAVE") });
+        assert_eq!(
+            decode_json_audio(&raw, "/audio", "base64").unwrap(),
+            b"WAVE"
+        );
+        assert!(decode_hex_audio("abc").is_err());
+        assert!(decode_hex_audio("你好").is_err());
+        assert!(decode_json_audio(&json!({}), "/audio", "hex").is_err());
+        assert_eq!(api_audio_format("pcm16"), "pcm");
+    }
+
+    #[test]
+    fn json_templates_keep_typed_placeholders() {
+        let values = api_template_values(&ApiTemplateContext {
+            model_id: "service-model",
+            voice: "voice-a",
+            text: "hello",
+            audio_base64: "UklGRg==",
+            language: "en",
+            speed: 1.5,
+            sample_rate: 24_000,
+            audio_format: "pcm16",
+            request_id: "request-id",
+        });
+        let payload = expand_api_json_template(
+            r#"{"audio":{"data":"{audioBase64}"},"request":{"model":"{model}","rate":"{speechRate}"},"id":"prefix-{uuid}"}"#,
+            &values,
+        )
+        .unwrap();
+        assert_eq!(payload.pointer("/audio/data"), Some(&json!("UklGRg==")));
+        assert_eq!(payload.pointer("/request/rate"), Some(&json!(50)));
+        assert_eq!(payload.pointer("/id"), Some(&json!("prefix-request-id")));
+    }
+
+    #[test]
+    fn streamed_json_audio_joins_ndjson_and_sse_chunks() {
+        let response = concat!(
+            "{\"code\":0,\"data\":\"UklG\"}\n",
+            "event: 352\n",
+            "data: {\"code\":0,\"data\":\"Rg==\"}\n\n",
+            "event: 152\n",
+            "data: {\"code\":20000000,\"data\":null}\n\n"
+        );
+        assert_eq!(
+            decode_streamed_json_audio(response.as_bytes(), "/data").unwrap(),
+            b"RIFF"
+        );
+    }
+
+    #[test]
+    fn pcm16_audio_is_decoded_with_the_configured_sample_rate() {
+        let audio = decode_pcm16_audio(&[0, 0, 0xff, 0x7f], 32_000).unwrap();
+        assert_eq!(audio.sample_rate, 32_000);
+        assert_eq!(audio.channels, 1);
+        assert_eq!(audio.samples.len(), 2);
+        assert!(decode_pcm16_audio(&[0], 24_000).is_err());
+    }
+
+    #[test]
+    fn provider_protocol_update_rejects_unsafe_fields() {
+        let update = ApiProviderUpdate {
+            id: None,
+            name: "Test".to_string(),
+            base_url: "https://example.com/v1".to_string(),
+            api_key: None,
+            enabled: true,
+            llm_enabled: true,
+            asr_enabled: true,
+            tts_enabled: true,
+            auth_type: "custom-header".to_string(),
+            auth_header: "bad header".to_string(),
+            extra_headers: HashMap::new(),
+            llm_path: "/chat/completions".to_string(),
+            asr_mode: "multipart".to_string(),
+            asr_path: "/audio/transcriptions".to_string(),
+            asr_body_template: String::new(),
+            asr_model_field: "model".to_string(),
+            asr_language_field: "language".to_string(),
+            asr_prompt_field: "prompt".to_string(),
+            asr_text_pointer: "/text".to_string(),
+            tts_mode: "standard-json".to_string(),
+            tts_path: "/audio/speech".to_string(),
+            tts_body_template: String::new(),
+            tts_response_encoding: "raw".to_string(),
+            tts_audio_pointer: "/data/audio".to_string(),
+            tts_audio_format: "wav".to_string(),
+            tts_sample_rate: 24_000,
+        };
+        assert!(validate_api_provider_update(&update).is_err());
     }
 
     #[test]
@@ -6828,50 +7682,96 @@ fn request_path(app: &AppHandle, run_id: &str) -> Result<PathBuf, String> {
         .map_err(|error| format!("无法定位应用数据目录: {error}"))
 }
 
-fn api_provider_path(app: &AppHandle) -> Result<PathBuf, String> {
+fn legacy_api_provider_path(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .app_config_dir()
         .map(|path| path.join("providers").join("openai-compatible.json"))
         .map_err(|error| format!("无法定位应用配置目录: {error}"))
 }
 
-fn read_api_provider_config(app: &AppHandle) -> Result<ApiProviderConfig, String> {
-    let path = api_provider_path(app)?;
-    let mut config = match fs::read(&path) {
-        Ok(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|error| format!("API Provider 配置无效: {error}"))?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => ApiProviderConfig::default(),
-        Err(error) => return Err(format!("无法读取 API Provider 配置: {error}")),
-    };
-    if let Ok(value) = env::var("QWEN_AUDIO_OPENAI_BASE_URL") {
-        config.base_url = value.trim_end_matches('/').to_string();
-    }
-    if let Ok(value) = env::var("QWEN_AUDIO_OPENAI_API_KEY") {
-        config.api_key = value;
-        config.enabled = true;
-    }
-    if let Ok(value) = env::var("QWEN_AUDIO_OPENAI_TTS_MODEL") {
-        config.tts_model = value;
-    }
-    if let Ok(value) = env::var("QWEN_AUDIO_OPENAI_ASR_MODEL") {
-        config.asr_model = value;
-    }
-    Ok(config)
+fn api_providers_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_config_dir()
+        .map(|path| path.join("providers").join("custom-providers.json"))
+        .map_err(|error| format!("无法定位应用配置目录: {error}"))
 }
 
-fn write_api_provider_config(app: &AppHandle, config: &ApiProviderConfig) -> Result<(), String> {
-    let path = api_provider_path(app)?;
+fn read_api_provider_configs(app: &AppHandle) -> Result<Vec<ApiProviderConfig>, String> {
+    let path = api_providers_path(app)?;
+    let mut configs = match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice::<Vec<ApiProviderConfig>>(&bytes)
+            .map_err(|error| format!("API Provider 配置无效: {error}"))?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let legacy_path = legacy_api_provider_path(app)?;
+            match fs::read(legacy_path) {
+                Ok(bytes) => vec![serde_json::from_slice::<ApiProviderConfig>(&bytes)
+                    .map_err(|error| format!("API Provider 配置无效: {error}"))?],
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    vec![ApiProviderConfig::default()]
+                }
+                Err(error) => return Err(format!("无法读取 API Provider 配置: {error}")),
+            }
+        }
+        Err(error) => return Err(format!("无法读取 API Provider 配置: {error}")),
+    };
+    if configs.is_empty() {
+        configs.push(ApiProviderConfig::default());
+    }
+    let default_id = API_PROVIDER_ID.to_string();
+    for (index, config) in configs.iter_mut().enumerate() {
+        if config.id.trim().is_empty() {
+            config.id = if index == 0 {
+                default_id.clone()
+            } else {
+                format!("api.custom.{}", Uuid::new_v4())
+            };
+        }
+    }
+    if let Ok(value) = env::var("QWEN_AUDIO_OPENAI_BASE_URL") {
+        configs[0].base_url = value.trim_end_matches('/').to_string();
+    }
+    if let Ok(value) = env::var("QWEN_AUDIO_OPENAI_API_KEY") {
+        configs[0].api_key = value;
+        configs[0].enabled = true;
+    }
+    if let Ok(value) = env::var("QWEN_AUDIO_OPENAI_TTS_MODEL") {
+        configs[0].tts_model = value;
+    }
+    if let Ok(value) = env::var("QWEN_AUDIO_OPENAI_ASR_MODEL") {
+        configs[0].asr_model = value;
+    }
+    Ok(configs)
+}
+
+fn write_api_provider_configs(
+    app: &AppHandle,
+    configs: &[ApiProviderConfig],
+) -> Result<(), String> {
+    let path = api_providers_path(app)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| format!("无法创建 Provider 配置目录: {error}"))?;
     }
-    let bytes = serde_json::to_vec_pretty(config)
+    let bytes = serde_json::to_vec_pretty(configs)
         .map_err(|error| format!("无法序列化 Provider 配置: {error}"))?;
     fs::write(path, bytes).map_err(|error| format!("无法保存 Provider 配置: {error}"))
 }
 
-fn configured_api_provider(app: &AppHandle) -> Result<ApiProviderConfig, String> {
-    let config = read_api_provider_config(app)?;
+fn read_api_provider_config(
+    app: &AppHandle,
+    provider_id: &str,
+) -> Result<ApiProviderConfig, String> {
+    read_api_provider_configs(app)?
+        .into_iter()
+        .find(|config| config.id == provider_id)
+        .ok_or_else(|| format!("Provider {provider_id} 不存在"))
+}
+
+fn configured_api_provider(
+    app: &AppHandle,
+    provider_id: &str,
+) -> Result<ApiProviderConfig, String> {
+    let config = read_api_provider_config(app, provider_id)?;
     if config.configured() {
         Ok(config)
     } else {

@@ -44,9 +44,10 @@ export function modelInputProfile(model: InputAwareModel) {
       CLOUD_VOICE_CREATION_MODELS.has(model.version),
     supportsVoiceDesign: model.version.startsWith('cosyvoice-v3.5-'),
     supportsTtsInstruction:
-      model.providerId === 'api.bailian' &&
-      (model.version.startsWith('qwen-audio-3.0-tts-') ||
-        CUSTOM_COSYVOICE_MODELS.has(model.version)),
+      model.adapter === 'compatible-tts' ||
+      (model.providerId === 'api.bailian' &&
+        (model.version.startsWith('qwen-audio-3.0-tts-') ||
+          CUSTOM_COSYVOICE_MODELS.has(model.version))),
     requiresTtsReferenceAudio:
       Boolean(declaredReferenceAudio) ||
       REFERENCE_AUDIO_ADAPTERS.has(model.adapter),
