@@ -1,13 +1,51 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import {
+  captionPanelHeight,
+  CAPTION_LINE_HEIGHT,
+  CAPTION_MAXIMUM_PANEL_HEIGHT,
   CAPTION_TOTAL_LINE_COUNT,
   captionTextWidth,
+  normalizeCaptionText,
   selectCaptionLines,
   wrapCaption,
 } from '../src/utils/captionLayout.ts'
 
 const HISTORY_CAPACITY = 49
 const CURRENT_CAPACITY = 39
+
+const overlayCss = await readFile(
+  new URL('../src/views/CaptionOverlay.css', import.meta.url),
+  'utf8',
+)
+const overlaySource = await readFile(
+  new URL('../src/views/CaptionOverlay.tsx', import.meta.url),
+  'utf8',
+)
+assert.match(
+  overlayCss,
+  new RegExp(
+    `\\.caption-badge \\{[\\s\\S]*?height: ${CAPTION_LINE_HEIGHT + 2}px;[\\s\\S]*?gap: 2px;`,
+  ),
+)
+assert.match(
+  overlayCss,
+  /\.caption-lines \{[\s\S]*?overflow: visible;/,
+)
+assert.match(
+  overlayCss,
+  /\.caption-badge small \{[\s\S]*?display: none;/,
+)
+assert.match(overlaySource, /resizeQueueRef\.current = resizeQueueRef\.current/)
+assert.match(
+  overlaySource,
+  /import\.meta\.env\.VITE_CAPTION_DEBUG_FIXTURE === 'stress'/,
+)
+
+assert.equal(
+  normalizeCaptionText('A\r\nB\rC\nD\u0085E\u2028F\u2029G'),
+  'A B C D E F G',
+)
 
 const fourFinals = selectCaptionLines(
   ['first final', 'second final', 'third final', 'fourth final'],
@@ -100,6 +138,23 @@ const chinese = selectCaptionLines(
 assert.equal(chinese.length, CAPTION_TOTAL_LINE_COUNT)
 assert.equal(chinese.filter(({ role }) => role === 'current').length, 3)
 assert.equal(chinese.filter(({ role }) => role === 'history').length, 1)
+
+const separatorStress = selectCaptionLines(
+  ['历史一', '历史二', '历史三', '历史四'],
+  '第一段\r\n第二段\r第三段\u0085第四段\u2028第五段\u2029第六段'.repeat(20),
+  HISTORY_CAPACITY,
+  CURRENT_CAPACITY,
+)
+assert.ok(separatorStress.length <= CAPTION_TOTAL_LINE_COUNT)
+assert.ok(
+  separatorStress.every(
+    ({ text }) => !/[\r\n\u0085\u2028\u2029]/u.test(text),
+  ),
+)
+
+assert.equal(captionPanelHeight(0), 54)
+assert.equal(captionPanelHeight(4), CAPTION_MAXIMUM_PANEL_HEIGHT)
+assert.equal(captionPanelHeight(40), CAPTION_MAXIMUM_PANEL_HEIGHT)
 
 console.log(
   JSON.stringify({

@@ -11,21 +11,21 @@ import {
   type CaptionOutputUpdate,
 } from '../services/captionOutput'
 import {
+  captionPanelHeight,
+  CAPTION_CURRENT_LINE_CAPACITY,
+  CAPTION_HISTORY_LINE_CAPACITY,
+  CAPTION_MAX_HISTORY_ITEMS,
+  CAPTION_OUTER_PADDING,
+  CAPTION_PANEL_WIDTH,
   CAPTION_TOTAL_LINE_COUNT,
   selectCaptionLines,
   type CaptionDisplayLine,
 } from '../utils/captionLayout'
 import './CaptionOverlay.css'
 
-const MAX_HISTORY_ITEMS = CAPTION_TOTAL_LINE_COUNT
-const HISTORY_LINE_CAPACITY = 49
-const CURRENT_LINE_CAPACITY = 39
-const PANEL_WIDTH = 760
-const OUTER_PADDING = 10
-const LINE_HEIGHT = 22
-const LINE_SPACING = 4
-const VERTICAL_PADDING = 10
-const MINIMUM_PANEL_HEIGHT = 54
+const DEBUG_STRESS_FIXTURE =
+  import.meta.env.DEV &&
+  import.meta.env.VITE_CAPTION_DEBUG_FIXTURE === 'stress'
 
 function overlapLength(previous: string, candidate: string): number {
   const maximum = Math.min(previous.length, candidate.length)
@@ -43,16 +43,6 @@ function removeCommittedPrefix(committed: string, candidate: string): string {
   return text.slice(overlapLength(committed, text))
 }
 
-function panelHeight(lineCount: number): number {
-  const count = Math.max(1, lineCount)
-  return Math.max(
-    MINIMUM_PANEL_HEIGHT,
-    VERTICAL_PADDING * 2 +
-      count * LINE_HEIGHT +
-      Math.max(0, count - 1) * LINE_SPACING,
-  )
-}
-
 export function CaptionOverlay() {
   const [history, setHistory] = useState<string[]>([])
   const [current, setCurrent] = useState('')
@@ -61,18 +51,20 @@ export function CaptionOverlay() {
   const [liveSeconds, setLiveSeconds] = useState(0)
   const committedRef = useRef('')
   const currentRef = useRef('')
+  const resizeQueueRef = useRef<Promise<void>>(Promise.resolve())
   const lines = useMemo(
     () =>
       selectCaptionLines(
         history,
         current,
-        HISTORY_LINE_CAPACITY,
-        CURRENT_LINE_CAPACITY,
+        CAPTION_HISTORY_LINE_CAPACITY,
+        CAPTION_CURRENT_LINE_CAPACITY,
       ),
     [current, history],
   )
-  const visibleLines: CaptionDisplayLine[] = lines.length
-    ? lines
+  const boundedLines = lines.slice(-CAPTION_TOTAL_LINE_COUNT)
+  const visibleLines: CaptionDisplayLine[] = boundedLines.length
+    ? boundedLines
     : [
         {
           text: '',
@@ -81,8 +73,45 @@ export function CaptionOverlay() {
           showsBadge: false,
         },
       ]
+  const visibleFinalLineCount = visibleLines.filter(
+    ({ role }) => role === 'history',
+  ).length
+  const visibleLiveLineCount = visibleLines.length - visibleFinalLineCount
+  const visiblePanelHeight = captionPanelHeight(visibleLines.length)
 
   useEffect(() => {
+    if (!DEBUG_STRESS_FIXTURE) return
+    const debugCurrent = [
+      '这是一段用于验证字幕小行上限的超长实时内容'.repeat(4),
+      '换行符压力测试',
+      '当前内容应该顶掉全部历史并且只保留最后四个小行'.repeat(3),
+    ].join('\r\n\u0085\u2028\u2029')
+    currentRef.current = debugCurrent
+    setHistory(['历史一', '历史二', '历史三', '历史四'])
+    setCurrent(debugCurrent)
+    setStatus('speech')
+    void getCurrentWindow().show().catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    console.debug('[caption-layout]', {
+      historyItems: history.length,
+      currentCharacters: current.length,
+      visibleFinalLines: visibleFinalLineCount,
+      visibleLiveLines: visibleLiveLineCount,
+      panelHeight: visiblePanelHeight,
+    })
+  }, [
+    current.length,
+    history.length,
+    visibleFinalLineCount,
+    visibleLiveLineCount,
+    visiblePanelHeight,
+  ])
+
+  useEffect(() => {
+    if (DEBUG_STRESS_FIXTURE) return
     let disposed = false
     let remove: (() => void) | undefined
     void listen<CaptionOutputUpdate>(CAPTION_UPDATE_EVENT, ({ payload }) => {
@@ -109,7 +138,9 @@ export function CaptionOverlay() {
       const finalText = text || currentRef.current
       if (finalText) {
         committedRef.current += finalText
-        setHistory((items) => [...items, finalText].slice(-MAX_HISTORY_ITEMS))
+        setHistory((items) =>
+          [...items, finalText].slice(-CAPTION_MAX_HISTORY_ITEMS),
+        )
       }
       currentRef.current = ''
       setCurrent('')
@@ -137,27 +168,34 @@ export function CaptionOverlay() {
   }, [status])
 
   useLayoutEffect(() => {
-    const resize = async () => {
-      const window = getCurrentWindow()
-      const [position, size, scaleFactor] = await Promise.all([
-        window.outerPosition(),
-        window.outerSize(),
-        window.scaleFactor(),
-      ])
-      const height = panelHeight(visibleLines.length) + OUTER_PADDING * 2
-      const physicalHeight = Math.round(height * scaleFactor)
-      await window.setSize(
-        new LogicalSize(PANEL_WIDTH + OUTER_PADDING * 2, height),
-      )
-      await window.setPosition(
-        new PhysicalPosition(
-          position.x,
-          position.y + size.height - physicalHeight,
-        ),
-      )
-    }
-    void resize()
-  }, [visibleLines.length])
+    const height = visiblePanelHeight + CAPTION_OUTER_PADDING * 2
+    // Caption events can change the row count while a previous native resize
+    // is still in flight. Serialize updates so an older one-row resize can
+    // never finish after and overwrite the latest four-row height.
+    resizeQueueRef.current = resizeQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const window = getCurrentWindow()
+        const [position, size, scaleFactor] = await Promise.all([
+          window.outerPosition(),
+          window.outerSize(),
+          window.scaleFactor(),
+        ])
+        const physicalHeight = Math.round(height * scaleFactor)
+        await window.setSize(
+          new LogicalSize(
+            CAPTION_PANEL_WIDTH + CAPTION_OUTER_PADDING * 2,
+            height,
+          ),
+        )
+        await window.setPosition(
+          new PhysicalPosition(
+            position.x,
+            position.y + size.height - physicalHeight,
+          ),
+        )
+      })
+  }, [visiblePanelHeight])
 
   const duration = `${Math.floor(liveSeconds / 60)
     .toString()
@@ -168,9 +206,13 @@ export function CaptionOverlay() {
       <section
         className="caption-panel"
         data-tauri-drag-region
-        style={{ height: panelHeight(visibleLines.length) }}
+        style={{ height: visiblePanelHeight }}
       >
-        <div className="caption-lines" data-tauri-drag-region>
+        <div
+          className="caption-lines"
+          data-tauri-drag-region
+          data-visible-line-count={visibleLines.length}
+        >
           {visibleLines.map((line, index) => (
             <div
               className={`caption-line role-${line.role}`}
