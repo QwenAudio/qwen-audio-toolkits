@@ -29,13 +29,21 @@ import type {
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'canceled'])
 const DEFAULT_RUN_TIMEOUT_MS = 15 * 60 * 1000
-const LONG_AUDIO_RUN_TIMEOUT_MS = 125 * 60 * 1000
+const LONG_AUDIO_COMPLETION_GRACE_MS = 5 * 60 * 1000
 
 function runTimeoutMs(request: HarnessTaskRequest): number {
   const duration = Number(request.input.duration)
-  return request.capability === 'speech.transcribe' && duration > 5 * 60
-    ? LONG_AUDIO_RUN_TIMEOUT_MS
-    : DEFAULT_RUN_TIMEOUT_MS
+  if (
+    request.capability !== 'speech.transcribe' ||
+    !Number.isFinite(duration) ||
+    duration <= 0
+  ) {
+    return DEFAULT_RUN_TIMEOUT_MS
+  }
+  return Math.max(
+    DEFAULT_RUN_TIMEOUT_MS,
+    duration * 1_250 + LONG_AUDIO_COMPLETION_GRACE_MS,
+  )
 }
 
 export class HarnessRunError extends Error {

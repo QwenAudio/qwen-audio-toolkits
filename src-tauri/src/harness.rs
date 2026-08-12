@@ -88,7 +88,6 @@ const BAILIAN_COSYVOICE_35_PLUS_MODEL: &str = "cosyvoice-v3.5-plus";
 const BAILIAN_COSYVOICE_35_FLASH_MODEL: &str = "cosyvoice-v3.5-flash";
 const BAILIAN_DENOISE_MODEL: &str = "fun-audio-denoising";
 const LOCAL_STREAMING_ASR_SAMPLE_RATE: u32 = 16_000;
-const MAX_PRERECORDED_STREAMING_ASR_SECONDS: f32 = 5.0 * 60.0;
 const MAX_RUNS: usize = 250;
 const INLINE_ARTIFACT_PAYLOAD_LIMIT: usize = 256 * 1024;
 const EXTERNAL_PAYLOAD_KEY: &str = "__payloadFile";
@@ -176,12 +175,6 @@ fn canonical_bailian_model_id(model: &str) -> &str {
         BAILIAN_FUN_ASR_MODEL => BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL,
         _ => model,
     }
-}
-
-fn prerecorded_asr_fallback_model(model: &str, duration: f32) -> Option<&'static str> {
-    (canonical_bailian_model_id(model) == BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL
-        && duration > MAX_PRERECORDED_STREAMING_ASR_SECONDS)
-        .then_some(BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL)
 }
 
 fn resolve_bailian_funasr_model(app: &AppHandle, model: &str) -> Result<Option<String>, String> {
@@ -2566,18 +2559,15 @@ async fn run_funasr_stream(
             })
         })
         .unwrap_or_else(|| json!({}));
-    let mut parameters = json!({
-        "format": "pcm",
-        "sample_rate": target_sample_rate,
-        "semantic_punctuation_enabled": request.semantic_punctuation.unwrap_or(true)
-    });
-    if let Some(language) = request
+    let language = request
         .language
         .as_deref()
-        .filter(|value| !value.trim().is_empty() && *value != "auto")
-    {
-        parameters["language_hints"] = json!([language]);
-    }
+        .filter(|value| !value.trim().is_empty() && *value != "auto");
+    let parameters = funasr_stream_parameters(
+        target_sample_rate,
+        request.semantic_punctuation.unwrap_or(true),
+        language,
+    );
     socket
         .send(Message::Text(
             json!({
@@ -3715,14 +3705,7 @@ async fn execute_request(
         }
         (CAPABILITY_ASR, true) => {
             if provider.adapter == "bailian-funasr" {
-                execute_bailian_funasr(
-                    &app,
-                    request,
-                    &provider.model_id,
-                    cancel,
-                    progress_callback.clone(),
-                )
-                .await?
+                execute_bailian_funasr(&app, request, &provider.model_id, cancel).await?
             } else if provider.adapter == "bailian" {
                 execute_bailian_asr(
                     &app,
@@ -5197,33 +5180,33 @@ fn parse_bailian_filetrans_result(
     Ok((text, segments, speech_seconds, language))
 }
 
+fn funasr_stream_parameters(
+    sample_rate: u32,
+    semantic_punctuation: bool,
+    language: Option<&str>,
+) -> Value {
+    let mut parameters = json!({
+        "format": "pcm",
+        "sample_rate": sample_rate,
+        "semantic_punctuation_enabled": semantic_punctuation,
+        "heartbeat": true
+    });
+    if let Some(language) = language {
+        parameters["language_hints"] = json!([language]);
+    }
+    parameters
+}
+
 async fn execute_bailian_funasr(
     app: &AppHandle,
     request: &HarnessTaskRequest,
     model_id: &str,
     cancel: Arc<AtomicBool>,
-    progress_callback: Option<AsrProgressCallback>,
 ) -> Result<Value, String> {
+    let config = configured_bailian_provider(app)?;
     let audio_data_url = required_string(&request.input, "audioDataUrl")?;
     let clip_name = required_string(&request.input, "clipName")?;
     let decoded = decode_wav_data_url(&audio_data_url)?;
-    if let Some(filetrans_model) = prerecorded_asr_fallback_model(model_id, decoded.duration()) {
-        if let Some(callback) = progress_callback.as_ref() {
-            callback(
-                8,
-                "检测到超过 5 分钟的录音，已自动切换为长音频文件转写".to_string(),
-            );
-        }
-        return execute_bailian_filetrans_asr(
-            app,
-            request,
-            filetrans_model,
-            cancel,
-            progress_callback,
-        )
-        .await;
-    }
-    let config = configured_bailian_provider(app)?;
     let audio = if model_id.contains("-8k-") {
         resample_audio(&decoded, 8_000)?
     } else {
@@ -5283,14 +5266,7 @@ async fn execute_bailian_funasr(
             }]
         });
     }
-    let mut parameters = json!({
-        "format": "pcm",
-        "sample_rate": audio.sample_rate,
-        "semantic_punctuation_enabled": semantic_punctuation
-    });
-    if let Some(language) = language {
-        parameters["language_hints"] = json!([language]);
-    }
+    let parameters = funasr_stream_parameters(audio.sample_rate, semantic_punctuation, language);
     socket
         .send(Message::Text(
             json!({
@@ -6401,38 +6377,6 @@ mod tests {
     }
 
     #[test]
-    fn long_prerecorded_streaming_asr_uses_filetrans() {
-        assert_eq!(
-            prerecorded_asr_fallback_model(
-                BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL,
-                MAX_PRERECORDED_STREAMING_ASR_SECONDS + 0.1,
-            ),
-            Some(BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL)
-        );
-        assert_eq!(
-            prerecorded_asr_fallback_model(
-                BAILIAN_FUN_ASR_MODEL,
-                MAX_PRERECORDED_STREAMING_ASR_SECONDS + 0.1,
-            ),
-            Some(BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL)
-        );
-        assert_eq!(
-            prerecorded_asr_fallback_model(
-                BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL,
-                MAX_PRERECORDED_STREAMING_ASR_SECONDS,
-            ),
-            None
-        );
-        assert_eq!(
-            prerecorded_asr_fallback_model(
-                BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL,
-                MAX_PRERECORDED_STREAMING_ASR_SECONDS + 1.0,
-            ),
-            None
-        );
-    }
-
-    #[test]
     fn realtime_timeout_error_does_not_expose_compatibility_alias() {
         let error = funasr_event_error(&json!({
             "header": {
@@ -6442,6 +6386,14 @@ mod tests {
         }));
         assert_eq!(error, "实时识别超时：request timeout after 23 seconds");
         assert!(!error.contains("FunASR"));
+    }
+
+    #[test]
+    fn realtime_asr_enables_heartbeat_for_long_silence() {
+        let parameters = funasr_stream_parameters(16_000, true, Some("zh"));
+        assert_eq!(parameters.get("heartbeat"), Some(&json!(true)));
+        assert_eq!(parameters.get("sample_rate"), Some(&json!(16_000)));
+        assert_eq!(parameters.get("language_hints"), Some(&json!(["zh"])));
     }
 
     #[test]
