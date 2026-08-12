@@ -28,7 +28,15 @@ import type {
 } from '../types'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'canceled'])
-const RUN_TIMEOUT_MS = 15 * 60 * 1000
+const DEFAULT_RUN_TIMEOUT_MS = 15 * 60 * 1000
+const LONG_AUDIO_RUN_TIMEOUT_MS = 125 * 60 * 1000
+
+function runTimeoutMs(request: HarnessTaskRequest): number {
+  const duration = Number(request.input.duration)
+  return request.capability === 'speech.transcribe' && duration > 5 * 60
+    ? LONG_AUDIO_RUN_TIMEOUT_MS
+    : DEFAULT_RUN_TIMEOUT_MS
+}
 
 export class HarnessRunError extends Error {
   run: HarnessRun
@@ -101,7 +109,7 @@ export async function executeHarnessTask<T>(
       error: '任务等待超时，请在运行记录中检查最终状态',
       retryable: true,
     })
-  }, RUN_TIMEOUT_MS)
+  }, runTimeoutMs(request))
 
   try {
     unlisten = await listen<HarnessRun>('harness-run-event', (event) => {

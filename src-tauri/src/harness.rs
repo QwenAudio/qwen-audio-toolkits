@@ -88,6 +88,7 @@ const BAILIAN_COSYVOICE_35_PLUS_MODEL: &str = "cosyvoice-v3.5-plus";
 const BAILIAN_COSYVOICE_35_FLASH_MODEL: &str = "cosyvoice-v3.5-flash";
 const BAILIAN_DENOISE_MODEL: &str = "fun-audio-denoising";
 const LOCAL_STREAMING_ASR_SAMPLE_RATE: u32 = 16_000;
+const MAX_PRERECORDED_STREAMING_ASR_SECONDS: f32 = 5.0 * 60.0;
 const MAX_RUNS: usize = 250;
 const INLINE_ARTIFACT_PAYLOAD_LIMIT: usize = 256 * 1024;
 const EXTERNAL_PAYLOAD_KEY: &str = "__payloadFile";
@@ -175,6 +176,12 @@ fn canonical_bailian_model_id(model: &str) -> &str {
         BAILIAN_FUN_ASR_MODEL => BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL,
         _ => model,
     }
+}
+
+fn prerecorded_asr_fallback_model(model: &str, duration: f32) -> Option<&'static str> {
+    (canonical_bailian_model_id(model) == BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL
+        && duration > MAX_PRERECORDED_STREAMING_ASR_SECONDS)
+        .then_some(BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL)
 }
 
 fn resolve_bailian_funasr_model(app: &AppHandle, model: &str) -> Result<Option<String>, String> {
@@ -3708,7 +3715,14 @@ async fn execute_request(
         }
         (CAPABILITY_ASR, true) => {
             if provider.adapter == "bailian-funasr" {
-                execute_bailian_funasr(&app, request, &provider.model_id, cancel).await?
+                execute_bailian_funasr(
+                    &app,
+                    request,
+                    &provider.model_id,
+                    cancel,
+                    progress_callback.clone(),
+                )
+                .await?
             } else if provider.adapter == "bailian" {
                 execute_bailian_asr(
                     &app,
@@ -5012,7 +5026,13 @@ async fn upload_bailian_temporary_audio(
         .text("key", key.clone())
         .text("success_action_status", "200")
         .part("file", file);
-    let response = api_client()?
+    let upload_client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(30 * 60))
+        .tcp_keepalive(Duration::from_secs(30))
+        .build()
+        .map_err(|error| format!("无法创建百炼临时上传客户端: {error}"))?;
+    let response = upload_client
         .post(upload_host)
         .multipart(form)
         .send()
@@ -5182,11 +5202,28 @@ async fn execute_bailian_funasr(
     request: &HarnessTaskRequest,
     model_id: &str,
     cancel: Arc<AtomicBool>,
+    progress_callback: Option<AsrProgressCallback>,
 ) -> Result<Value, String> {
-    let config = configured_bailian_provider(app)?;
     let audio_data_url = required_string(&request.input, "audioDataUrl")?;
     let clip_name = required_string(&request.input, "clipName")?;
     let decoded = decode_wav_data_url(&audio_data_url)?;
+    if let Some(filetrans_model) = prerecorded_asr_fallback_model(model_id, decoded.duration()) {
+        if let Some(callback) = progress_callback.as_ref() {
+            callback(
+                8,
+                "检测到超过 5 分钟的录音，已自动切换为长音频文件转写".to_string(),
+            );
+        }
+        return execute_bailian_filetrans_asr(
+            app,
+            request,
+            filetrans_model,
+            cancel,
+            progress_callback,
+        )
+        .await;
+    }
+    let config = configured_bailian_provider(app)?;
     let audio = if model_id.contains("-8k-") {
         resample_audio(&decoded, 8_000)?
     } else {
@@ -5218,7 +5255,7 @@ async fn execute_bailian_funasr(
         + "/api-ws/v1/inference";
     let mut websocket_request = websocket_url
         .into_client_request()
-        .map_err(|error| format!("无法创建 FunASR WebSocket 请求: {error}"))?;
+        .map_err(|error| format!("无法创建实时识别 WebSocket 请求: {error}"))?;
     websocket_request.headers_mut().insert(
         "Authorization",
         HeaderValue::from_str(&format!("Bearer {}", config.api_key))
@@ -5232,7 +5269,7 @@ async fn execute_bailian_funasr(
     let started = Instant::now();
     let (mut socket, _) = connect_async(websocket_request)
         .await
-        .map_err(|error| format!("FunASR WebSocket 连接失败: {error}"))?;
+        .map_err(|error| format!("实时识别 WebSocket 连接失败: {error}"))?;
     let task_id = Uuid::new_v4().to_string();
     let mut input = json!({});
     if let Some(context) = context {
@@ -5274,16 +5311,16 @@ async fn execute_bailian_funasr(
             .to_string(),
         ))
         .await
-        .map_err(|error| format!("无法启动 FunASR 任务: {error}"))?;
+        .map_err(|error| format!("无法启动实时识别任务: {error}"))?;
 
     tokio::time::timeout(Duration::from_secs(20), async {
         while let Some(message) = socket.next().await {
-            let message = message.map_err(|error| format!("FunASR 启动失败: {error}"))?;
+            let message = message.map_err(|error| format!("实时识别启动失败: {error}"))?;
             let Message::Text(text) = message else {
                 continue;
             };
             let event = serde_json::from_str::<Value>(&text)
-                .map_err(|error| format!("FunASR 返回了无效事件: {error}"))?;
+                .map_err(|error| format!("实时识别返回了无效事件: {error}"))?;
             match event.pointer("/header/event").and_then(Value::as_str) {
                 Some("task-started") => return Ok(()),
                 Some("task-failed") => {
@@ -5292,21 +5329,21 @@ async fn execute_bailian_funasr(
                 _ => {}
             }
         }
-        Err("FunASR 在任务启动前关闭了连接".to_string())
+        Err("实时识别在任务启动前关闭了连接".to_string())
     })
     .await
-    .map_err(|_| "FunASR 任务启动超时".to_string())??;
+    .map_err(|_| "实时识别任务启动超时".to_string())??;
 
     let (mut writer, mut reader) = socket.split();
     let reader_task = tokio::spawn(async move {
         let mut sentences = Vec::new();
         while let Some(message) = reader.next().await {
-            let message = message.map_err(|error| format!("FunASR 接收失败: {error}"))?;
+            let message = message.map_err(|error| format!("实时识别接收失败: {error}"))?;
             let Message::Text(text) = message else {
                 continue;
             };
             let event = serde_json::from_str::<Value>(&text)
-                .map_err(|error| format!("FunASR 返回了无效事件: {error}"))?;
+                .map_err(|error| format!("实时识别返回了无效事件: {error}"))?;
             match event.pointer("/header/event").and_then(Value::as_str) {
                 Some("result-generated") => {
                     let sentence = event
@@ -5330,7 +5367,7 @@ async fn execute_bailian_funasr(
                 _ => {}
             }
         }
-        Err("FunASR 在返回完成事件前关闭了连接".to_string())
+        Err("实时识别在返回完成事件前关闭了连接".to_string())
     });
 
     let chunk_frames = (audio.sample_rate as usize / 10).max(1);
@@ -5346,7 +5383,7 @@ async fn execute_bailian_funasr(
         writer
             .send(Message::Binary(bytes))
             .await
-            .map_err(|error| format!("FunASR 音频发送失败: {error}"))?;
+            .map_err(|error| format!("实时识别音频发送失败: {error}"))?;
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     writer
@@ -5362,11 +5399,11 @@ async fn execute_bailian_funasr(
             .to_string(),
         ))
         .await
-        .map_err(|error| format!("无法结束 FunASR 任务: {error}"))?;
+        .map_err(|error| format!("无法结束实时识别任务: {error}"))?;
     let sentences = tokio::time::timeout(Duration::from_secs(60), reader_task)
         .await
-        .map_err(|_| "FunASR 等待最终结果超时".to_string())?
-        .map_err(|error| format!("FunASR 结果任务异常: {error}"))??;
+        .map_err(|_| "实时识别等待最终结果超时".to_string())?
+        .map_err(|error| format!("实时识别结果任务异常: {error}"))??;
     let segments = funasr_segments(&sentences, duration);
     let text = segments
         .iter()
@@ -5374,7 +5411,7 @@ async fn execute_bailian_funasr(
         .collect::<Vec<_>>()
         .join("\n");
     if text.trim().is_empty() {
-        return Err("FunASR 没有识别出有效文本".to_string());
+        return Err("实时识别没有识别出有效文本".to_string());
     }
     let speech_seconds = segments
         .iter()
@@ -5408,7 +5445,10 @@ fn funasr_event_error(event: &Value) -> String {
         .pointer("/header/error_message")
         .and_then(Value::as_str)
         .unwrap_or("没有错误详情");
-    format!("FunASR 任务失败 ({code}): {message}")
+    if code == "CLIENT_ERROR" && message.to_ascii_lowercase().contains("timeout") {
+        return format!("实时识别超时：{message}");
+    }
+    format!("实时识别失败 ({code}): {message}")
 }
 
 fn cosyvoice_event_error(event: &Value) -> String {
@@ -6358,6 +6398,50 @@ mod tests {
             bailian_adapter_for(CAPABILITY_TTS, BAILIAN_COSYVOICE_MODEL),
             "bailian-cosyvoice"
         );
+    }
+
+    #[test]
+    fn long_prerecorded_streaming_asr_uses_filetrans() {
+        assert_eq!(
+            prerecorded_asr_fallback_model(
+                BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL,
+                MAX_PRERECORDED_STREAMING_ASR_SECONDS + 0.1,
+            ),
+            Some(BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL)
+        );
+        assert_eq!(
+            prerecorded_asr_fallback_model(
+                BAILIAN_FUN_ASR_MODEL,
+                MAX_PRERECORDED_STREAMING_ASR_SECONDS + 0.1,
+            ),
+            Some(BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL)
+        );
+        assert_eq!(
+            prerecorded_asr_fallback_model(
+                BAILIAN_QWEN_AUDIO_ASR_STREAMING_MODEL,
+                MAX_PRERECORDED_STREAMING_ASR_SECONDS,
+            ),
+            None
+        );
+        assert_eq!(
+            prerecorded_asr_fallback_model(
+                BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL,
+                MAX_PRERECORDED_STREAMING_ASR_SECONDS + 1.0,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn realtime_timeout_error_does_not_expose_compatibility_alias() {
+        let error = funasr_event_error(&json!({
+            "header": {
+                "error_code": "CLIENT_ERROR",
+                "error_message": "request timeout after 23 seconds"
+            }
+        }));
+        assert_eq!(error, "实时识别超时：request timeout after 23 seconds");
+        assert!(!error.contains("FunASR"));
     }
 
     #[test]

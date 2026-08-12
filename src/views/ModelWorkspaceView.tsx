@@ -185,6 +185,16 @@ const CREATED_AT_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
 })
 const MAX_WORKSPACE_PREVIEW_CACHE = 32
 
+function conversationRunError(
+  error: string | undefined,
+  aliases: readonly string[] | undefined,
+): string | undefined {
+  if (!error || !aliases?.includes('fun-asr-realtime')) return error
+  return error
+    .replace(/^FunASR 任务失败/, '实时识别失败')
+    .replace(/^FunASR /, '实时识别 ')
+}
+
 function capabilityLabel(capability: HarnessCapabilityId): string {
   return capabilityDefinition(capability).label
 }
@@ -2551,9 +2561,7 @@ export function ModelWorkspaceView({
         <div data-tauri-drag-region>
           <h1 data-tauri-drag-region>{plugin.name}</h1>
           <p data-tauri-drag-region>
-            {capabilityLabel(capability)} · {plugin.runtime} ·{' '}
-            {provider?.models.find((model) => model.loaded)?.name ??
-              plugin.version}
+            {capabilityLabel(capability)} · {plugin.runtime}
           </p>
         </div>
         {selectedRun && (
@@ -2707,7 +2715,7 @@ export function ModelWorkspaceView({
                           <>
                             <strong>{statusLabels[run.status]}</strong>
                             <small>
-                              {run.error ||
+                              {conversationRunError(run.error, plugin.apiAliases) ||
                                 run.activity ||
                                 run.providerName}
                             </small>
@@ -4276,7 +4284,10 @@ export function ModelWorkspaceView({
               <Icon size={20} />
               <strong>{statusLabels[selectedRun.status]}</strong>
               <p>
-                {selectedRun.error ||
+                {conversationRunError(
+                  selectedRun.error,
+                  plugin.apiAliases,
+                ) ||
                   '任务完成后，这里会显示波形、文字和运行参数。'}
               </p>
             </div>

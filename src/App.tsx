@@ -1426,6 +1426,7 @@ function App() {
         input: {
           audioDataUrl,
           clipName: clip.name,
+          duration: clip.duration,
           ...(comparisonAudioDataUrl
             ? {
                 comparisonAudioDataUrl,
