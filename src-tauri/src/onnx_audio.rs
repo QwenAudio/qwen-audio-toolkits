@@ -70,10 +70,20 @@ fn ensure_runtime(model_dir: &Path) -> Result<(), String> {
         return Ok(());
     }
     let library = runtime_library(model_dir)?;
-    ort::init_from(library.to_string_lossy())
-        .with_name("QwenAudio Toolkits")
-        .commit()
-        .map_err(|error| format!("无法加载 ONNX Runtime: {error}"))?;
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ort::init_from(library.to_string_lossy())
+            .with_name("QwenAudio Toolkits")
+            .commit()
+    }))
+    .map_err(|panic| {
+        let detail = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or("未知错误");
+        format!("无法加载 ONNX Runtime: {detail}")
+    })?
+    .map_err(|error| format!("无法加载 ONNX Runtime: {error}"))?;
     *initialized = true;
     Ok(())
 }

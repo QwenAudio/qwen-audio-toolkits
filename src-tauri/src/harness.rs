@@ -3924,6 +3924,7 @@ async fn execute_request(
             .entry("inferenceSeconds")
             .or_insert_with(|| json!(execution_started.elapsed().as_secs_f32()));
     }
+    persist_audio_track_files(&app, request, &mut payload)?;
     artifact_from_payload(&request.capability, payload)
 }
 
@@ -5659,6 +5660,50 @@ fn artifact_from_payload(capability: &str, mut payload: Value) -> Result<Harness
         size_bytes,
         payload,
     })
+}
+
+fn persist_audio_track_files(
+    app: &AppHandle,
+    request: &HarnessTaskRequest,
+    payload: &mut Value,
+) -> Result<(), String> {
+    let Some(tracks) = payload.get_mut("tracks").and_then(Value::as_array_mut) else {
+        return Ok(());
+    };
+    let clip_stem = request
+        .input
+        .get("clipName")
+        .and_then(Value::as_str)
+        .unwrap_or("separated-audio")
+        .trim_end_matches(".wav");
+    for (index, track) in tracks.iter_mut().enumerate() {
+        let Some(track) = track.as_object_mut() else {
+            continue;
+        };
+        if track.get("filePath").and_then(Value::as_str).is_some() {
+            continue;
+        }
+        let Some(data_url) = track
+            .get("dataUrl")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let bytes = decode_data_url_bytes(&data_url)?;
+        let id = track
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("track-{}", index + 1));
+        let file_path = write_recording(app, &format!("{clip_stem}-{id}.wav"), &bytes)?;
+        track.insert(
+            "filePath".to_string(),
+            Value::String(path_string(&file_path)),
+        );
+    }
+    Ok(())
 }
 
 fn write_recording(app: &AppHandle, requested_name: &str, bytes: &[u8]) -> Result<PathBuf, String> {

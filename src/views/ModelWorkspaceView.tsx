@@ -602,12 +602,9 @@ function AdvancedResultDetail({
         {normalized.audio.map((track) => (
           <section key={track.id}>
             <strong>{track.name}</strong>
-            <AudioAssetPreview
-              src={track.filePath ? convertFileSrc(track.filePath) : track.dataUrl}
-              spectrogramSrc={track.dataUrl}
-              peaks={track.peaks}
+            <InlineAudioPlayer
+              src={track.dataUrl || (track.filePath ? convertFileSrc(track.filePath) : '')}
               duration={track.duration}
-              role="output"
             />
           </section>
         ))}
