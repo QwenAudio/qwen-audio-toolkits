@@ -1,7 +1,7 @@
 use crate::{
     audio_io::{
         decode_wav_data_url, encode_wav_bytes, interleave_channels, resample_audio, wav_data_url,
-        PcmAudio,
+        waveform_envelope, PcmAudio,
     },
     plugins::runtime_directory_for_model,
 };
@@ -353,7 +353,10 @@ pub(crate) fn separate_mossformer2(
             "id": format!("speaker-{}", index + 1),
             "name": format!("说话人 {}", index + 1),
             "dataUrl": wav_data_url(&wav),
-            "duration": audio.duration()
+            "duration": audio.duration(),
+            "sampleRate": audio.sample_rate,
+            "channels": audio.channels,
+            "waveform": waveform_envelope(&audio, 240)
         }));
     }
     Ok(json!({

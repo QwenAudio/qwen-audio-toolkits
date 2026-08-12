@@ -19,6 +19,7 @@ export interface AudioPreviewRegion {
 interface AudioPreviewProps {
   src: string
   spectrogramSrc?: string
+  sampleRate?: number
   /**
    * Backend-generated amplitude envelopes are intentionally supplied as a
    * single pre-decoded channel for WaveSurfer's visual renderer. They are not
@@ -71,6 +72,7 @@ function addRegions(
 export function AudioPreview({
   src,
   spectrogramSrc,
+  sampleRate,
   peaks,
   durationHint,
   regions = EMPTY_REGIONS,
@@ -289,6 +291,7 @@ export function AudioPreview({
           {showDeferredSpectrogram && (
             <MelSpectrogram
               audioUrl={spectrogramSrc ?? src}
+              sampleRate={sampleRate}
               progress={duration ? currentTime / duration : 0}
               onSeek={(ratio) =>
                 waveSurferRef.current?.setTime(ratio * duration)

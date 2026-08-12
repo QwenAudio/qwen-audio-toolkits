@@ -5825,10 +5825,23 @@ fn hydrate_payload(artifact: &HarnessArtifact) -> Result<Value, String> {
             let bytes =
                 fs::read(&path).map_err(|error| format!("无法读取分离音轨 {path}: {error}"))?;
             let safe_bytes = webview_safe_wav_bytes(&bytes)?;
+            let audio = decode_wav_bytes(safe_bytes.as_ref())?;
             track.insert(
                 "dataUrl".to_string(),
                 Value::String(wav_data_url(safe_bytes.as_ref())),
             );
+            track
+                .entry("duration")
+                .or_insert_with(|| json!(audio.duration()));
+            track
+                .entry("sampleRate")
+                .or_insert_with(|| json!(audio.sample_rate));
+            track
+                .entry("channels")
+                .or_insert_with(|| json!(audio.channels));
+            track
+                .entry("waveform")
+                .or_insert_with(|| json!(waveform_envelope(&audio, 240)));
         }
     }
     Ok(payload)

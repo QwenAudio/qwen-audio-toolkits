@@ -602,9 +602,13 @@ function AdvancedResultDetail({
         {normalized.audio.map((track) => (
           <section key={track.id}>
             <strong>{track.name}</strong>
-            <InlineAudioPlayer
+            <AudioAssetPreview
               src={track.dataUrl || (track.filePath ? convertFileSrc(track.filePath) : '')}
+              spectrogramSrc={track.dataUrl}
+              peaks={track.peaks}
               duration={track.duration}
+              sampleRate={track.sampleRate}
+              role="output"
             />
           </section>
         ))}
@@ -4026,6 +4030,7 @@ export function ModelWorkspaceView({
                         spectrogramSrc={execution.output.dataUrl}
                         peaks={execution.output.waveform}
                         duration={execution.output.duration}
+                        sampleRate={execution.output.sampleRate}
                         role="output"
                       />
                       <dl className="detail-output-meta">

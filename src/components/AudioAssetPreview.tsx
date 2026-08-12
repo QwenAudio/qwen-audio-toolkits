@@ -9,6 +9,7 @@ interface AudioAssetPreviewProps {
   spectrogramSrc?: string
   peaks?: number[]
   duration?: number
+  sampleRate?: number
   role: 'input' | 'output' | 'timeline'
   size?: 'compact' | 'detail'
   regions?: AudioPreviewRegion[]
@@ -29,6 +30,7 @@ export function AudioAssetPreview({
   spectrogramSrc,
   peaks,
   duration,
+  sampleRate,
   role,
   size = 'detail',
   regions,
@@ -75,6 +77,7 @@ export function AudioAssetPreview({
           spectrogramSrc={spectrogramSrc}
           peaks={peaks}
           durationHint={duration}
+          sampleRate={sampleRate}
           regions={regions}
           showSpectrogram={role === 'output' && !compact}
           waveformHeight={waveformHeight ?? 64}

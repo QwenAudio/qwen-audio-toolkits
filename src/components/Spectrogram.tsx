@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 interface SpectrogramProps {
   audioUrl?: string
+  sampleRate?: number
   progress?: number
   selection?: [number, number]
   onSeek?: (ratio: number) => void
@@ -24,7 +25,7 @@ interface MelFilter {
 }
 
 const cache = new Map<string, SpectrogramData>()
-const CACHE_VERSION = 'v6-mel-axes'
+const CACHE_VERSION = 'v7-mel-source-rate'
 const FFT_SIZE = 1024
 const MIN_FRAMES = 320
 const MAX_FRAMES = 768
@@ -106,10 +107,13 @@ function melToHz(mel: number): number {
   return 700 * (10 ** (mel / 2595) - 1)
 }
 
-function createMelFilters(sampleRate: number): MelFilter[] {
+function createMelFilters(
+  analysisSampleRate: number,
+  maxFrequency: number,
+): MelFilter[] {
   const maxBin = FFT_SIZE / 2 - 1
   const minMel = hzToMel(20)
-  const maxMel = hzToMel(sampleRate / 2)
+  const maxMel = hzToMel(maxFrequency)
   const bins = Array.from({ length: MEL_BANDS + 2 }, (_, index) => {
     const mel =
       minMel + ((maxMel - minMel) * index) / (MEL_BANDS + 1)
@@ -117,7 +121,9 @@ function createMelFilters(sampleRate: number): MelFilter[] {
       1,
       Math.min(
         maxBin,
-        Math.floor(((FFT_SIZE + 1) * melToHz(mel)) / sampleRate),
+        Math.floor(
+          ((FFT_SIZE + 1) * melToHz(mel)) / analysisSampleRate,
+        ),
       ),
     )
   })
@@ -143,7 +149,10 @@ function createMelFilters(sampleRate: number): MelFilter[] {
   })
 }
 
-function computeSpectrogram(buffer: AudioBuffer): SpectrogramData {
+function computeSpectrogram(
+  buffer: AudioBuffer,
+  sourceSampleRate?: number,
+): SpectrogramData {
   const samples = buffer.getChannelData(0)
   const width = Math.max(
     MIN_FRAMES,
@@ -158,7 +167,13 @@ function computeSpectrogram(buffer: AudioBuffer): SpectrogramData {
   const real = new Float64Array(FFT_SIZE)
   const imaginary = new Float64Array(FFT_SIZE)
   const powerSpectrum = new Float64Array(FFT_SIZE / 2)
-  const melFilters = createMelFilters(buffer.sampleRate)
+  const maxFrequency = Math.min(
+    buffer.sampleRate / 2,
+    sourceSampleRate && sourceSampleRate > 0
+      ? sourceSampleRate / 2
+      : buffer.sampleRate / 2,
+  )
+  const melFilters = createMelFilters(buffer.sampleRate, maxFrequency)
   const powerScale = FFT_SIZE * FFT_SIZE
 
   for (let frame = 0; frame < width; frame += 1) {
@@ -217,7 +232,7 @@ function computeSpectrogram(buffer: AudioBuffer): SpectrogramData {
     width,
     height,
     duration: buffer.duration,
-    maxFrequency: buffer.sampleRate / 2,
+    maxFrequency,
     pixels,
   }
 }
@@ -282,13 +297,14 @@ async function readAudioBytes(audioUrl: string): Promise<ArrayBuffer> {
 
 export function Spectrogram({
   audioUrl,
+  sampleRate,
   progress = 0,
   selection,
   onSeek,
   onSelectionChange,
 }: SpectrogramProps) {
   const cacheKey = audioUrl
-    ? `${CACHE_VERSION}:${audioFingerprint(audioUrl)}`
+    ? `${CACHE_VERSION}:${sampleRate ?? 'decoded'}:${audioFingerprint(audioUrl)}`
     : ''
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawRef = useRef<(() => void) | null>(null)
@@ -326,7 +342,7 @@ export function Spectrogram({
     }
     void readAudioBytes(audioUrl)
       .then((bytes) => context.decodeAudioData(bytes))
-      .then((buffer) => computeSpectrogram(buffer))
+      .then((buffer) => computeSpectrogram(buffer, sampleRate))
       .then((next) => {
         if (disposed) return
         if (cache.size >= 8) {
@@ -346,7 +362,7 @@ export function Spectrogram({
       disposed = true
       closeContext()
     }
-  }, [audioUrl, cacheKey])
+  }, [audioUrl, cacheKey, sampleRate])
 
   useEffect(() => {
     progressRef.current = progress
