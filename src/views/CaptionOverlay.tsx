@@ -10,11 +10,14 @@ import {
   CAPTION_UPDATE_EVENT,
   type CaptionOutputUpdate,
 } from '../services/captionOutput'
+import {
+  CAPTION_TOTAL_LINE_COUNT,
+  selectCaptionLines,
+  type CaptionDisplayLine,
+} from '../utils/captionLayout'
 import './CaptionOverlay.css'
 
-const MAX_HISTORY_ITEMS = 3
-const TOTAL_LINE_COUNT = 4
-const MAX_FINAL_LINE_COUNT = 3
+const MAX_HISTORY_ITEMS = CAPTION_TOTAL_LINE_COUNT
 const HISTORY_LINE_CAPACITY = 49
 const CURRENT_LINE_CAPACITY = 39
 const PANEL_WIDTH = 760
@@ -23,13 +26,6 @@ const LINE_HEIGHT = 22
 const LINE_SPACING = 4
 const VERTICAL_PADDING = 10
 const MINIMUM_PANEL_HEIGHT = 54
-
-interface CaptionDisplayLine {
-  text: string
-  role: 'history' | 'current'
-  groupId: number
-  showsBadge: boolean
-}
 
 function overlapLength(previous: string, candidate: string): number {
   const maximum = Math.min(previous.length, candidate.length)
@@ -45,91 +41,6 @@ function removeCommittedPrefix(committed: string, candidate: string): string {
   if (committed.endsWith(text)) return ''
   if (text.startsWith(committed)) return text.slice(committed.length)
   return text.slice(overlapLength(committed, text))
-}
-
-function characterWidth(character: string): number {
-  if (/\s/u.test(character)) return 0.35
-  if ((character.codePointAt(0) ?? 0) <= 0x7f) {
-    return '，。！？、,.!?;；:：）)]}」』》'.includes(character) ? 0.55 : 0.62
-  }
-  return 1
-}
-
-function wrapCaption(text: string, capacity: number): string[] {
-  const normalized = text.replace(/\s*\n+\s*/gu, ' ').trim()
-  if (!normalized) return []
-  const lines: string[] = []
-  let current = ''
-  let currentWidth = 0
-  let lastSpaceIndex = -1
-  let lastSpaceWidth = 0
-
-  for (const character of normalized) {
-    const width = characterWidth(character)
-    if (current && currentWidth + width > capacity) {
-      if (lastSpaceIndex > 0) {
-        const line = current.slice(0, lastSpaceIndex).trim()
-        if (line) lines.push(line)
-        current = current.slice(lastSpaceIndex + 1).trim()
-        currentWidth = Math.max(0, currentWidth - lastSpaceWidth)
-      } else {
-        lines.push(current)
-        current = ''
-        currentWidth = 0
-      }
-      lastSpaceIndex = -1
-      lastSpaceWidth = 0
-    }
-    current += character
-    currentWidth += width
-    if (/\s/u.test(character)) {
-      lastSpaceIndex = current.length - 1
-      lastSpaceWidth = currentWidth
-    }
-  }
-  if (current.trim()) lines.push(current.trim())
-  return lines
-}
-
-function markFirstLinePerGroup(
-  lines: Omit<CaptionDisplayLine, 'showsBadge'>[],
-): CaptionDisplayLine[] {
-  const seen = new Set<number>()
-  return lines.map((line) => ({
-    ...line,
-    showsBadge: !seen.has(line.groupId) && Boolean(seen.add(line.groupId)),
-  }))
-}
-
-function displayLines(
-  history: string[],
-  current: string,
-): CaptionDisplayLine[] {
-  const historyLines = history.flatMap((text, groupId) =>
-    wrapCaption(text, HISTORY_LINE_CAPACITY).map((line) => ({
-      text: line,
-      role: 'history' as const,
-      groupId,
-    })),
-  )
-  const currentLines = wrapCaption(current, CURRENT_LINE_CAPACITY).map(
-    (line) => ({
-      text: line,
-      role: 'current' as const,
-      groupId: history.length,
-    }),
-  )
-  if (!currentLines.length) {
-    return markFirstLinePerGroup(
-      historyLines.slice(-MAX_FINAL_LINE_COUNT),
-    )
-  }
-  const visibleCurrent = currentLines.slice(-TOTAL_LINE_COUNT)
-  const remaining = Math.max(0, TOTAL_LINE_COUNT - visibleCurrent.length)
-  return markFirstLinePerGroup([
-    ...historyLines.slice(-remaining),
-    ...visibleCurrent,
-  ])
 }
 
 function panelHeight(lineCount: number): number {
@@ -151,7 +62,13 @@ export function CaptionOverlay() {
   const committedRef = useRef('')
   const currentRef = useRef('')
   const lines = useMemo(
-    () => displayLines(history, current),
+    () =>
+      selectCaptionLines(
+        history,
+        current,
+        HISTORY_LINE_CAPACITY,
+        CURRENT_LINE_CAPACITY,
+      ),
     [current, history],
   )
   const visibleLines: CaptionDisplayLine[] = lines.length

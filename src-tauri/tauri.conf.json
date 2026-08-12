@@ -42,6 +42,7 @@
         "height": 74,
         "minWidth": 420,
         "minHeight": 74,
+        "maxHeight": 140,
         "center": true,
         "visible": false,
         "decorations": false,
