@@ -1,8 +1,9 @@
 # Model Plugin v2
 
 QwenAudio Toolkits model plugins separate executable adapters from model weights.
-The desktop application bundles the sherpa-onnx runtime and trusted adapters,
-but it does not bundle model weights.
+The desktop application bundles trusted adapters. Most models use the bundled
+sherpa-onnx runtime; reviewed adapters can install a shared versioned runtime
+such as ONNX Runtime alongside their model weights.
 
 ## Package
 
@@ -44,7 +45,7 @@ registry includes:
 | `kokoro`, `vits`, `matcha`, `kitten`, `zipvoice`, `pocket-tts`, `supertonic`, `cosyvoice-local` | `speech.synthesize` |
 | `streaming-zipformer`, `streaming-paraformer`, `funasr-nano`, `funasr-sensevoice-gguf`, `funasr-paraformer-gguf`, `wenet-ctc`, `fire-red-asr-ctc`, `fire-red-asr`, `moonshine-v2`, `nemo-parakeet`, `nemo-canary`, `qwen3-asr` | `speech.transcribe` |
 | `silero-vad`, `funasr-fsmn-vad-gguf` | `speech.detect` |
-| `dpdfnet2`, `gtcrn`, `deepfilternet`, `rnnoise` | `audio.enhance` |
+| `dpdfnet2`, `gtcrn`, `deepfilternet`, `rnnoise`, `zipenhancer` | `audio.enhance` |
 | `web-audio` | `audio.live` |
 | `audio-tagging` | `audio.classify` |
 | `keyword-spotting` | `speech.keyword` |
@@ -53,10 +54,10 @@ registry includes:
 | `wetext` | `text.normalize` |
 | `speaker-embedding` | `speaker.embed` |
 | `speaker-diarization` | `speaker.diarize` |
-| `source-separation` | `audio.separate` |
+| `source-separation`, `mossformer2-separation` | `audio.separate` |
 
 A model package cannot load arbitrary native code into the main process.
-Additional sherpa-onnx model families should be added as reviewed adapters.
+Additional sherpa-onnx or ONNX Runtime model families must be added as reviewed adapters.
 This keeps the common path small:
 
 1. A model using an existing architecture only needs a manifest and weight URLs.

@@ -524,6 +524,54 @@ const AUDIO_TAGGING_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.audio-ta
 const KEYWORD_SPOTTING_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.keyword-spotting","name":"Zipformer Keyword Spotting","version":"2025.12","publisher":"k2-fsa","description":"本地流式关键词和唤醒词检测。","adapter":"keyword-spotting","capabilities":["speech.keyword"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"kws-zh-en-int8","name":"中英关键词","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2","files":[],"estimatedSizeMb":31}],"acceleration":["CPU"],"tone":"yellow"}"#;
 const LANGUAGE_ID_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.whisper-language-id","name":"Whisper Tiny 语言识别","version":"1.0","publisher":"k2-fsa","description":"离线判断音频所使用的语言。","adapter":"language-id","capabilities":["speech.language"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"whisper-tiny","name":"Whisper Tiny","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2","files":[],"estimatedSizeMb":150}],"acceleration":["CPU"],"tone":"blue"}"#;
 const SOURCE_SEPARATION_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.spleeter-2stems","name":"Spleeter 2 Stems","version":"1.0","publisher":"k2-fsa","description":"将混合音频分离为人声与伴奏。","adapter":"source-separation","capabilities":["audio.separate"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"spleeter-int8","name":"Spleeter 2 Stems","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-int8.tar.bz2","files":[],"estimatedSizeMb":50},{"id":"spleeter-fp16","name":"Spleeter 2 Stems","precision":"FP16","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2","files":[],"estimatedSizeMb":90},{"id":"spleeter-fp32","name":"Spleeter 2 Stems","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems.tar.bz2","files":[],"estimatedSizeMb":180}],"acceleration":["CPU"],"tone":"violet"}"#;
+const ZIPENHANCER_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "modelscope.zipenhancer-16k",
+  "name": "ZipEnhancer 16 kHz",
+  "version": "1.0",
+  "publisher": "Alibaba DAMO Academy",
+  "license": "Apache-2.0",
+  "description": "面向单声道语音的本地深度降噪，保留原始时长并支持长音频分段处理。",
+  "adapter": "zipenhancer",
+  "capabilities": ["audio.enhance"],
+  "displayCapabilities": ["语音降噪", "16 kHz", "本地推理"],
+  "runtime": {"kind": "native", "entry": "onnxruntime", "package": "onnxruntime-1.27.0"},
+  "models": [{
+    "id": "zipenhancer-16k",
+    "name": "ZipEnhancer 16 kHz",
+    "precision": "FP32",
+    "source": "",
+    "files": ["zipenhancer.onnx"],
+    "estimatedSizeMb": 10,
+    "repositoryHosted": true
+  }],
+  "acceleration": ["CPU"],
+  "tone": "green"
+}"#;
+const MOSSFORMER2_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "modelscope.mossformer2-separation-8k",
+  "name": "MossFormer2 两人声分离",
+  "version": "1.0",
+  "publisher": "Alibaba DAMO Academy",
+  "license": "Apache-2.0",
+  "description": "将 8 kHz 单声道双人混音分离为说话人 1 与说话人 2，不用于人声与伴奏分离。",
+  "adapter": "mossformer2-separation",
+  "capabilities": ["audio.separate"],
+  "displayCapabilities": ["双人声分离", "8 kHz", "本地推理"],
+  "runtime": {"kind": "native", "entry": "onnxruntime", "package": "onnxruntime-1.27.0"},
+  "models": [{
+    "id": "mossformer2-separation-8k",
+    "name": "MossFormer2 2 Speakers",
+    "precision": "FP32",
+    "source": "",
+    "files": ["mossformer2.onnx"],
+    "estimatedSizeMb": 219,
+    "repositoryHosted": true
+  }],
+  "acceleration": ["CPU"],
+  "tone": "violet"
+}"#;
 const PUNCTUATION_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.punctuation-zh-en","name":"中英文标点恢复","version":"2024.04","publisher":"k2-fsa","description":"为识别文本离线补充中英文标点。","adapter":"punctuation","capabilities":["text.punctuate"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"punctuation-int8","name":"CT Transformer","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2","files":[],"estimatedSizeMb":100},{"id":"punctuation-fp32","name":"CT Transformer","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12.tar.bz2","files":[],"estimatedSizeMb":400}],"acceleration":["CPU"],"tone":"violet"}"#;
 const WETEXT_REQUIRED_FILES: &[&str] = &[
     "wetext/fsts/zh/tn/tagger.fst",
@@ -629,6 +677,8 @@ const CATALOG_MANIFESTS: &[&str] = &[
     KEYWORD_SPOTTING_MANIFEST,
     LANGUAGE_ID_MANIFEST,
     SOURCE_SEPARATION_MANIFEST,
+    ZIPENHANCER_MANIFEST,
+    MOSSFORMER2_MANIFEST,
     PUNCTUATION_MANIFEST,
     WETEXT_MANIFEST,
     SPEAKER_ID_MANIFEST,
@@ -2839,6 +2889,14 @@ fn validate_manifest(root: &Path, manifest: &PluginManifest) -> Result<(), Strin
                 })?;
             }
         }
+        "zipenhancer" => {
+            let model = required_model(root, manifest)?;
+            crate::onnx_audio::validate_onnx_audio_model(&model, "zipenhancer.onnx")?;
+        }
+        "mossformer2-separation" => {
+            let model = required_model(root, manifest)?;
+            crate::onnx_audio::validate_onnx_audio_model(&model, "mossformer2.onnx")?;
+        }
         "wetext" => {
             let model = required_model(root, manifest)?;
             for relative in WETEXT_REQUIRED_FILES {
@@ -2960,6 +3018,8 @@ fn normalize_v2_manifest(manifest: V2PluginManifest) -> Result<PluginManifest, S
             | ("funasr-sensevoice-gguf", "llama-funasr-sensevoice")
             | ("funasr-paraformer-gguf", "llama-funasr-paraformer")
             | ("funasr-fsmn-vad-gguf", "llama-funasr-vad")
+            | ("zipenhancer", "onnxruntime")
+            | ("mossformer2-separation", "onnxruntime")
     );
     if manifest.runtime.entry != "sherpa-onnx"
         && manifest.runtime.entry != "kaldifst"
@@ -3044,6 +3104,9 @@ fn canonical_model_author(id: &str, declared: &str) -> String {
         "k2-fsa.audio-tagging" => "RicherMans",
         "k2-fsa.whisper-language-id" => "OpenAI",
         "k2-fsa.spleeter-2stems" => "Deezer",
+        "modelscope.zipenhancer-16k" | "modelscope.mossformer2-separation-8k" => {
+            "Alibaba DAMO Academy"
+        }
         "k2-fsa.punctuation-zh-en" => "Alibaba DAMO Academy",
         "k2-fsa.speaker-embedding" => "Alibaba DAMO Academy",
         "k2-fsa.speaker-diarization" => "pyannote.audio",
@@ -3066,6 +3129,7 @@ fn runtime_author_for_entry(entry: &str) -> String {
         "cosyvoice.cpp" => "Lourdle",
         "deep-filter" => "Rikorose",
         "nnnoiseless" => "nnnoiseless contributors",
+        "onnxruntime" => "Microsoft",
         "llama-funasr-cli"
         | "llama-funasr-sensevoice"
         | "llama-funasr-paraformer"
@@ -3079,6 +3143,7 @@ fn runtime_package_for_entry(entry: &str) -> &'static str {
     match entry {
         "deep-filter" => "deepfilter-0.5.6",
         "cosyvoice.cpp" => "cosyvoice-cpp-0aaa9ef-b9837",
+        "onnxruntime" => "onnxruntime-1.27.0",
         "llama-funasr-cli"
         | "llama-funasr-sensevoice"
         | "llama-funasr-paraformer"
@@ -3592,6 +3657,12 @@ fn install_remote_model(
         }
         adapter if is_funasr_llamacpp_adapter(adapter) => {
             funasr_runtime_for_adapter(&destination, adapter).is_ok()
+        }
+        "zipenhancer" => {
+            crate::onnx_audio::validate_onnx_audio_model(&destination, "zipenhancer.onnx").is_ok()
+        }
+        "mossformer2-separation" => {
+            crate::onnx_audio::validate_onnx_audio_model(&destination, "mossformer2.onnx").is_ok()
         }
         _ => true,
     };
@@ -4364,7 +4435,7 @@ fn adapter_spec(adapter: &str) -> Option<AdapterSpec> {
         | "nemo-canary"
         | "qwen3-asr" => CAPABILITY_ASR,
         "silero-vad" | "funasr-fsmn-vad-gguf" => CAPABILITY_VAD,
-        "dpdfnet2" | "gtcrn" | "deepfilternet" | "rnnoise" => CAPABILITY_ENHANCE,
+        "dpdfnet2" | "gtcrn" | "deepfilternet" | "rnnoise" | "zipenhancer" => CAPABILITY_ENHANCE,
         "web-audio" => CAPABILITY_LIVE,
         "audio-tagging" => CAPABILITY_AUDIO_TAGGING,
         "keyword-spotting" => CAPABILITY_KWS,
@@ -4373,7 +4444,7 @@ fn adapter_spec(adapter: &str) -> Option<AdapterSpec> {
         "wetext" => CAPABILITY_TEXT_NORMALIZE,
         "speaker-embedding" => CAPABILITY_SPEAKER_EMBED,
         "speaker-diarization" => CAPABILITY_DIARIZATION,
-        "source-separation" => CAPABILITY_SOURCE_SEPARATION,
+        "source-separation" | "mossformer2-separation" => CAPABILITY_SOURCE_SEPARATION,
         _ => return None,
     };
     Some(AdapterSpec {
@@ -4412,6 +4483,8 @@ fn adapter_spec(adapter: &str) -> Option<AdapterSpec> {
             "speaker-embedding" => "speaker-embedding",
             "speaker-diarization" => "speaker-diarization",
             "source-separation" => "source-separation",
+            "zipenhancer" => "zipenhancer",
+            "mossformer2-separation" => "mossformer2-separation",
             _ => "web-audio",
         },
         capability,
@@ -5221,6 +5294,11 @@ mod tests {
             Some(CAPABILITY_ENHANCE)
         );
         assert_eq!(adapter_capability("rnnoise"), Some(CAPABILITY_ENHANCE));
+        assert_eq!(adapter_capability("zipenhancer"), Some(CAPABILITY_ENHANCE));
+        assert_eq!(
+            adapter_capability("mossformer2-separation"),
+            Some(CAPABILITY_SOURCE_SEPARATION)
+        );
         assert_eq!(adapter_capability("unknown"), None);
         assert_eq!(adapter_streaming_mode("silero-vad"), "streaming");
         assert_eq!(adapter_streaming_mode("funasr-nano"), "streaming");

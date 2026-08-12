@@ -4,6 +4,7 @@ mod audio_io;
 mod audio_processing;
 mod downloads;
 mod harness;
+mod onnx_audio;
 mod plugins;
 mod system_audio;
 mod tts;

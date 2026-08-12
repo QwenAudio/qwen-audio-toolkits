@@ -26,7 +26,10 @@ hound = "3.5"
 deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet.git", tag = "v0.5.6", default-features = false, features = ["tract"] }
 ndarray = "0.15"
 nnnoiseless = { version = "0.5.2", default-features = false }
+ort = { version = "=2.0.0-rc.9", default-features = false, features = ["load-dynamic"] }
+ort-sys = { version = "=2.0.0-rc.9", default-features = false, features = ["load-dynamic"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+rustfft = "6.2"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sherpa-onnx = "1.13.4"

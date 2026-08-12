@@ -311,6 +311,86 @@
     },
     {
       "schemaVersion": 2,
+      "id": "modelscope.mossformer2-separation-8k",
+      "name": "MossFormer2 两人声分离",
+      "version": "1.0",
+      "publisher": "Alibaba DAMO Academy",
+      "license": "Apache-2.0",
+      "description": "将 8 kHz 单声道双人混音分离为说话人 1 与说话人 2，不用于人声与伴奏分离。",
+      "adapter": "mossformer2-separation",
+      "capabilities": [
+        "audio.separate"
+      ],
+      "displayCapabilities": [
+        "双人声分离",
+        "8 kHz",
+        "本地推理"
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "onnxruntime",
+        "package": "onnxruntime-1.27.0"
+      },
+      "models": [
+        {
+          "id": "mossformer2-separation-8k",
+          "name": "MossFormer2 2 Speakers",
+          "precision": "FP32",
+          "source": "",
+          "files": [
+            "mossformer2.onnx"
+          ],
+          "estimatedSizeMb": 219,
+          "repositoryHosted": true
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "violet"
+    },
+    {
+      "schemaVersion": 2,
+      "id": "modelscope.zipenhancer-16k",
+      "name": "ZipEnhancer 16 kHz",
+      "version": "1.0",
+      "publisher": "Alibaba DAMO Academy",
+      "license": "Apache-2.0",
+      "description": "面向单声道语音的本地深度降噪，保留原始时长并支持长音频分段处理。",
+      "adapter": "zipenhancer",
+      "capabilities": [
+        "audio.enhance"
+      ],
+      "displayCapabilities": [
+        "语音降噪",
+        "16 kHz",
+        "本地推理"
+      ],
+      "runtime": {
+        "kind": "native",
+        "entry": "onnxruntime",
+        "package": "onnxruntime-1.27.0"
+      },
+      "models": [
+        {
+          "id": "zipenhancer-16k",
+          "name": "ZipEnhancer 16 kHz",
+          "precision": "FP32",
+          "source": "",
+          "files": [
+            "zipenhancer.onnx"
+          ],
+          "estimatedSizeMb": 10,
+          "repositoryHosted": true
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "green"
+    },
+    {
+      "schemaVersion": 2,
       "id": "rikorose.deepfilternet3",
       "name": "DeepFilterNet3",
       "version": "3.0",

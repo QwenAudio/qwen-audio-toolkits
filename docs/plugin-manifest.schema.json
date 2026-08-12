@@ -36,9 +36,10 @@
         "funasr-paraformer-gguf", "wenet-ctc", "fire-red-asr-ctc",
         "fire-red-asr", "moonshine-v2", "nemo-parakeet", "nemo-canary",
         "qwen3-asr", "silero-vad", "funasr-fsmn-vad-gguf", "dpdfnet2", "gtcrn",
-        "deepfilternet", "rnnoise", "web-audio", "audio-tagging",
+        "deepfilternet", "rnnoise", "zipenhancer", "web-audio", "audio-tagging",
         "keyword-spotting", "language-id", "punctuation", "wetext",
-        "speaker-embedding", "speaker-diarization", "source-separation"
+        "speaker-embedding", "speaker-diarization", "source-separation",
+        "mossformer2-separation"
       ]
     },
     "capabilities": {

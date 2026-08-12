@@ -15,6 +15,7 @@ use crate::{
         process_audio_with_runtime, AudioProcessRequest, AudioProcessingRuntime, StreamingEnhancer,
         RNNOISE_SAMPLE_RATE,
     },
+    onnx_audio::separate_mossformer2,
     plugins,
     tts::{generate_speech_with_runtime, TtsGenerateRequest, TtsRuntime},
     vad::{
@@ -3873,13 +3874,15 @@ async fn execute_request(
         }
         (CAPABILITY_SOURCE_SEPARATION, false) => {
             let audio = required_string(&request.input, "audioDataUrl")?;
-            run_source_separation(
-                provider
-                    .model_path
-                    .as_deref()
-                    .ok_or_else(|| "Source Separation 缺少模型目录".to_string())?,
-                &audio,
-            )?
+            let model_path = provider
+                .model_path
+                .as_deref()
+                .ok_or_else(|| "Source Separation 缺少模型目录".to_string())?;
+            if provider.adapter == "mossformer2-separation" {
+                separate_mossformer2(model_path, &audio)?
+            } else {
+                run_source_separation(model_path, &audio)?
+            }
         }
         (CAPABILITY_ENHANCE, true) if provider.adapter == "bailian-audio-process" => {
             execute_bailian_audio_process(&app, request, &provider.model_id, cancel, false).await?

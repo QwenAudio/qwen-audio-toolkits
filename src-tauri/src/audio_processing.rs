@@ -2,6 +2,7 @@ use crate::audio_io::{
     decode_wav_bytes, decode_wav_data_url, encode_wav_bytes, interleave_channels, peak_dbfs,
     resample_audio, rms_dbfs, wav_data_url, waveform_envelope, PcmAudio,
 };
+use crate::onnx_audio::{enhance_zipenhancer, validate_onnx_audio_model};
 use df::tract::{DfParams, DfTract, RuntimeParams};
 use ndarray::{Array2, ArrayView2};
 use nnnoiseless::DenoiseState;
@@ -424,6 +425,7 @@ pub(crate) async fn process_audio_with_runtime(
     let vad_path = vad_path_override.unwrap_or(vad_model_path(&app)?);
     let denoiser_ready = match denoiser_adapter.as_deref() {
         Some("rnnoise") => true,
+        Some("zipenhancer") => validate_onnx_audio_model(&model_path, "zipenhancer.onnx").is_ok(),
         Some("deepfilternet") => {
             resolve_deepfilter_model(&model_path).is_ok()
                 && resolve_deepfilter_runtime(&model_path).is_ok()
@@ -490,6 +492,7 @@ pub(crate) async fn process_audio_with_runtime(
                     let engine = match denoiser_adapter.as_deref() {
                         Some("deepfilternet") => "DeepFilterNet3",
                         Some("rnnoise") => "RNNoise",
+                        Some("zipenhancer") => "ZipEnhancer",
                         _ => "DPDFNet2",
                     };
                     report(
@@ -501,6 +504,7 @@ pub(crate) async fn process_audio_with_runtime(
                     audio = match denoiser_adapter.as_deref() {
                         Some("deepfilternet") => denoise_deepfilter(&audio, &model_path, strength)?,
                         Some("rnnoise") => denoise_rnnoise(&audio, strength)?,
+                        Some("zipenhancer") => enhance_zipenhancer(&model_path, &audio, strength)?,
                         _ => {
                             let denoiser = runtime.denoiser(&model_path)?;
                             denoise_audio(&audio, &denoiser, strength)?
@@ -571,6 +575,7 @@ pub(crate) async fn process_audio_with_runtime(
             engine: match denoiser_adapter.as_deref() {
                 Some("deepfilternet") => "DeepFilterNet3 · Local".to_string(),
                 Some("rnnoise") => "RNNoise · Local Rust".to_string(),
+                Some("zipenhancer") => "ZipEnhancer 16 kHz · ONNX Runtime".to_string(),
                 Some("gtcrn") => "GTCRN · sherpa-onnx".to_string(),
                 Some("dpdfnet2") => "DPDFNet2 48 kHz · sherpa-onnx".to_string(),
                 _ => engine_label(&request.operations),
