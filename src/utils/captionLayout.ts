@@ -1,4 +1,17 @@
 export const CAPTION_TOTAL_LINE_COUNT = 4
+export const CAPTION_MAX_HISTORY_ITEMS = CAPTION_TOTAL_LINE_COUNT
+export const CAPTION_HISTORY_LINE_CAPACITY = 49
+export const CAPTION_CURRENT_LINE_CAPACITY = 39
+export const CAPTION_PANEL_WIDTH = 760
+export const CAPTION_OUTER_PADDING = 10
+export const CAPTION_LINE_HEIGHT = 22
+export const CAPTION_LINE_SPACING = 4
+export const CAPTION_VERTICAL_PADDING = 10
+export const CAPTION_MINIMUM_PANEL_HEIGHT = 54
+export const CAPTION_MAXIMUM_PANEL_HEIGHT =
+  CAPTION_VERTICAL_PADDING * 2 +
+  CAPTION_TOTAL_LINE_COUNT * CAPTION_LINE_HEIGHT +
+  (CAPTION_TOTAL_LINE_COUNT - 1) * CAPTION_LINE_SPACING
 
 export interface CaptionDisplayLine {
   text: string
@@ -22,6 +35,13 @@ export function captionTextWidth(text: string): number {
     (width, character) => width + characterWidth(character),
     0,
   )
+}
+
+export function normalizeCaptionText(text: string): string {
+  // Streaming providers may return CR, NEL, or Unicode line/paragraph
+  // separators in addition to LF. Collapse all of them before wrapping so
+  // the layout calculation and WebView rendering share the same line model.
+  return text.replace(/[\s\u0085\u2028\u2029]+/gu, ' ').trim()
 }
 
 function takeTokenPrefix(
@@ -72,9 +92,7 @@ function splitLongToken(token: string, capacity: number): string[] {
  * which normally has no spaces, falls back to character wrapping.
  */
 export function wrapCaption(text: string, capacity: number): string[] {
-  const normalized = text
-    .replace(/\s+/gu, ' ')
-    .trim()
+  const normalized = normalizeCaptionText(text)
     .replace(/\s+([,.;:!?%，。；：！？、…）)\]}>」』》〉】〕〗〙〛’”])/gu, '$1')
     .replace(/([(【〔〖〘〚「『《〈‘“<[{])\s+/gu, '$1')
   if (!normalized || capacity <= 0) return []
@@ -165,4 +183,20 @@ export function selectCaptionLines(
     ...visibleHistory,
     ...visibleCurrent,
   ])
+}
+
+export function captionPanelHeight(lineCount: number): number {
+  const count = Math.min(
+    CAPTION_TOTAL_LINE_COUNT,
+    Math.max(1, Math.floor(lineCount)),
+  )
+  return Math.min(
+    CAPTION_MAXIMUM_PANEL_HEIGHT,
+    Math.max(
+      CAPTION_MINIMUM_PANEL_HEIGHT,
+      CAPTION_VERTICAL_PADDING * 2 +
+        count * CAPTION_LINE_HEIGHT +
+        Math.max(0, count - 1) * CAPTION_LINE_SPACING,
+    ),
+  )
 }
