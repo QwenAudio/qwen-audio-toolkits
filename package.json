@@ -1,7 +1,7 @@
 {
   "name": "qwenaudio-toolkits",
   "private": true,
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "A local-first AI audio workstation",
   "author": "Zhendong Peng <pengzhendong.pzd@alibaba-inc.com>",
   "license": "Apache-2.0",

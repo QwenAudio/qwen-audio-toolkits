@@ -10525,6 +10525,11 @@ body.detail-resizing .model-workspace {
   transition: color 100ms ease, background-color 100ms ease;
 }
 
+.native-titlebar-enabled .result-detail-close {
+  align-self: flex-start;
+  margin-top: 3px;
+}
+
 .result-detail-close:hover,
 .result-detail-close:focus-visible {
   color: var(--ink-soft);
