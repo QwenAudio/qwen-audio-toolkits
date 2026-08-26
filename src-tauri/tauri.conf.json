@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "QwenAudio Toolkits",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "identifier": "org.qwenaudio.toolkits",
   "build": {
     "frontendDist": "../dist",
@@ -27,6 +27,10 @@
       },
       "titleBarStyle": "Overlay",
       "hiddenTitle": true,
+      "trafficLightPosition": {
+        "x": 16,
+        "y": 25
+      },
         "resizable": true,
         "fullscreen": false
       },
