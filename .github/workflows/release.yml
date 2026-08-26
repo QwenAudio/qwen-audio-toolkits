@@ -21,12 +21,19 @@ concurrency:
 jobs:
   publish-tauri:
     name: Build Apple Silicon DMG
-    runs-on: macos-14
+    runs-on: macos-26
     env:
       RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref_name }}
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
     steps:
       - name: Check out source
         uses: actions/checkout@v5
+
+      - name: Verify macOS build SDK
+        run: |
+          xcodebuild -version
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          test "${sdk_version}" = "26.5"
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
