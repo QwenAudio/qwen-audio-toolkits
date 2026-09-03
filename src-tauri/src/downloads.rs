@@ -592,12 +592,16 @@ fn verify_sha256(path: &Path, expected: &str) -> Result<bool, String> {
         }
         hasher.update(&buffer[..count]);
     }
-    Ok(format!("{:x}", hasher.finalize()).eq_ignore_ascii_case(expected))
+    Ok(hex_bytes(&hasher.finalize()).eq_ignore_ascii_case(expected))
 }
 
 fn cache_key(source: &str) -> String {
-    let digest = format!("{:x}", Sha256::digest(source.as_bytes()));
+    let digest = hex_bytes(&Sha256::digest(source.as_bytes()));
     digest[..24].to_string()
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn download_client() -> Result<Client, String> {
