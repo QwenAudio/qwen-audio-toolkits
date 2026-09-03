@@ -350,6 +350,7 @@ impl AudioProcessingRuntime {
                 },
                 dpdfnet: OfflineSpeechDenoiserDpdfNetModelConfig {
                     model: (!gtcrn).then(|| path_string(&model_path)),
+                    attenuation_limit_db: 6.0,
                 },
                 num_threads: inference_threads(),
                 provider: Some("cpu".to_string()),
