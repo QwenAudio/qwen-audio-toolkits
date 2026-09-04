@@ -37,11 +37,11 @@ use harness::{
 };
 use plugins::{
     plugin_api_catalog, plugin_cancel_download, plugin_catalog, plugin_dependency_bindings,
-    plugin_install_catalog, plugin_install_package, plugin_install_recommended_dependency,
-    plugin_files, plugin_readme, plugin_refresh_catalog, plugin_replace_dependency_bindings,
-    plugin_set_catalog_source, plugin_set_dependency_binding, plugin_set_download_paused,
-    plugin_set_sidebar_visible, plugin_uninstall, DependencyBindings, PluginDescriptor,
-    PluginInstallRequest,
+    plugin_files, plugin_install_catalog, plugin_install_package,
+    plugin_install_recommended_dependency, plugin_readme, plugin_refresh_catalog,
+    plugin_replace_dependency_bindings, plugin_set_catalog_source, plugin_set_dependency_binding,
+    plugin_set_download_paused, plugin_set_sidebar_visible, plugin_uninstall, DependencyBindings,
+    PluginDescriptor, PluginInstallRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

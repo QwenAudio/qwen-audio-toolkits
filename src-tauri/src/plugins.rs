@@ -1983,7 +1983,10 @@ pub fn plugin_files(app: AppHandle, plugin_id: String) -> Result<Vec<PluginFileE
                 .to_string_lossy()
                 .replace('\\', "/");
             let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
-            entries.push(PluginFileEntry { path: relative, size });
+            entries.push(PluginFileEntry {
+                path: relative,
+                size,
+            });
             if entries.len() >= 2000 {
                 break;
             }
