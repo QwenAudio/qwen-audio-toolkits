@@ -26,7 +26,7 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund
       - name: Lint frontend
         run: npm run lint
       - name: Check open-source package
