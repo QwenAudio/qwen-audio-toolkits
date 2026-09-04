@@ -13,7 +13,7 @@ export interface AppUpdateInfo {
   notes?: string
 }
 
-export type AppUpdateCheck =
+type AppUpdateCheck =
   | { status: 'current' }
   | { status: 'available'; update: AppUpdateInfo }
   | { status: 'unavailable'; message: string }

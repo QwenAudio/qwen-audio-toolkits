@@ -1,7 +1,7 @@
 import { cancelHarnessRun, isTerminalRun } from './harness'
 import type { HarnessRun } from '../types'
 
-export type RealtimeSessionEvent =
+type RealtimeSessionEvent =
   | { type: 'turn.started'; generation: number }
   | {
       type: 'response.canceled'

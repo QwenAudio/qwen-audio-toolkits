@@ -4,7 +4,7 @@ import type {
   PluginParameterDefinition,
 } from '../types'
 
-export type CapabilityCategory =
+type CapabilityCategory =
   | '音频处理'
   | '音频理解'
   | '文本智能'
@@ -25,7 +25,7 @@ export type WorkflowPortType =
   | 'speaker-segments'
   | 'audio-tracks'
 
-export type ResultPresentation =
+type ResultPresentation =
   | 'audio'
   | 'transcript'
   | 'timed-segments'
@@ -37,7 +37,7 @@ export type ResultPresentation =
   | 'audio-tracks'
   | 'stream'
 
-export interface CapabilityDefinition {
+interface CapabilityDefinition {
   id: HarnessCapabilityId
   label: string
   category: CapabilityCategory
@@ -52,7 +52,7 @@ export interface CapabilityDefinition {
 const VOICE_ASSISTANT_PROMPT =
   '你是一个简洁自然的语音助手。直接回答问题，回复适合朗读，不使用 Markdown。'
 
-export const CAPABILITY_DEFINITIONS: Record<
+const CAPABILITY_DEFINITIONS: Record<
   HarnessCapabilityId,
   CapabilityDefinition
 > = {
@@ -234,13 +234,6 @@ export function capabilityAcceptsAudio(
   capability: HarnessCapabilityId,
 ): boolean {
   return capabilityDefinition(capability).composer === 'audio'
-}
-
-export function capabilityProducesAudio(
-  capability: HarnessCapabilityId,
-): boolean {
-  const result = capabilityDefinition(capability).result
-  return result === 'audio' || result === 'audio-tracks'
 }
 
 function modelUsesFixedParameters(

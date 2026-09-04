@@ -3,7 +3,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { currentMonitor, PhysicalPosition } from '@tauri-apps/api/window'
 import { isTauriRuntime } from './harness'
 
-export const CAPTION_WINDOW_LABEL = 'captions'
+const CAPTION_WINDOW_LABEL = 'captions'
 export const CAPTION_UPDATE_EVENT = 'caption-output-update'
 let outputQueue: Promise<void> = Promise.resolve()
 let captionPositioned = false

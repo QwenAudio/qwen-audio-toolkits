@@ -1,4 +1,4 @@
-export interface WorkflowPlanNode {
+interface WorkflowPlanNode {
   id: string
   data: {
     kind: string
@@ -12,13 +12,13 @@ export interface WorkflowPlanNode {
   }
 }
 
-export interface WorkflowPlanEdge {
+interface WorkflowPlanEdge {
   id?: string
   source: string
   target: string
 }
 
-export interface WorkflowOutputBinding<Node extends WorkflowPlanNode> {
+interface WorkflowOutputBinding<Node extends WorkflowPlanNode> {
   node: Node
   sourceId: string
 }

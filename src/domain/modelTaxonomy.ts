@@ -13,13 +13,13 @@ export type ModelPrimaryCategory =
 
 type ModelModality = 'Vision' | 'Audio' | 'Text'
 
-export interface ModelTaxonomySource {
+interface ModelTaxonomySource {
   harnessCapabilities: HarnessCapabilityId[]
   inputs?: ReadonlyArray<{ type: string }>
   outputs?: ReadonlyArray<{ type: string }>
 }
 
-export interface ModelTaxonomy {
+interface ModelTaxonomy {
   primaryCategory: ModelPrimaryCategory
   secondaryCategory: string
   inputModalities: ModelModality[]

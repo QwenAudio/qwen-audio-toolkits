@@ -6,7 +6,7 @@ import type {
   ModelPlugin,
 } from './types'
 
-export const RETIRED_CLOUD_MODEL_IDS = new Set([
+const RETIRED_CLOUD_MODEL_IDS = new Set([
   'bailian-fun-audio-mss',
   'fun-audio-mss',
 ])

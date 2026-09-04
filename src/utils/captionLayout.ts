@@ -4,11 +4,11 @@ export const CAPTION_HISTORY_LINE_CAPACITY = 49
 export const CAPTION_CURRENT_LINE_CAPACITY = 39
 export const CAPTION_PANEL_WIDTH = 760
 export const CAPTION_OUTER_PADDING = 10
-export const CAPTION_LINE_HEIGHT = 22
-export const CAPTION_LINE_SPACING = 4
-export const CAPTION_VERTICAL_PADDING = 10
-export const CAPTION_MINIMUM_PANEL_HEIGHT = 54
-export const CAPTION_MAXIMUM_PANEL_HEIGHT =
+const CAPTION_LINE_HEIGHT = 22
+const CAPTION_LINE_SPACING = 4
+const CAPTION_VERTICAL_PADDING = 10
+const CAPTION_MINIMUM_PANEL_HEIGHT = 54
+const CAPTION_MAXIMUM_PANEL_HEIGHT =
   CAPTION_VERTICAL_PADDING * 2 +
   CAPTION_TOTAL_LINE_COUNT * CAPTION_LINE_HEIGHT +
   (CAPTION_TOTAL_LINE_COUNT - 1) * CAPTION_LINE_SPACING
@@ -30,14 +30,14 @@ function characterWidth(character: string): number {
   return 1
 }
 
-export function captionTextWidth(text: string): number {
+function captionTextWidth(text: string): number {
   return Array.from(text).reduce(
     (width, character) => width + characterWidth(character),
     0,
   )
 }
 
-export function normalizeCaptionText(text: string): string {
+function normalizeCaptionText(text: string): string {
   // Streaming providers may return CR, NEL, or Unicode line/paragraph
   // separators in addition to LF. Collapse all of them before wrapping so
   // the layout calculation and WebView rendering share the same line model.
@@ -91,7 +91,7 @@ function splitLongToken(token: string, capacity: number): string[] {
  * overlong token (for example a URL) is split inside the token. CJK text,
  * which normally has no spaces, falls back to character wrapping.
  */
-export function wrapCaption(text: string, capacity: number): string[] {
+function wrapCaption(text: string, capacity: number): string[] {
   const normalized = normalizeCaptionText(text)
     .replace(/\s+([,.;:!?%，。；：！？、…）)\]}>」』》〉】〕〗〙〛’”])/gu, '$1')
     .replace(/([(【〔〖〘〚「『《〈‘“<[{])\s+/gu, '$1')

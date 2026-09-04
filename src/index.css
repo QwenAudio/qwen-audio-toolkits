@@ -52,7 +52,6 @@
     0 18px 46px rgba(52, 79, 68, 0.14),
     0 2px 8px rgba(52, 79, 68, 0.08);
 }
-
 :root[data-theme="dark"] {
   --app-bg: #1c1f21;
   --ink: #eef2f0;
@@ -95,7 +94,6 @@
     0 18px 46px rgba(7, 14, 11, 0.44),
     0 2px 8px rgba(7, 14, 11, 0.3);
 }
-
 :root[data-accent="indigo"] {
   --app-bg: #f7f8fc;
   --sidebar: #f0f3fa;
@@ -109,7 +107,6 @@
   --primary-muted: #a2add6;
   --primary-ring: rgba(77, 99, 176, 0.22);
 }
-
 :root[data-accent="amber"] {
   --app-bg: #faf8f2;
   --sidebar: #f6f2e7;
@@ -123,7 +120,6 @@
   --primary-muted: #c8b183;
   --primary-ring: rgba(147, 112, 44, 0.2);
 }
-
 :root[data-accent="rose"] {
   --app-bg: #fbf7f8;
   --sidebar: #f9f1f3;
@@ -137,7 +133,6 @@
   --primary-muted: #d3a7b0;
   --primary-ring: rgba(169, 95, 111, 0.2);
 }
-
 :root[data-theme="dark"][data-accent="indigo"] {
   --app-bg: #1c1f24;
   --sidebar: #20242e;
@@ -151,7 +146,6 @@
   --primary-muted: #c4cdf0;
   --primary-ring: rgba(168, 181, 228, 0.26);
 }
-
 :root[data-theme="dark"][data-accent="amber"] {
   --app-bg: #201e18;
   --sidebar: #282519;
@@ -165,7 +159,6 @@
   --primary-muted: #e0cda4;
   --primary-ring: rgba(210, 176, 119, 0.26);
 }
-
 :root[data-theme="dark"][data-accent="rose"] {
   --app-bg: #211c1e;
   --sidebar: #2b2224;
@@ -179,11 +172,9 @@
   --primary-muted: #e8c3cb;
   --primary-ring: rgba(223, 166, 178, 0.26);
 }
-
 * {
   box-sizing: border-box;
 }
-
 :root,
 html,
 body,
@@ -194,57 +185,48 @@ body,
   margin: 0;
   background: transparent;
 }
-
 body {
   overflow: hidden;
   background: transparent;
 }
-
 button,
 input,
 textarea,
 select {
   font: inherit;
 }
-
 input,
 textarea,
 select {
   color: var(--ink);
   background-color: var(--input-bg);
 }
-
 input::placeholder,
 textarea::placeholder {
   color: var(--muted);
 }
-
 button {
   color: inherit;
 }
-
 button,
 input[type="range"] {
   -webkit-tap-highlight-color: transparent;
 }
-
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
-
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
-
 ::selection {
   color: var(--ink);
   background: var(--primary-ring);
 }
-
 * {
   scrollbar-color: var(--muted-2) transparent;
 }
+

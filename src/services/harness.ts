@@ -46,7 +46,7 @@ function runTimeoutMs(request: HarnessTaskRequest): number {
   )
 }
 
-export class HarnessRunError extends Error {
+class HarnessRunError extends Error {
   run: HarnessRun
 
   constructor(run: HarnessRun) {
@@ -202,13 +202,13 @@ export function deleteBailianVoice(voiceId: string): Promise<void> {
   return invoke<void>('harness_delete_bailian_voice', { voiceId })
 }
 
-export interface SystemAudioChunk {
+interface SystemAudioChunk {
   sessionId: string
   pcmBase64: string
   sampleRate: number
 }
 
-export interface SystemAudioSession {
+interface SystemAudioSession {
   sessionId: string
   sampleRate: number
 }
@@ -230,10 +230,6 @@ export function playSystemAudioChunk(
   return invoke('system_audio_play_chunk', { sessionId, pcmBase64 })
 }
 
-export function flushSystemAudioPlayback(sessionId: string): Promise<void> {
-  return invoke('system_audio_flush_playback', { sessionId })
-}
-
 export async function subscribeSystemAudio(
   listener: (chunk: SystemAudioChunk) => void,
 ): Promise<UnlistenFn> {
@@ -244,10 +240,6 @@ export async function subscribeSystemAudio(
 
 export function cancelHarnessRun(runId: string): Promise<HarnessRun> {
   return invoke<HarnessRun>('harness_cancel_run', { runId })
-}
-
-export function retryHarnessRun(runId: string): Promise<HarnessRun> {
-  return invoke<HarnessRun>('harness_retry_run', { runId })
 }
 
 export function deleteHarnessRun(runId: string): Promise<void> {
@@ -409,20 +401,6 @@ export function listApiModelCatalog(): Promise<ApiModelCatalogEntry[]> {
 
 export function refreshModelPlugins(): Promise<ModelPlugin[]> {
   return invoke<ModelPlugin[]>('plugin_refresh_catalog')
-}
-
-export function setModelCatalogSource(
-  url?: string,
-): Promise<ModelPlugin[]> {
-  return invoke<ModelPlugin[]>('plugin_set_catalog_source', {
-    update: { url: url?.trim() || null },
-  })
-}
-
-export function installModelPlugin(path: string): Promise<ModelPlugin> {
-  return invoke<ModelPlugin>('plugin_install_package', {
-    request: { path },
-  })
 }
 
 export function installCatalogModel(

@@ -1,6 +1,6 @@
 import type { AsrTranscriptionResult } from '../types'
 
-export type TranscriptExportFormat = 'srt' | 'vtt' | 'txt' | 'label-studio'
+type TranscriptExportFormat = 'srt' | 'vtt' | 'txt' | 'label-studio'
 
 function pad(value: number, length = 2): string {
   return Math.max(0, value).toString().padStart(length, '0')
@@ -15,7 +15,7 @@ function timestamp(seconds: number, separator: ',' | '.'): string {
   return `${pad(hours)}:${pad(minutes)}:${pad(secs)}${separator}${pad(millis, 3)}`
 }
 
-export function transcriptToSrt(result: AsrTranscriptionResult): string {
+function transcriptToSrt(result: AsrTranscriptionResult): string {
   return result.segments
     .map(
       (segment, index) =>
@@ -24,7 +24,7 @@ export function transcriptToSrt(result: AsrTranscriptionResult): string {
     .join('\n')
 }
 
-export function transcriptToVtt(result: AsrTranscriptionResult): string {
+function transcriptToVtt(result: AsrTranscriptionResult): string {
   const cues = result.segments
     .map(
       (segment) =>
@@ -34,7 +34,7 @@ export function transcriptToVtt(result: AsrTranscriptionResult): string {
   return `WEBVTT\n\n${cues}`
 }
 
-export function transcriptToPlainText(
+function transcriptToPlainText(
   result: AsrTranscriptionResult,
 ): string {
   const segments = result.segments
@@ -46,7 +46,7 @@ export function transcriptToPlainText(
   return `${result.text}\n\n---\n${segments}\n`
 }
 
-export function transcriptToLabelStudio(
+function transcriptToLabelStudio(
   result: AsrTranscriptionResult,
   audioReference: string,
 ): string {
