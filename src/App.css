@@ -3871,8 +3871,7 @@ input[type="range"]:disabled {
 
 .generation-progress i,
 .batch-completion i,
-.job-progress i,
-.installing-state i {
+.job-progress i {
   display: block;
   height: 4px;
   margin-top: 5px;
@@ -3883,8 +3882,7 @@ input[type="range"]:disabled {
 
 .generation-progress i span,
 .batch-completion i b,
-.job-progress i b,
-.installing-state i b {
+.job-progress i b {
   display: block;
   height: 100%;
   background: var(--green);
@@ -4964,13 +4962,34 @@ button.job-state {
 }
 
 .plugin-catalog-head .plugin-search {
-  width: min(440px, 100%);
+  width: 100%;
 }
 
 .plugin-details-head {
-  justify-content: flex-end;
-  margin: -16px -14px 10px;
-  padding: 0 14px;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -16px -22px 14px;
+  padding: 0 22px;
+}
+
+.plugin-details-filters {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.plugin-details-filters .runtime-scope {
+  margin-left: 0;
+}
+
+.plugin-details-empty {
+  margin: auto 0;
+}
+
+.plugin-detail-remove {
+  min-height: 32px;
+  padding: 0 12px;
 }
 
 .runtime-filter,
@@ -5034,7 +5053,7 @@ button.job-state {
   background: transparent;
   border: 0;
   border-radius: 0;
-  grid-template-columns: minmax(0, 1fr) 304px;
+  grid-template-columns: clamp(300px, 34%, 420px) minmax(0, 1fr);
 }
 
 .catalog-taxonomy {
@@ -5159,40 +5178,10 @@ button.job-state {
   display: grid;
   min-width: 0;
   min-height: 0;
-  padding: 0 14px 14px;
+  padding: 0 10px 14px 14px;
   overflow: hidden;
-  border-right: 0;
-  grid-template-rows: auto 44px minmax(0, 1fr) auto;
-}
-
-.catalog-heading {
-  display: flex;
-  height: 44px;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.catalog-heading > span {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  color: var(--ink-soft);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.catalog-heading small {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.catalog-heading-actions {
-  display: inline-flex;
-  min-width: 0;
-  margin-left: auto;
-  align-items: center;
-  gap: 10px;
+  border-right: 1px solid var(--line);
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .catalog-add-api-model {
@@ -5213,10 +5202,6 @@ button.job-state {
 .catalog-add-api-model:hover {
   color: var(--primary);
   border-color: var(--primary-ring);
-}
-
-.catalog-heading .runtime-scope {
-  margin-left: 0;
 }
 
 .catalog-install-status {
@@ -5247,17 +5232,14 @@ button.job-state {
 }
 
 .plugin-row {
-  display: grid;
-  min-height: 111px;
+  display: block;
+  min-height: 96px;
   content-visibility: auto;
-  contain-intrinsic-block-size: auto 111px;
-  align-items: center;
-  gap: 11px;
-  padding: 12px 8px;
+  contain-intrinsic-block-size: auto 96px;
+  padding: 10px 10px;
   cursor: pointer;
   border-bottom: 0;
   border-radius: 8px;
-  grid-template-columns: minmax(250px, 1fr) 122px 82px;
 }
 
 .plugin-row:hover {
@@ -5346,14 +5328,14 @@ button.job-state {
 }
 
 .plugin-main-copy p {
-  max-width: 610px;
-  margin: 7px 0 6px;
+  display: -webkit-box;
+  margin: 6px 0 7px;
   overflow: hidden;
   color: var(--ink-soft);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .plugin-capabilities {
@@ -5374,33 +5356,23 @@ button.job-state {
   border-radius: 3px;
 }
 
-.plugin-hardware {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
-  color: var(--ink-soft);
-  font-size: 12px;
-}
-
-.plugin-hardware > div {
-  display: flex;
-  flex-wrap: wrap;
+.plugin-row-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
   gap: 3px;
-}
-
-.plugin-hardware small {
-  padding: 2px 4px;
+  margin-left: auto;
   color: var(--muted);
-  font-size: 12px;
-  background: var(--surface-soft);
-  border-radius: 3px;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
-.plugin-row-action {
-  display: flex;
-  justify-content: flex-end;
+.plugin-row-status.installing {
+  color: var(--primary);
+}
+
+.plugin-row-status.installed {
+  color: var(--success, var(--ink-soft));
 }
 
 .install-button,
@@ -5442,71 +5414,11 @@ button.job-state {
   border-color: var(--line);
 }
 
-.installing-state {
-  width: 122px;
-  color: var(--primary);
-  font-size: 12px;
-  text-align: right;
-}
-
-.installing-state-heading {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 3px;
-}
-
-.installing-state-heading > span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.install-task-actions,
 .selected-install-actions {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 1px;
-}
-
-.install-task-actions button {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  color: var(--muted);
-  background: transparent;
-  border-radius: 3px;
-  place-items: center;
-}
-
-.install-task-actions button:hover:not(:disabled) {
-  color: var(--ink);
-  background: var(--list-hover);
-}
-
-.install-task-actions button:disabled {
-  opacity: 0.35;
-}
-
-.selected-install-actions {
   gap: 4px;
-}
-
-.installing-state i {
-  margin-top: 4px;
-}
-
-.installing-state.queued {
-  color: var(--muted);
-}
-
-.installing-state.queued i {
-  height: 3px;
-  background: var(--line);
 }
 
 .community-plugin-row {
@@ -5551,7 +5463,7 @@ button.job-state {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  padding: 16px 14px;
+  padding: 16px 22px 20px;
   overflow-y: auto;
   background: var(--surface-raised);
 }
@@ -5559,6 +5471,13 @@ button.job-state {
 /* Cards use overflow:hidden; without this they shrink instead of scrolling. */
 .plugin-details > * {
   flex-shrink: 0;
+  width: 100%;
+  max-width: 760px;
+}
+
+.plugin-details > .plugin-details-head {
+  width: auto;
+  max-width: none;
 }
 
 .plugin-project-header {
@@ -7446,10 +7365,6 @@ button.job-state {
   .effect-parameter {
     padding-left: 42px;
   }
-
-  .plugin-row {
-    grid-template-columns: minmax(220px, 1fr) 100px 78px;
-  }
 }
 
 @media (max-width: 1120px) {
@@ -7508,15 +7423,7 @@ button.job-state {
   }
 
   .plugins-workspace {
-    grid-template-columns: minmax(0, 1fr) 278px;
-  }
-
-  .plugin-row {
-    grid-template-columns: minmax(220px, 1fr) 76px;
-  }
-
-  .plugin-hardware {
-    display: none;
+    grid-template-columns: clamp(280px, 38%, 360px) minmax(0, 1fr);
   }
 }
 
@@ -7804,14 +7711,6 @@ button.job-state {
     display: none;
   }
 
-  .plugin-row {
-    min-height: 124px;
-    grid-template-columns: minmax(170px, 1fr) 70px;
-  }
-
-  .plugin-main-copy p {
-    white-space: normal;
-  }
 
   .statusbar > div:last-child,
   .statusbar > div:first-child > span:not(:first-child) {

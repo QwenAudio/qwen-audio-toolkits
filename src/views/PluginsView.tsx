@@ -459,6 +459,15 @@ export function PluginsView({
   const selectedCloudBusy = Boolean(
     selectedPlugin && selectedIsApi && cloudBusyIds.has(selectedPlugin.id),
   )
+  const selectedDependencyReferences =
+    selectedPlugin && !selectedIsApi
+      ? referencingModels(selectedPlugin.id, allModels, modelBindings)
+      : []
+  const selectedRetainedDependency = Boolean(
+    selectedPlugin?.installed &&
+      selectedPlugin.sidebarVisible === false &&
+      selectedDependencyReferences.length > 0,
+  )
   const anotherOperationBusy = Boolean(
     busyId && !installJobsRef.current[busyId],
   )
@@ -910,8 +919,83 @@ export function PluginsView({
             </label>
           </div>
 
-          <div className="catalog-heading">
-            <div className="catalog-heading-actions">
+          <div className="plugin-list">
+            {!filteredPlugins.length && (
+              <div className="plugin-empty-category">
+                <BrainCircuit size={22} />
+                <strong>
+                  这个分类暂时没有模型
+                </strong>
+                <p>
+                  尝试切换分类或搜索其他能力。
+                </p>
+              </div>
+            )}
+            {filteredPlugins.map((plugin) => {
+              const apiPlugin = isApiPlugin(plugin)
+              const installState = installJobs[plugin.id]
+              return (
+                <article
+                  key={plugin.id}
+                  className={`plugin-row${plugin.id === selectedPlugin?.id ? ' selected' : ''}`}
+                  onClick={() => setSelectedId(plugin.id)}
+                >
+                  <div className="plugin-main-copy">
+                    <div className="plugin-title-line">
+                      <h2>{plugin.name}</h2>
+                      <span
+                        className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
+                      >
+                        {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
+                        {apiPlugin ? '云端 API' : '离线运行'}
+                      </span>
+                      {installState ? (
+                        <span
+                          className="plugin-row-status installing"
+                          title={installDetail || undefined}
+                        >
+                          <RefreshCw size={11} className="model-spin" />
+                          {installState === 'queued'
+                            ? '排队中'
+                            : installState === 'paused'
+                              ? '已暂停'
+                              : installState === 'canceling'
+                                ? '取消中'
+                                : compactInstallProgress}
+                        </span>
+                      ) : plugin.installed ? (
+                        <span className="plugin-row-status installed">
+                          <PackageCheck size={11} />
+                          已安装
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="plugin-author">
+                      模型：{plugin.author} ·{' '}
+                      {displayPluginVersion(plugin, apiPlugin)}
+                    </span>
+                    <p>{plugin.description}</p>
+                    <div className="plugin-capabilities">
+                      <span>
+                        {plugin.streamingMode === 'streaming'
+                          ? '流式'
+                          : '整段处理'}
+                      </span>
+                      {plugin.capabilities.map((capability) => (
+                        <span key={capability}>{capability}</span>
+                      ))}
+                      <span>{plugin.runtime}</span>
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        </main>
+
+        <aside className="plugin-details">
+          <div className="plugin-details-head">
+            <div className="plugin-details-filters">
               {Object.keys(installJobs).length > 0 && (
                 <span className="catalog-install-status">
                   <RefreshCw size={13} />
@@ -955,243 +1039,6 @@ export function PluginsView({
                 </button>
               </div>
             </div>
-          </div>
-
-          <div className="plugin-list">
-            {!filteredPlugins.length && (
-              <div className="plugin-empty-category">
-                <BrainCircuit size={22} />
-                <strong>
-                  这个分类暂时没有模型
-                </strong>
-                <p>
-                  尝试切换分类或搜索其他能力。
-                </p>
-              </div>
-            )}
-            {filteredPlugins.map((plugin) => {
-              const apiPlugin = isApiPlugin(plugin)
-              const requiresApiConfig = apiPlugin && !plugin.enabled
-              const installState = installJobs[plugin.id]
-              const isQueued = installState === 'queued'
-              const isCloudBusy = cloudBusyIds.has(plugin.id)
-              const isBusy =
-                Boolean(installState && installState !== 'queued') ||
-                busyId === plugin.id ||
-                isCloudBusy
-              const canQueueInstall =
-                !apiPlugin &&
-                !plugin.installed &&
-                plugin.catalogManaged === true
-              const dependencyReferences = apiPlugin
-                ? []
-                : referencingModels(plugin.id, allModels, modelBindings)
-              const retainedDependency =
-                plugin.installed &&
-                plugin.sidebarVisible === false &&
-                dependencyReferences.length > 0
-              const actionDisabled =
-                (!plugin.installed &&
-                  !apiPlugin &&
-                  (!plugin.catalogManaged || plugin.installable === false)) ||
-                retainedDependency ||
-                isQueued ||
-                (!canQueueInstall && !apiPlugin && Boolean(busyId)) ||
-                isCloudBusy ||
-                (canQueueInstall && anotherOperationBusy)
-              return (
-                <article
-                  key={plugin.id}
-                  className={`plugin-row${plugin.id === selectedPlugin?.id ? ' selected' : ''}`}
-                  onClick={() => setSelectedId(plugin.id)}
-                >
-                  <div className="plugin-main-copy">
-                    <div className="plugin-title-line">
-                      <h2>{plugin.name}</h2>
-                      <span
-                        className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
-                      >
-                        {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
-                        {apiPlugin ? '云端 API' : '离线运行'}
-                      </span>
-                    </div>
-                    <span className="plugin-author">
-                      模型：{plugin.author} ·{' '}
-                      {displayPluginVersion(plugin, apiPlugin)}
-                    </span>
-                    <p>{plugin.description}</p>
-                    <div className="plugin-capabilities">
-                      <span>
-                        {plugin.streamingMode === 'streaming'
-                          ? '流式'
-                          : '整段处理'}
-                      </span>
-                      {plugin.capabilities.map((capability) => (
-                        <span key={capability}>{capability}</span>
-                      ))}
-                      <span>{plugin.runtime}</span>
-                    </div>
-                  </div>
-                  <div className="plugin-hardware">
-                    {!apiPlugin && (
-                      <span>
-                        {plugin.variants?.find(
-                          (variant) => variant.id === variantIdFor(plugin),
-                        )?.size ?? plugin.size}
-                      </span>
-                    )}
-                    <div>
-                      {plugin.acceleration.slice(0, 3).map((item) => (
-                        <small key={item}>{item}</small>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="plugin-row-action">
-                    {installState ? (
-                      <div
-                        className={`installing-state ${installState}`}
-                        title={installDetail || undefined}
-                      >
-                        <div className="installing-state-heading">
-                          <span>
-                            {installState === 'queued'
-                              ? '排队中'
-                              : installState === 'paused'
-                                ? '已暂停'
-                                : installState === 'canceling'
-                                  ? '正在取消'
-                                  : compactInstallProgress}
-                          </span>
-                          <span className="install-task-actions">
-                            {(installState === 'running' ||
-                              installState === 'paused') && (
-                              <button
-                                type="button"
-                                title={installState === 'paused' ? '继续下载' : '暂停下载'}
-                                aria-label={installState === 'paused' ? '继续下载' : '暂停下载'}
-                                disabled={
-                                  installState === 'running' &&
-                                  installStage !== 'downloading'
-                                }
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void toggleInstallPaused(plugin.id)
-                                }}
-                              >
-                                {installState === 'paused' ? (
-                                  <Play size={12} />
-                                ) : (
-                                  <Pause size={12} />
-                                )}
-                              </button>
-                            )}
-                            {installState !== 'canceling' && (
-                              <button
-                                type="button"
-                                title="取消下载"
-                                aria-label="取消下载"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void cancelInstall(plugin.id)
-                                }}
-                              >
-                                <X size={12} />
-                              </button>
-                            )}
-                          </span>
-                        </div>
-                        <i>
-                          <b
-                            style={{
-                              width: `${isQueued ? 0 : installProgress}%`,
-                            }}
-                          />
-                        </i>
-                      </div>
-                    ) : isBusy ? (
-                      <div className="installing-state">
-                        <span>{installDetail || '处理中'}</span>
-                      </div>
-                    ) : (
-                      <button
-                        className={
-                          plugin.installed
-                            ? `installed-button${retainedDependency ? ' retained-dependency' : ''}${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`
-                            : 'install-button'
-                        }
-                        type="button"
-                        title={
-                          retainedDependency
-                            ? `仍被 ${dependencyReferences.length} 个模型使用`
-                            : undefined
-                        }
-                        disabled={actionDisabled}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          if (apiPlugin) {
-                            if (requiresApiConfig) {
-                              onConfigureProvider(plugin.providerId ?? '')
-                            } else if (plugin.installed) {
-                              void removePlugin(plugin)
-                            } else {
-                              void setCloudModelInstalled(plugin, true)
-                            }
-                            return
-                          }
-                          if (plugin.installed) {
-                            void removePlugin(plugin)
-                          } else {
-                            void installOrAddPlugin(plugin)
-                          }
-                        }}
-                      >
-                        {retainedDependency ? (
-                          <>
-                            <PackageCheck size={15} />
-                            依赖中
-                          </>
-                        ) : apiPlugin ? (
-                          <>
-                            {requiresApiConfig ? (
-                              <KeyRound size={15} />
-                            ) : plugin.installed ? (
-                              <Trash2 size={15} />
-                            ) : (
-                              <CirclePlus size={15} />
-                            )}
-                            {requiresApiConfig
-                              ? '配置'
-                              : plugin.installed
-                                ? '删除'
-                                : '添加'}
-                          </>
-                        ) : plugin.installed ? (
-                          <>
-                            <Trash2 size={15} />
-                            删除
-                          </>
-                        ) : (
-                          <>
-                            <Download size={15} />{' '}
-                            {plugin.installable === false
-                              ? '适配中'
-                              : plugin.catalogManaged
-                                ? '安装'
-                                : '仅兼容'}
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-
-        </main>
-
-        <aside className="plugin-details">
-          <div className="plugin-details-head">
             <button
               ref={customModelTriggerRef}
               className="catalog-add-api-model"
@@ -1202,6 +1049,14 @@ export function PluginsView({
               添加 API 模型
             </button>
           </div>
+
+          {!selectedPlugin && (
+            <div className="plugin-empty-category plugin-details-empty">
+              <BrainCircuit size={22} />
+              <strong>选择一个模型查看详情</strong>
+              <p>在中间列表中点击模型，这里会显示它的主页与安装选项。</p>
+            </div>
+          )}
 
           {selectedPlugin && (
             <>
@@ -1286,11 +1141,11 @@ export function PluginsView({
                 </span>
               </div>
 
-              {(selectedIsApi ||
+              <div className="plugin-detail-actions">
+                {(selectedIsApi ||
                   !selectedPlugin.installed ||
                   selectedPlugin.sidebarVisible === false ||
                   selectedInstallState !== undefined) && (
-                <div className="plugin-detail-actions">
                   <button
                     className="secondary-action full-width"
                     type="button"
@@ -1370,6 +1225,7 @@ export function PluginsView({
                     </>
                   )}
                   </button>
+                )}
                 {selectedInstallState && (
                   <div className="selected-install-actions">
                     {(selectedInstallState === 'running' ||
@@ -1415,8 +1271,41 @@ export function PluginsView({
                     )}
                   </div>
                 )}
-                </div>
-              )}
+                {selectedPlugin.installed &&
+                  !selectedInstallState &&
+                  !selectedCloudBusy &&
+                  selectedPlugin.adapter !== 'web-audio' && (
+                    <button
+                      className={`installed-button plugin-detail-remove${
+                        selectedRetainedDependency ? ' retained-dependency' : ''
+                      }${pendingDeleteId === selectedPlugin.id ? ' confirming-delete' : ''}`}
+                      type="button"
+                      title={
+                        selectedRetainedDependency
+                          ? `仍被 ${selectedDependencyReferences.length} 个模型使用`
+                          : undefined
+                      }
+                      disabled={selectedRetainedDependency || Boolean(busyId)}
+                      onClick={() => void removePlugin(selectedPlugin)}
+                    >
+                      {selectedRetainedDependency ? (
+                        <>
+                          <PackageCheck size={15} />
+                          依赖中
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={15} />
+                          {pendingDeleteId === selectedPlugin.id
+                            ? '再次点击确认删除'
+                            : selectedIsApi
+                              ? '从工作台移除'
+                              : '删除模型'}
+                        </>
+                      )}
+                    </button>
+                  )}
+              </div>
 
               <div className="plugin-project-tabs" role="tablist">
                 <button
