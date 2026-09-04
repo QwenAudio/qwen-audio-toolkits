@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "settings-window",
+  "description": "allows the settings window to check and install app updates",
+  "windows": ["settings"],
+  "permissions": [
+    "updater:default",
+    "process:allow-restart"
+  ]
+}

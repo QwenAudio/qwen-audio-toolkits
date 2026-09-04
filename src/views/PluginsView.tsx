@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import Markdown from 'react-markdown'
 import { listen } from '@tauri-apps/api/event'
 import {
   Boxes,
   BrainCircuit,
+  ChevronRight,
   CirclePlus,
   Cpu,
   Download,
+  FileText,
   Gauge,
   HardDrive,
   KeyRound,
@@ -22,6 +26,8 @@ import {
 } from 'lucide-react'
 import {
   getHarnessCatalog,
+  getModelPluginFiles,
+  getModelPluginReadme,
   installCatalogModel,
   installRecommendedModelDependency,
   isTauriRuntime,
@@ -30,6 +36,7 @@ import {
   setModelPluginSidebarVisible,
   setModelDownloadPaused,
   uninstallModelPlugin,
+  type ModelPluginFileEntry,
 } from '../services/harness'
 import {
   getModelBinding,
@@ -37,6 +44,13 @@ import {
   recommendedDependencies,
 } from '../modelDependencies'
 import { cloudModelsFromCatalog } from '../cloudModels'
+import { getModelNote } from '../content/modelNotes'
+import { formatFileSize } from '../utils/audio'
+import {
+  MODEL_PRIMARY_CATEGORIES,
+  modelTaxonomy,
+  type ModelPrimaryCategory,
+} from '../domain/modelTaxonomy'
 import {
   advanceInstallProgress,
   parseInstallSpeed,
@@ -72,6 +86,8 @@ interface PluginsViewProps {
   onCatalogChanged: (catalog: HarnessCatalog) => void
   onCloudModelInstalled: (modelId: string, installed: boolean) => void
   onAction: (message: string) => void
+  /** When set, the category tree renders into this element (the app sidebar). */
+  taxonomyHost?: HTMLElement | null
 }
 
 function isApiPlugin(plugin: ModelPlugin): boolean {
@@ -122,11 +138,13 @@ export function PluginsView({
   onCatalogChanged,
   onCloudModelInstalled,
   onAction,
+  taxonomyHost,
 }: PluginsViewProps) {
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<
-    'all' | 'audio' | 'understanding' | 'text' | 'generation'
+  const [primaryFilter, setPrimaryFilter] = useState<
+    'all' | ModelPrimaryCategory
   >('all')
+  const [secondaryFilter, setSecondaryFilter] = useState('all')
   const [runtimeFilter, setRuntimeFilter] = useState<
     'all' | 'offline' | 'api'
   >('all')
@@ -158,7 +176,13 @@ export function PluginsView({
   const [selectedVariants, setSelectedVariants] = useState<
     Record<string, string>
   >({})
+  const [selectedReadme, setSelectedReadme] = useState<string | null>(null)
+  const [detailsTab, setDetailsTab] = useState<'card' | 'files'>('card')
+  const [selectedFiles, setSelectedFiles] = useState<
+    ModelPluginFileEntry[] | null
+  >(null)
   const [customModelEditorOpen, setCustomModelEditorOpen] = useState(false)
+  const customModelTriggerRef = useRef<HTMLButtonElement>(null)
   const [customModelName, setCustomModelName] = useState('')
   const [customModelServiceId, setCustomModelServiceId] = useState('')
   const [customModelCapability, setCustomModelCapability] = useState<
@@ -189,6 +213,10 @@ export function PluginsView({
       ? [{ value: 'speech.synthesize' as const, label: 'TTS · 语音合成' }]
       : []),
   ]
+  const closeCustomModelEditor = useCallback(() => {
+    setCustomModelEditorOpen(false)
+    window.requestAnimationFrame(() => customModelTriggerRef.current?.focus())
+  }, [])
   useEffect(() => {
     const provider = customProviders.find(
       ({ id }) => id === customModelProviderId,
@@ -227,12 +255,73 @@ export function PluginsView({
     () => [...plugins, ...cloudModels].sort(compareCatalogModels),
     [cloudModels, plugins],
   )
+  const taxonomyByModelId = useMemo(
+    () =>
+      new Map(
+        allModels.map((model) => [model.id, modelTaxonomy(model)] as const),
+      ),
+    [allModels],
+  )
+  const categoryTree = useMemo(
+    () =>
+      MODEL_PRIMARY_CATEGORIES.map((category) => {
+        const categoryModels = allModels.filter(
+          (model) =>
+            taxonomyByModelId.get(model.id)?.primaryCategory === category.id,
+        )
+        const secondaryCounts = new Map<string, number>()
+        for (const model of categoryModels) {
+          const secondaryCategory =
+            taxonomyByModelId.get(model.id)?.secondaryCategory
+          if (!secondaryCategory) continue
+          secondaryCounts.set(
+            secondaryCategory,
+            (secondaryCounts.get(secondaryCategory) ?? 0) + 1,
+          )
+        }
+        return {
+          ...category,
+          count: categoryModels.length,
+          secondary: [...secondaryCounts.entries()]
+            .map(([id, count]) => ({ id, count }))
+            .sort((left, right) => left.id.localeCompare(right.id, 'en')),
+        }
+      }),
+    [allModels, taxonomyByModelId],
+  )
+  const activeCategory =
+    primaryFilter === 'all'
+      ? undefined
+      : categoryTree.find((category) => category.id === primaryFilter)
 
   useEffect(() => {
     if (!pendingDeleteId) return undefined
     const timer = window.setTimeout(() => setPendingDeleteId(null), 3200)
     return () => window.clearTimeout(timer)
   }, [pendingDeleteId])
+
+  useEffect(() => {
+    if (!customModelEditorOpen) return undefined
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopPropagation()
+      closeCustomModelEditor()
+    }
+    document.addEventListener('keydown', closeOnEscape, true)
+    return () => document.removeEventListener('keydown', closeOnEscape, true)
+  }, [closeCustomModelEditor, customModelEditorOpen])
+
+  useEffect(() => {
+    if (
+      secondaryFilter !== 'all' &&
+      !activeCategory?.secondary.some(
+        (category) => category.id === secondaryFilter,
+      )
+    ) {
+      setSecondaryFilter('all')
+    }
+  }, [activeCategory, secondaryFilter])
 
   useEffect(() => {
     if (!desktopRuntime) return undefined
@@ -271,36 +360,12 @@ export function PluginsView({
           (plugin.apiAliases ?? []).some((alias) =>
             alias.toLowerCase().includes(search.toLowerCase()),
           )
+        const taxonomy = taxonomyByModelId.get(plugin.id)
         const filterMatch =
-          filter === 'all' ||
-          (filter === 'audio' &&
-            plugin.harnessCapabilities.some((capability) =>
-              [
-                'audio.enhance',
-                'audio.live',
-                'speech.detect',
-                'audio.separate',
-              ].includes(capability),
-            )) ||
-          (filter === 'understanding' &&
-            plugin.harnessCapabilities.some((capability) =>
-              [
-                'speech.transcribe',
-                'audio.classify',
-                'speech.keyword',
-                'speech.language',
-                'speaker.embed',
-                'speaker.diarize',
-              ].includes(capability),
-            )) ||
-          (filter === 'text' &&
-            plugin.harnessCapabilities.some((capability) =>
-              ['text.generate', 'text.punctuate', 'text.normalize'].includes(
-                capability,
-              ),
-            )) ||
-          (filter === 'generation' &&
-            plugin.harnessCapabilities.includes('speech.synthesize'))
+          primaryFilter === 'all' ||
+          (taxonomy?.primaryCategory === primaryFilter &&
+            (secondaryFilter === 'all' ||
+              taxonomy.secondaryCategory === secondaryFilter))
         const apiPlugin = isApiPlugin(plugin)
         const runtimeMatch =
           runtimeFilter === 'all' ||
@@ -308,7 +373,14 @@ export function PluginsView({
           (runtimeFilter === 'offline' && !apiPlugin)
         return searchMatch && filterMatch && runtimeMatch
       }),
-    [allModels, filter, runtimeFilter, search],
+    [
+      allModels,
+      primaryFilter,
+      runtimeFilter,
+      search,
+      secondaryFilter,
+      taxonomyByModelId,
+    ],
   )
   const selectedPlugin =
     filteredPlugins.find((plugin) => plugin.id === selectedId) ??
@@ -316,6 +388,54 @@ export function PluginsView({
   const selectedIsApi = selectedPlugin
     ? isApiPlugin(selectedPlugin)
     : false
+  const selectedNote = selectedPlugin
+    ? getModelNote(selectedPlugin.id)
+    : undefined
+  const selectedPluginId = selectedPlugin?.id
+  useEffect(() => {
+    let cancelled = false
+    if (!selectedPluginId || !isTauriRuntime()) {
+      setSelectedReadme(null)
+      return undefined
+    }
+    setSelectedReadme(null)
+    getModelPluginReadme(selectedPluginId)
+      .then((readme) => {
+        if (!cancelled) setSelectedReadme(readme)
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedReadme(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedPluginId])
+  const selectedHasFiles = Boolean(
+    selectedPlugin &&
+      !selectedIsApi &&
+      selectedPlugin.installed &&
+      isTauriRuntime(),
+  )
+  useEffect(() => {
+    let cancelled = false
+    setDetailsTab('card')
+    setSelectedFiles(null)
+    if (!selectedPluginId || !isTauriRuntime() || !selectedHasFiles) {
+      return () => {
+        cancelled = true
+      }
+    }
+    getModelPluginFiles(selectedPluginId)
+      .then((files) => {
+        if (!cancelled) setSelectedFiles(files)
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedFiles(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedPluginId, selectedHasFiles])
   const selectedVariant = selectedPlugin?.variants?.find(
     (variant) =>
       variant.id ===
@@ -373,11 +493,12 @@ export function PluginsView({
     setCustomModelCapability('text.generate')
     setCustomModelProviderId(customProviders[0]?.id ?? 'api.openai-compatible')
     setCustomModelVoice('alloy')
-    setCustomModelEditorOpen(false)
-    setFilter('text')
+    closeCustomModelEditor()
+    setPrimaryFilter(customModelCapability === 'text.generate' ? 'text' : 'audio')
+    setSecondaryFilter('all')
     setRuntimeFilter('api')
     setSelectedId(id)
-    onAction('自定义 API 模型已添加到模型商店')
+    onAction('自定义 API 模型已添加到扩展')
   }
 
   const setCloudModelInstalled = async (
@@ -679,9 +800,101 @@ export function PluginsView({
     }
   }
 
+  const taxonomy = (
+    <aside
+      className="catalog-taxonomy"
+      aria-label="模型分类"
+      inert={customModelEditorOpen ? true : undefined}
+      aria-hidden={customModelEditorOpen}
+    >
+      <div className="taxonomy-heading">
+        <span>模型分类</span>
+        <small>{allModels.length}</small>
+      </div>
+      <nav className="taxonomy-tree" role="tree">
+          <button
+            className={`taxonomy-all${primaryFilter === 'all' ? ' active' : ''}`}
+            type="button"
+            role="treeitem"
+            aria-current={primaryFilter === 'all' ? 'page' : undefined}
+            onClick={() => {
+              setPrimaryFilter('all')
+              setSecondaryFilter('all')
+            }}
+          >
+            <span>全部模型</span>
+            <small>{allModels.length}</small>
+          </button>
+          {categoryTree.map((category) => {
+            const expanded = primaryFilter === category.id
+            return (
+              <div
+                key={category.id}
+                className={`taxonomy-branch${expanded ? ' expanded' : ''}`}
+              >
+                <button
+                  className="taxonomy-primary"
+                  type="button"
+                  role="treeitem"
+                  aria-expanded={expanded && category.secondary.length > 0}
+                  aria-current={expanded ? 'page' : undefined}
+                  onClick={() => {
+                    setPrimaryFilter(category.id)
+                    setSecondaryFilter('all')
+                  }}
+                >
+                  <ChevronRight size={13} />
+                  <span>{category.label}</span>
+                  <small>{category.count}</small>
+                </button>
+                {expanded && category.secondary.length > 0 && (
+                  <div className="taxonomy-secondary-group" role="group">
+                    <button
+                      className={secondaryFilter === 'all' ? 'active' : ''}
+                      type="button"
+                      role="treeitem"
+                      aria-current={
+                        secondaryFilter === 'all' ? 'page' : undefined
+                      }
+                      onClick={() => setSecondaryFilter('all')}
+                    >
+                      <span>全部</span>
+                      <small>{category.count}</small>
+                    </button>
+                    {category.secondary.map((secondary) => (
+                      <button
+                        key={secondary.id}
+                        className={
+                          secondaryFilter === secondary.id ? 'active' : ''
+                        }
+                        type="button"
+                        role="treeitem"
+                        title={secondary.id}
+                        aria-current={
+                          secondaryFilter === secondary.id ? 'page' : undefined
+                        }
+                        onClick={() => setSecondaryFilter(secondary.id)}
+                      >
+                        <span>{secondary.id}</span>
+                        <small>{secondary.count}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+      </nav>
+    </aside>
+  )
+
   return (
-    <div className="plugins-page">
-      <div className="plugin-toolbar">
+    <div className={`plugins-page${taxonomyHost ? ' embedded' : ''}`}>
+      <div
+        className="plugin-toolbar"
+        inert={customModelEditorOpen ? true : undefined}
+        aria-hidden={customModelEditorOpen}
+      >
         <label className="search-field plugin-search">
           <Search size={15} />
           <input
@@ -691,44 +904,8 @@ export function PluginsView({
             aria-label="搜索插件"
           />
         </label>
-        <div className="filter-tabs">
-          <button
-            className={filter === 'all' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('all')}
-          >
-            全部
-          </button>
-          <button
-            className={filter === 'audio' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('audio')}
-          >
-            音频处理
-          </button>
-          <button
-            className={filter === 'understanding' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('understanding')}
-          >
-            音频理解
-          </button>
-          <button
-            className={filter === 'text' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('text')}
-          >
-            文本智能
-          </button>
-          <button
-            className={filter === 'generation' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('generation')}
-          >
-            音频生成
-          </button>
-        </div>
         <button
+          ref={customModelTriggerRef}
           className="catalog-add-api-model"
           type="button"
           onClick={() => setCustomModelEditorOpen(true)}
@@ -738,7 +915,13 @@ export function PluginsView({
         </button>
       </div>
 
-      <div className="plugins-workspace">
+      {taxonomyHost ? createPortal(taxonomy, taxonomyHost) : taxonomy}
+
+      <div
+        className="plugins-workspace"
+        inert={customModelEditorOpen ? true : undefined}
+        aria-hidden={customModelEditorOpen}
+      >
         <main className="plugin-catalog">
           <div className="catalog-heading">
             <div className="catalog-heading-actions">
@@ -1023,13 +1206,33 @@ export function PluginsView({
         <aside className="plugin-details">
           {selectedPlugin && (
             <>
-              <div className="plugin-details-heading">
-                <div>
+              <div className="plugin-project-header">
+                <div className="plugin-project-title">
+                  <span className="plugin-project-owner">
+                    {selectedPlugin.author}
+                  </span>
+                  <span className="plugin-project-sep">/</span>
                   <h2>{selectedPlugin.name}</h2>
-                  <small>
-                    {displayPluginVersion(selectedPlugin, selectedIsApi)}{' '}
-                    · {selectedPlugin.author}
-                  </small>
+                </div>
+                {selectedPlugin.description && (
+                  <p className="plugin-project-description">
+                    {selectedPlugin.description}
+                  </p>
+                )}
+                <div className="plugin-project-meta">
+                  <span>
+                    v{displayPluginVersion(selectedPlugin, selectedIsApi)}
+                  </span>
+                  {selectedPlugin.license && <span>{selectedPlugin.license}</span>}
+                  {!selectedIsApi && (
+                    <span>{selectedVariant?.size ?? selectedPlugin.size}</span>
+                  )}
+                  <span>{selectedIsApi ? '云端 API' : '离线运行'}</span>
+                </div>
+                <div className="plugin-capabilities">
+                  {selectedPlugin.capabilities.map((capability) => (
+                    <span key={capability}>{capability}</span>
+                  ))}
                 </div>
               </div>
 
@@ -1216,19 +1419,72 @@ export function PluginsView({
                 </div>
               )}
 
-              <section className="model-introduction-card">
-                <header>
-                  <strong>模型介绍</strong>
-                </header>
-                <div className="model-introduction-body">
-                  <p>{selectedPlugin.description}</p>
-                  <div className="plugin-capabilities">
-                    {selectedPlugin.capabilities.map((capability) => (
-                      <span key={capability}>{capability}</span>
-                    ))}
+              <div className="plugin-project-tabs" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={detailsTab === 'card'}
+                  className={detailsTab === 'card' ? 'active' : ''}
+                  onClick={() => setDetailsTab('card')}
+                >
+                  模型卡片
+                </button>
+                {selectedHasFiles && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={detailsTab === 'files'}
+                    className={detailsTab === 'files' ? 'active' : ''}
+                    onClick={() => setDetailsTab('files')}
+                  >
+                    文件
+                  </button>
+                )}
+              </div>
+
+              {detailsTab === 'files' ? (
+                <section className="plugin-files-card">
+                  {selectedFiles === null ? (
+                    <p className="plugin-files-empty">正在读取文件…</p>
+                  ) : selectedFiles.length === 0 ? (
+                    <p className="plugin-files-empty">暂无文件</p>
+                  ) : (
+                    <ul className="plugin-files-list">
+                      {selectedFiles.map((file) => (
+                        <li key={file.path}>
+                          <FileText size={14} />
+                          <span className="plugin-file-path">{file.path}</span>
+                          <span className="plugin-file-size">
+                            {formatFileSize(file.size)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ) : (
+                <section className="model-introduction-card">
+                  <div className="model-introduction-body">
+                    {selectedReadme || selectedNote ? (
+                      <div className="model-note">
+                        <Markdown
+                          components={{
+                            a: ({ href, children }) => (
+                              <a href={href} target="_blank" rel="noreferrer">
+                                {children}
+                              </a>
+                            ),
+                          }}
+                        >
+                          {selectedReadme ?? selectedNote ?? ''}
+                        </Markdown>
+                      </div>
+                    ) : (
+                      <p>{selectedPlugin.description}</p>
+                    )}
                   </div>
-                </div>
-              </section>
+                </section>
+              )}
 
               {selectedDependencies.length > 0 && (
                 <section className="runtime-card model-dependencies-card">
@@ -1421,7 +1677,7 @@ export function PluginsView({
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
-              setCustomModelEditorOpen(false)
+              closeCustomModelEditor()
             }
           }}
         >
@@ -1439,8 +1695,9 @@ export function PluginsView({
               <button
                 className="icon-button"
                 type="button"
+                autoFocus
                 aria-label="关闭"
-                onClick={() => setCustomModelEditorOpen(false)}
+                onClick={closeCustomModelEditor}
               >
                 <X size={17} />
               </button>

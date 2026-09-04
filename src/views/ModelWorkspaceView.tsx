@@ -687,7 +687,6 @@ export function ModelWorkspaceView({
     supportsTtsInstruction,
     supportsTtsLanguage,
     supportsVoiceDesign,
-    ttsReferenceAudioLabel,
   } = inputProfile
   const openRequiredSetup = () => {
     if (apiModel) onConfigureProvider()
@@ -2023,7 +2022,7 @@ export function ModelWorkspaceView({
       onAction(
         apiModel
           ? `请先配置 ${provider?.name ?? '模型服务商'} Provider`
-          : `请先在模型商店启用 ${plugin.name}`,
+          : `请先在扩展中启用 ${plugin.name}`,
       )
       openRequiredSetup()
       return
@@ -2617,9 +2616,6 @@ export function ModelWorkspaceView({
       >
         <div data-tauri-drag-region>
           <h1 data-tauri-drag-region>{plugin.name}</h1>
-          <p data-tauri-drag-region>
-            {capabilityLabel(capability)} · {plugin.runtime}
-          </p>
         </div>
         {selectedRun && (
           <button
@@ -2671,7 +2667,7 @@ export function ModelWorkspaceView({
                   type="button"
                   onClick={openRequiredSetup}
                 >
-                  {apiModel ? '配置 API' : '打开模型商店'}
+                  {apiModel ? '配置 API' : '打开扩展'}
                 </button>
               )}
             </div>
@@ -2875,7 +2871,7 @@ export function ModelWorkspaceView({
               <span>
                 {apiModel
                   ? '已有对话记录仍会保留，配置完成后即可继续。'
-                  : '请前往模型商店完成安装或修复依赖。'}
+                  : '请前往扩展完成安装或修复依赖。'}
               </span>
             </div>
             <button
@@ -2883,7 +2879,7 @@ export function ModelWorkspaceView({
               type="button"
               onClick={openRequiredSetup}
             >
-              {apiModel ? '配置 API' : '打开模型商店'}
+              {apiModel ? '配置 API' : '打开扩展'}
             </button>
           </footer>
         )}
@@ -3062,29 +3058,14 @@ export function ModelWorkspaceView({
               )}
               {capability === 'speech.synthesize' &&
                 requiresTtsReferenceAudio && (
-                <div
-                  className={`tts-reference-stack${requiresTtsReferenceText ? ' inline' : ''}`}
-                >
+                <div className="model-parameter-bar">
                   <AudioFileDropZone
                     disabled={busy || recording}
                     onFile={(file) => void prepareTtsReferenceAudio(file)}
                     onInvalidFile={onAction}
                   >
-                    <div className="tts-reference-input">
-                      <div className="tts-reference-heading">
-                        <FileAudio size={15} />
-                        <span>
-                          <strong>{ttsReferenceAudioLabel}</strong>
-                          {(recordingTarget === 'tts-reference' ||
-                            ttsReferenceClip) && (
-                            <small>
-                              {recordingTarget === 'tts-reference'
-                                ? '正在通过麦克风录制'
-                                : ttsReferenceClip?.name}
-                            </small>
-                          )}
-                        </span>
-                      </div>
+                    <div className="tts-reference-field">
+                      <span>参考音频</span>
                       {recordingTarget === 'tts-reference' && (
                         <RecordingWaveform
                           active
@@ -3099,7 +3080,7 @@ export function ModelWorkspaceView({
                             duration={ttsReferenceClip.duration}
                           />
                         )}
-                      <div className="tts-reference-actions">
+                      <span className="tts-reference-actions">
                         <button
                           type="button"
                           title="上传参考音频"
@@ -3107,8 +3088,7 @@ export function ModelWorkspaceView({
                           disabled={busy || recording}
                           onClick={() => ttsReferenceInputRef.current?.click()}
                         >
-                          <Upload size={15} />
-                          <span>上传</span>
+                          <Upload size={14} />
                         </button>
                         <button
                           className={
@@ -3135,15 +3115,10 @@ export function ModelWorkspaceView({
                           }
                         >
                           {recordingTarget === 'tts-reference' ? (
-                            <CircleStop size={15} />
+                            <CircleStop size={14} />
                           ) : (
-                            <Mic size={15} />
+                            <Mic size={14} />
                           )}
-                          <span>
-                            {recordingTarget === 'tts-reference'
-                              ? '停止'
-                              : '录制'}
-                          </span>
                         </button>
                         {ttsReferenceClip &&
                           recordingTarget !== 'tts-reference' && (
@@ -3151,32 +3126,31 @@ export function ModelWorkspaceView({
                               className="remove"
                               type="button"
                               title="清除参考音频"
+                              aria-label="清除参考音频"
                               onClick={() => setTtsReferenceClip(null)}
                             >
-                              <X size={15} />
+                              <X size={14} />
                             </button>
                           )}
-                      </div>
+                      </span>
                     </div>
                   </AudioFileDropZone>
                   {requiresTtsReferenceText && (
-                    <div className="tts-reference-text-field">
-                      <label className="context-field">
-                        <span>参考文本</span>
-                        <input
-                          value={ttsReferenceText}
-                          placeholder="识别后可继续修改"
-                          onChange={(event) =>
-                            {
-                              ttsReferenceTextEditedRef.current = true
-                              setTtsReferenceText(event.target.value)
-                            }
+                    <label className="context-field">
+                      <span>参考文本</span>
+                      <input
+                        value={ttsReferenceText}
+                        placeholder="识别后可继续修改"
+                        onChange={(event) =>
+                          {
+                            ttsReferenceTextEditedRef.current = true
+                            setTtsReferenceText(event.target.value)
                           }
-                        />
-                      </label>
-                    </div>
+                        }
+                      />
+                    </label>
                   )}
-                  <label className="tts-reference-speed-field">
+                  <label>
                     <span>语速</span>
                     <select
                       value={speed}
@@ -3299,7 +3273,7 @@ export function ModelWorkspaceView({
                 )}
                 <textarea
                   value={text}
-                  rows={2}
+                  rows={3}
                   maxLength={
                     capability === 'text.generate' ? undefined : 1200
                   }

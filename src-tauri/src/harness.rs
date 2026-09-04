@@ -604,11 +604,12 @@ pub struct BailianProviderSettings {
 #[derive(Default)]
 pub struct HarnessRuntime {
     runs: Mutex<Vec<HarnessRun>>,
+    persistence: Mutex<()>,
     active: Mutex<HashMap<String, Arc<AtomicBool>>>,
     funasr_streams: Mutex<HashMap<String, mpsc::Sender<FunAsrStreamCommand>>>,
     vad_streams: Mutex<HashMap<String, StreamingVad>>,
     enhancement_streams: Mutex<HashMap<String, EnhancementStreamHandle>>,
-    initialized: AtomicBool,
+    initialized: Mutex<bool>,
 }
 
 enum FunAsrStreamCommand {
@@ -738,29 +739,44 @@ struct ResolvedProvider {
 
 impl HarnessRuntime {
     pub(crate) fn initialize(&self, app: &AppHandle) -> Result<(), String> {
-        if self.initialized.swap(true, Ordering::AcqRel) {
+        self.initialize_with_loader(|| {
+            let path = runs_path(app)?;
+            let mut loaded = match fs::read(&path) {
+                Ok(bytes) => serde_json::from_slice::<Vec<HarnessRun>>(&bytes)
+                    .map_err(|error| format!("无法读取运行历史: {error}"))?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                Err(error) => return Err(format!("无法打开运行历史: {error}")),
+            };
+            let mut compacted = false;
+            for run in &mut loaded {
+                compacted |= externalize_run_payloads(app, run)?;
+            }
+            if compacted {
+                write_runs_file(&path, &loaded)?;
+            }
+            Ok(loaded)
+        })
+    }
+
+    fn initialize_with_loader(
+        &self,
+        loader: impl FnOnce() -> Result<Vec<HarnessRun>, String>,
+    ) -> Result<(), String> {
+        let mut initialized = self
+            .initialized
+            .lock()
+            .map_err(|_| "运行历史初始化状态不可用".to_string())?;
+        if *initialized {
             return Ok(());
         }
 
-        let path = runs_path(app)?;
-        let mut loaded = match fs::read(&path) {
-            Ok(bytes) => serde_json::from_slice::<Vec<HarnessRun>>(&bytes)
-                .map_err(|error| format!("无法读取运行历史: {error}"))?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(format!("无法打开运行历史: {error}")),
-        };
-        let mut compacted = false;
-        for run in &mut loaded {
-            compacted |= externalize_run_payloads(app, run)?;
-        }
-        if compacted {
-            write_runs_file(&path, &loaded)?;
-        }
+        let loaded = loader()?;
         let mut runs = self
             .runs
             .lock()
             .map_err(|_| "运行历史状态不可用".to_string())?;
         *runs = loaded;
+        *initialized = true;
         Ok(())
     }
 
@@ -863,20 +879,39 @@ impl HarnessRuntime {
             fs::remove_dir_all(artifact_dir)
                 .map_err(|error| format!("无法删除运行产物缓存: {error}"))?;
         }
+        // Broadcast removal to every window so all open history views stay in sync.
+        let _ = app.emit("harness-runs-removed", vec![run_id.to_string()]);
         Ok(())
     }
 
     fn persist(&self, app: &AppHandle) -> Result<(), String> {
         let path = runs_path(app)?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|error| format!("无法创建运行历史目录: {error}"))?;
-        }
+        self.persist_with_writer(|runs| write_runs_file(&path, runs))
+    }
+
+    fn persist_with_writer(
+        &self,
+        writer: impl FnOnce(&[HarnessRun]) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.persist_with_writer_after_lock(|| {}, writer)
+    }
+
+    fn persist_with_writer_after_lock(
+        &self,
+        after_lock: impl FnOnce(),
+        writer: impl FnOnce(&[HarnessRun]) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let _persistence = self
+            .persistence
+            .lock()
+            .map_err(|_| "运行历史持久化状态不可用".to_string())?;
+        after_lock();
         let runs = self
             .runs
             .lock()
             .map_err(|_| "运行历史状态不可用".to_string())?
             .clone();
-        write_runs_file(&path, &runs)
+        writer(&runs)
     }
 }
 
@@ -6959,6 +6994,7 @@ fn emit_run(app: &AppHandle, run: &HarnessRun) {
 mod tests {
     use super::*;
     use crate::audio_io::{peak_dbfs, rms_dbfs};
+    use std::sync::atomic::AtomicUsize;
 
     fn provider(base_url: &str, api_key: &str) -> ApiProviderConfig {
         ApiProviderConfig {
@@ -6967,6 +7003,160 @@ mod tests {
             enabled: true,
             ..Default::default()
         }
+    }
+
+    fn test_run(id: &str) -> HarnessRun {
+        HarnessRun {
+            id: id.to_string(),
+            conversation_provider_id: None,
+            conversation_visible: true,
+            dependency_run_ids: Vec::new(),
+            capability: CAPABILITY_ASR.to_string(),
+            title: "Test run".to_string(),
+            input_summary: "Test input".to_string(),
+            provider_id: "test.provider".to_string(),
+            provider_name: "Test provider".to_string(),
+            model_id: "test-model".to_string(),
+            status: "running".to_string(),
+            progress: 0,
+            activity: None,
+            created_at: 0,
+            started_at: None,
+            completed_at: None,
+            duration_ms: None,
+            artifacts: Vec::new(),
+            error: None,
+            retryable: false,
+        }
+    }
+
+    #[test]
+    fn runtime_initialization_retries_after_failure() {
+        let runtime = HarnessRuntime::default();
+        let attempts = AtomicUsize::new(0);
+
+        let failure = runtime.initialize_with_loader(|| {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err("load failed".to_string())
+        });
+        assert!(failure.is_err());
+
+        runtime
+            .initialize_with_loader(|| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Ok(Vec::new())
+            })
+            .expect("retry initialization");
+        runtime
+            .initialize_with_loader(|| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                Ok(Vec::new())
+            })
+            .expect("skip initialized runtime");
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn initialization_lock_is_held_until_loader_finishes() {
+        let runtime = Arc::new(HarnessRuntime::default());
+        let loads = Arc::new(AtomicUsize::new(0));
+        let (loader_started_tx, loader_started_rx) = std_mpsc::channel();
+        let (release_loader_tx, release_loader_rx) = std_mpsc::channel();
+
+        let first_runtime = runtime.clone();
+        let first_loads = loads.clone();
+        let first = thread::spawn(move || {
+            first_runtime
+                .initialize_with_loader(|| {
+                    first_loads.fetch_add(1, Ordering::SeqCst);
+                    loader_started_tx.send(()).expect("signal loader start");
+                    release_loader_rx.recv().expect("release loader");
+                    Ok(vec![test_run("loaded")])
+                })
+                .expect("initialize runtime");
+        });
+        loader_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("wait for loader");
+
+        assert!(matches!(
+            runtime.initialized.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ));
+        assert!(runtime.runs.lock().expect("read pending runs").is_empty());
+
+        release_loader_tx.send(()).expect("complete loader");
+        first.join().expect("join first initializer");
+
+        assert_eq!(loads.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            runtime
+                .runs
+                .lock()
+                .expect("read initialized runs")
+                .first()
+                .map(|run| run.id.as_str()),
+            Some("loaded")
+        );
+    }
+
+    #[test]
+    fn persistence_lock_covers_snapshot_and_writer() {
+        let runtime = Arc::new(HarnessRuntime::default());
+        runtime
+            .runs
+            .lock()
+            .expect("seed runtime")
+            .push(test_run("first"));
+        let snapshot = Arc::new(Mutex::new(Vec::<String>::new()));
+        let (persistence_locked_tx, persistence_locked_rx) = std_mpsc::channel();
+        let (continue_snapshot_tx, continue_snapshot_rx) = std_mpsc::channel();
+
+        let worker_runtime = runtime.clone();
+        let writer_runtime = runtime.clone();
+        let worker_snapshot = snapshot.clone();
+        let worker = thread::spawn(move || {
+            worker_runtime
+                .persist_with_writer_after_lock(
+                    || {
+                        persistence_locked_tx
+                            .send(())
+                            .expect("signal persistence lock");
+                        continue_snapshot_rx.recv().expect("continue snapshot");
+                    },
+                    |runs| {
+                        assert!(matches!(
+                            writer_runtime.persistence.try_lock(),
+                            Err(std::sync::TryLockError::WouldBlock)
+                        ));
+                        *worker_snapshot.lock().expect("record snapshot") =
+                            runs.iter().map(|run| run.id.clone()).collect();
+                        Ok(())
+                    },
+                )
+                .expect("persist snapshot");
+        });
+        persistence_locked_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("wait for persistence lock");
+        assert!(matches!(
+            runtime.persistence.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ));
+
+        runtime
+            .runs
+            .lock()
+            .expect("update runtime")
+            .push(test_run("second"));
+        continue_snapshot_tx.send(()).expect("allow snapshot");
+        worker.join().expect("join persistence worker");
+
+        assert_eq!(
+            *snapshot.lock().expect("read snapshot"),
+            vec!["first".to_string(), "second".to_string()]
+        );
     }
 
     #[test]

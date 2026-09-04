@@ -73,6 +73,26 @@ interface DroppedAudioFile {
   dataBase64: string
 }
 
+export async function setCloseBehavior(quitOnClose: boolean): Promise<void> {
+  await invoke<void>('set_close_behavior', { quitOnClose })
+}
+
+export async function appDataDirectory(): Promise<string> {
+  return invoke<string>('app_data_directory')
+}
+
+export async function revealInFileManager(path: string): Promise<void> {
+  await invoke<void>('reveal_in_file_manager', { path })
+}
+
+export async function cleanupDownloadCache(): Promise<number> {
+  return invoke<number>('cleanup_download_cache')
+}
+
+export async function hideWindowControls(): Promise<void> {
+  await invoke<void>('hide_window_controls')
+}
+
 export async function readDroppedAudioFile(path: string): Promise<File> {
   const payload = await invoke<DroppedAudioFile>('read_dropped_audio_file', {
     path,
@@ -466,4 +486,19 @@ export function uninstallModelPlugin(
   pluginId: string,
 ): Promise<PluginRemovalResult> {
   return invoke<PluginRemovalResult>('plugin_uninstall', { pluginId })
+}
+
+export function getModelPluginReadme(pluginId: string): Promise<string | null> {
+  return invoke<string | null>('plugin_readme', { pluginId })
+}
+
+export interface ModelPluginFileEntry {
+  path: string
+  size: number
+}
+
+export function getModelPluginFiles(
+  pluginId: string,
+): Promise<ModelPluginFileEntry[]> {
+  return invoke<ModelPluginFileEntry[]>('plugin_files', { pluginId })
 }

@@ -1,51 +1,55 @@
 import {
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { emit, listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
+  ArrowLeft,
   AudioLines,
-  BrainCircuit,
+  Check,
   Download,
   GitBranch,
+  HardDrive,
   LoaderCircle,
   Menu,
   Monitor,
   Moon,
   Pin,
   RefreshCw,
+  Palette,
   Settings,
+  Settings2,
   ShoppingBag,
-  SlidersHorizontal,
   Sun,
-  TextCursorInput,
   Trash2,
-  WandSparkles,
   X,
 } from 'lucide-react'
-import { ModelCapabilityIcon } from './components/ModelCapabilityIcon'
 import {
   ProviderSettings,
   type ProviderSettingsKind,
 } from './components/ProviderSettings'
-import { SidebarCollapseIcon } from './components/SidebarCollapseIcon'
 import { initialPlugins, fallbackRuntime } from './data'
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
 import { capabilityDefinition } from './domain/capabilities'
 import {
+  appDataDirectory,
+  cleanupDownloadCache,
   executeHarnessTask,
   deleteHarnessRun,
   getHarnessCatalog,
   getModelDependencyBindings,
+  hideWindowControls,
   installRecommendedModelDependency,
   isTauriRuntime,
   listApiModelCatalog,
@@ -53,6 +57,8 @@ import {
   listModelPlugins,
   refreshModelPlugins,
   replaceModelDependencyBindings,
+  revealInFileManager,
+  setCloseBehavior,
   setModelDependencyBinding,
   subscribeHarnessRuns,
   uninstallModelPlugin,
@@ -112,7 +118,7 @@ const WorkflowsView = lazy(() =>
   })),
 )
 
-type AppView = 'workspace' | 'workflows' | 'plugins'
+type AppView = 'workspace' | 'workflows'
 type ThemePreference = 'system' | 'light' | 'dark'
 type AppUpdateState = {
   status:
@@ -133,13 +139,18 @@ type AppUpdateState = {
 const CLOUD_MODELS_STORAGE_KEY = 'qwen-audio-toolkits.installed-cloud-models-v1'
 const CUSTOM_API_MODELS_STORAGE_KEY =
   'qwen-audio-toolkits.custom-api-models-v1'
+const RUNS_REMOVED_EVENT = 'harness-runs-removed'
+const HISTORY_CLEARED_EVENT = 'harness-history-cleared'
 const SIDEBAR_MODEL_ORDER_KEY = 'qwen-audio-toolkits.model-sidebar-order-v1'
 const SIDEBAR_PINNED_MODELS_KEY = 'qwen-audio-toolkits.sidebar-pinned-models-v1'
 const SIDEBAR_WIDTH_KEY = 'qwen-audio-toolkits.sidebar-width-v8'
-const SIDEBAR_COLLAPSED_KEY = 'qwen-audio-toolkits.sidebar-collapsed-v1'
 const SIDEBAR_COLLAPSED_GROUPS_KEY =
   'qwen-audio-toolkits.sidebar-collapsed-groups-v1'
 const THEME_STORAGE_KEY = 'qwen-audio-toolkits.theme-v1'
+const ACCENT_STORAGE_KEY = 'qwen-audio-toolkits.accent-v1'
+const SIDEBAR_DENSITY_STORAGE_KEY = 'qwen-audio-toolkits.sidebar-density-v1'
+const CLOSE_BEHAVIOR_STORAGE_KEY = 'qwen-audio-toolkits.close-behavior-v1'
+const AUTO_UPDATE_STORAGE_KEY = 'qwen-audio-toolkits.auto-update-v1'
 const LAST_MODEL_STORAGE_KEY = 'qwen-audio-toolkits.last-model-v1'
 const DEFAULT_VOICE_WORKFLOW_MODELS_KEY =
   'qwen-audio-toolkits.default-voice-workflow-models-v2'
@@ -147,11 +158,9 @@ const WORKFLOWS_ENABLED = false
 const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000
 const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000
 const DEFAULT_SIDEBAR_WIDTH = 240
-const COLLAPSED_SIDEBAR_WIDTH = 0
-const MIN_SIDEBAR_WIDTH = 240
+const MIN_SIDEBAR_WIDTH = 200
 const MAX_SIDEBAR_WIDTH = 520
 const MIN_WORKSPACE_WIDTH = 480
-const SIDEBAR_COLLAPSE_DRAG_THRESHOLD = 120
 
 type SidebarModelGroupId =
   | 'pinned'
@@ -182,6 +191,46 @@ function getInitialTheme(): ThemePreference {
   }
 }
 
+function getInitialAccent(): AccentColor {
+  if (typeof window === 'undefined') return 'mint'
+  try {
+    const value = window.localStorage.getItem(ACCENT_STORAGE_KEY)
+    return value === 'indigo' || value === 'amber' || value === 'rose'
+      ? value
+      : 'mint'
+  } catch {
+    return 'mint'
+  }
+}
+
+function getInitialSidebarDensity(): SidebarDensity {
+  if (typeof window === 'undefined') return 'comfortable'
+  try {
+    const value = window.localStorage.getItem(SIDEBAR_DENSITY_STORAGE_KEY)
+    return value === 'compact' ? 'compact' : 'comfortable'
+  } catch {
+    return 'comfortable'
+  }
+}
+
+function getInitialCloseBehavior(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return window.localStorage.getItem(CLOSE_BEHAVIOR_STORAGE_KEY) === 'quit'
+  } catch {
+    return false
+  }
+}
+
+function getInitialAutoUpdate(): boolean {
+  if (typeof window === 'undefined') return true
+  try {
+    return window.localStorage.getItem(AUTO_UPDATE_STORAGE_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
 function getInitialSidebarWidth() {
   if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH
   try {
@@ -195,15 +244,6 @@ function getInitialSidebarWidth() {
     )
   } catch {
     return DEFAULT_SIDEBAR_WIDTH
-  }
-}
-
-function getInitialSidebarCollapsed() {
-  if (typeof window === 'undefined') return false
-  try {
-    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'
-  } catch {
-    return false
   }
 }
 
@@ -362,23 +402,6 @@ function modelSidebarGroup(plugin: ModelPlugin): SidebarModelGroupId {
   }
 }
 
-function sidebarGroupIcon(group: SidebarModelGroupId) {
-  switch (group) {
-    case 'pinned':
-      return <Pin size={11} />
-    case 'audio':
-      return <SlidersHorizontal size={11} />
-    case 'understanding':
-      return <BrainCircuit size={11} />
-    case 'text':
-      return <TextCursorInput size={11} />
-    case 'generation':
-      return <WandSparkles size={11} />
-    default:
-      return null
-  }
-}
-
 function startModelNameScroll(button: HTMLButtonElement) {
   const text = button.querySelector<HTMLElement>('.activity-model-name-text')
   const viewport = text?.parentElement
@@ -449,10 +472,53 @@ function summarizeRun(run: HarnessRun): HarnessRun {
   }
 }
 
+type ShellPage = 'workspace' | 'extensions' | 'settings'
+type SettingsSection = 'general' | 'appearance' | 'storage'
+
+type AccentColor = 'mint' | 'indigo' | 'amber' | 'rose'
+
+const ACCENT_OPTIONS: {
+  id: AccentColor
+  label: string
+  swatch: string
+}[] = [
+  { id: 'mint', label: '青瓷绿', swatch: '#4c7e6c' },
+  { id: 'indigo', label: '靛蓝', swatch: '#4d63b0' },
+  { id: 'amber', label: '琥珀', swatch: '#9a7a2f' },
+  { id: 'rose', label: '玫瑰', swatch: '#a95f6f' },
+]
+
+type SidebarDensity = 'comfortable' | 'compact'
+
+const SIDEBAR_DENSITY_OPTIONS: {
+  id: SidebarDensity
+  label: string
+}[] = [
+  { id: 'comfortable', label: '舒适' },
+  { id: 'compact', label: '紧凑' },
+]
+
+const SETTINGS_SECTIONS: {
+  id: SettingsSection
+  label: string
+  Icon: typeof Palette
+}[] = [
+  { id: 'general', label: '常规', Icon: Settings2 },
+  { id: 'appearance', label: '外观', Icon: Palette },
+  { id: 'storage', label: '模型与存储', Icon: HardDrive },
+]
+
 function App() {
   const [view, setView] = useState<AppView>('workspace')
+  const [shellPage, setShellPage] = useState<ShellPage>('workspace')
+  const [extensionsNavHost, setExtensionsNavHost] =
+    useState<HTMLDivElement | null>(null)
   const [plugins, setPlugins] = useState<ModelPlugin[]>(initialPlugins)
   const [pluginsLoaded, setPluginsLoaded] = useState(() => !isTauriRuntime())
+  // Custom Copilot-style traffic lights replace the hidden native ones.
+  const [customTrafficLights, setCustomTrafficLights] = useState(false)
+  const [trafficLightsFocused, setTrafficLightsFocused] = useState(true)
+  const [trafficLightsHidden, setTrafficLightsHidden] = useState(false)
   const [runtime, setRuntime] = useState<RuntimeStatus>(fallbackRuntime)
   const [catalog, setCatalog] = useState<HarnessCatalog | null>(null)
   const [apiModelCatalog, setApiModelCatalog] = useState<
@@ -495,13 +561,6 @@ function App() {
     Record<string, WorkflowChatTurn[]>
   >({})
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(
-    getInitialSidebarCollapsed,
-  )
-  const [sidebarPeek, setSidebarPeek] = useState(false)
-  const sidebarPeekTimerRef = useRef<number | null>(null)
-  const sidebarPeekNeedsReentryRef = useRef(false)
-  const sidebarButtonHoveredRef = useRef(false)
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth)
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   const [collapsedSidebarGroups, setCollapsedSidebarGroups] = useState(
@@ -518,15 +577,13 @@ function App() {
   const [pendingSidebarRemovalId, setPendingSidebarRemovalId] = useState<
     string | null
   >(null)
-  const [railTooltip, setRailTooltip] = useState<{
-    name: string
-    detail: string
-    top: number
-  } | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsSection, setSettingsSection] = useState<
-    'general' | 'providers'
-  >('general')
+  const extensionsTriggerRef = useRef<HTMLButtonElement>(null)
+  const extensionsReturnFocusRef = useRef<HTMLElement | null>(null)
+  const [providerDialogOpen, setProviderDialogOpen] = useState(false)
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null)
+  const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
+  const [settingsSection, setSettingsSection] =
+    useState<SettingsSection>('appearance')
   const [settingsProvider, setSettingsProvider] =
     useState<ProviderSettingsKind>('bailian')
   const [settingsCustomProviderId, setSettingsCustomProviderId] = useState(
@@ -539,6 +596,18 @@ function App() {
   const repairingDependenciesRef = useRef(new Set<string>())
   const [themePreference, setThemePreference] =
     useState<ThemePreference>(getInitialTheme)
+  const [accent, setAccent] = useState<AccentColor>(getInitialAccent)
+  const [sidebarDensity, setSidebarDensity] = useState<SidebarDensity>(
+    getInitialSidebarDensity,
+  )
+  const [quitOnClose, setQuitOnClose] = useState<boolean>(
+    getInitialCloseBehavior,
+  )
+  const [autoUpdateCheck, setAutoUpdateCheck] = useState<boolean>(
+    getInitialAutoUpdate,
+  )
+  const [dataDirectory, setDataDirectory] = useState<string | null>(null)
+  const [cleaningCache, setCleaningCache] = useState(false)
   const [systemDark, setSystemDark] = useState(() =>
     typeof window === 'undefined'
       ? false
@@ -553,7 +622,29 @@ function App() {
   const usesOverlayTitlebar =
     typeof navigator !== 'undefined' &&
     /Macintosh|Mac OS X/.test(navigator.userAgent)
-  const sidebarCanCollapse = view === 'workspace'
+  const leaveShellPage = useCallback(() => {
+    const leaving = shellPage
+    setShellPage('workspace')
+    const returnTarget = extensionsReturnFocusRef.current
+    window.requestAnimationFrame(() => {
+      const trigger =
+        leaving === 'settings'
+          ? settingsTriggerRef.current
+          : extensionsTriggerRef.current
+      const target = returnTarget?.isConnected ? returnTarget : trigger
+      target?.focus()
+    })
+  }, [shellPage])
+  const closeProviderDialog = useCallback(() => {
+    setProviderDialogOpen(false)
+    const returnTarget = settingsReturnFocusRef.current
+    window.requestAnimationFrame(() => {
+      const target = returnTarget?.isConnected
+        ? returnTarget
+        : settingsTriggerRef.current
+      target?.focus()
+    })
+  }, [])
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-color-scheme: dark)')
@@ -570,13 +661,33 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!settingsOpen) return undefined
+    if (!providerDialogOpen) return undefined
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSettingsOpen(false)
+      if (event.key !== 'Escape') return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      closeProviderDialog()
     }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [settingsOpen])
+    window.addEventListener('keydown', closeOnEscape, true)
+    return () => window.removeEventListener('keydown', closeOnEscape, true)
+  }, [closeProviderDialog, providerDialogOpen])
+
+  useEffect(() => {
+    if (shellPage === 'workspace' || providerDialogOpen) return undefined
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Escape' ||
+        document.querySelector('.custom-model-dialog')
+      ) {
+        return
+      }
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      leaveShellPage()
+    }
+    window.addEventListener('keydown', closeOnEscape, true)
+    return () => window.removeEventListener('keydown', closeOnEscape, true)
+  }, [leaveShellPage, providerDialogOpen, shellPage])
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme
@@ -592,6 +703,112 @@ function App() {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)
     } catch {
       // Keep the theme for the current session when storage is unavailable.
+    }
+  }
+
+  useEffect(() => {
+    document.documentElement.dataset.accent = accent
+    document.documentElement.dataset.density = sidebarDensity
+  }, [accent, sidebarDensity])
+
+  // Replace the native traffic lights with Copilot-sized custom dots.
+  useEffect(() => {
+    if (!usesOverlayTitlebar || !isTauriRuntime()) return undefined
+    let disposed = false
+    const unlisteners: Array<() => void> = []
+    const win = getCurrentWindow()
+    const syncFullscreen = async () => {
+      try {
+        const fullscreen = await win.isFullscreen()
+        if (!disposed) setTrafficLightsHidden(fullscreen)
+      } catch {
+        // Fullscreen state is best-effort; the dots stay visible otherwise.
+      }
+    }
+    hideWindowControls()
+      .then(() => {
+        if (disposed) return
+        setCustomTrafficLights(true)
+        void syncFullscreen()
+      })
+      .catch(() => {})
+    win
+      .onFocusChanged(({ payload }) => {
+        if (!disposed) setTrafficLightsFocused(payload)
+      })
+      .then(unlisten => unlisteners.push(unlisten))
+      .catch(() => {})
+    win
+      .onResized(() => void syncFullscreen())
+      .then(unlisten => unlisteners.push(unlisten))
+      .catch(() => {})
+    return () => {
+      disposed = true
+      unlisteners.forEach(unlisten => unlisten())
+    }
+  }, [usesOverlayTitlebar])
+
+  const selectAccent = (value: AccentColor) => {
+    setAccent(value)
+    try {
+      window.localStorage.setItem(ACCENT_STORAGE_KEY, value)
+    } catch {
+      // Keep the accent for the current session when storage is unavailable.
+    }
+  }
+
+  const selectSidebarDensity = (value: SidebarDensity) => {
+    setSidebarDensity(value)
+    try {
+      window.localStorage.setItem(SIDEBAR_DENSITY_STORAGE_KEY, value)
+    } catch {
+      // Keep the density for the current session when storage is unavailable.
+    }
+  }
+
+  const selectCloseBehavior = (quit: boolean) => {
+    setQuitOnClose(quit)
+    try {
+      window.localStorage.setItem(CLOSE_BEHAVIOR_STORAGE_KEY, quit ? 'quit' : 'dock')
+    } catch {
+      // Keep the preference for the current session when storage is unavailable.
+    }
+    if (isTauriRuntime()) {
+      void setCloseBehavior(quit)
+    }
+  }
+
+  const selectAutoUpdateCheck = (enabled: boolean) => {
+    setAutoUpdateCheck(enabled)
+    try {
+      window.localStorage.setItem(AUTO_UPDATE_STORAGE_KEY, enabled ? 'on' : 'off')
+    } catch {
+      // Keep the preference for the current session when storage is unavailable.
+    }
+  }
+
+  const revealDataDirectory = async () => {
+    if (!dataDirectory) return
+    try {
+      await revealInFileManager(dataDirectory)
+    } catch (error) {
+      notify(
+        `无法打开数据目录：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  const cleanDownloadCache = async () => {
+    setCleaningCache(true)
+    try {
+      const removed = await cleanupDownloadCache()
+      notify(removed > 0 ? `已清理 ${removed} 个下载缓存文件` : '没有可清理的下载缓存')
+    } catch (error) {
+      notify(
+        `清理下载缓存失败：${error instanceof Error ? error.message : String(error)}`,
+      )
+    } finally {
+      setCleaningCache(false)
     }
   }
 
@@ -754,7 +971,7 @@ function App() {
         ),
         workflows: [],
       }) satisfies Record<SidebarModelGroupId, ModelPlugin[]>,
-    [orderedRunnablePlugins, pinnedModelIds],
+    [pinnedModelIds, orderedRunnablePlugins],
   )
   const responsiveSidebarMaxWidth = Math.max(
     MIN_SIDEBAR_WIDTH,
@@ -763,17 +980,8 @@ function App() {
       Math.floor(viewportWidth - MIN_WORKSPACE_WIDTH),
     ),
   )
-  const visibleSidebarWidth =
-    sidebarCanCollapse && sidebarCollapsed && !sidebarPeek
-      ? COLLAPSED_SIDEBAR_WIDTH
-      : Math.min(sidebarWidth, responsiveSidebarMaxWidth)
-  // Content offset mirrors the sidebar only when it is docked (expanded). When the
-  // sidebar is collapsed it overlays the content, so the content stays full-width even
-  // while hovering (peek) expands the sidebar.
-  const visibleContentOffset =
-    sidebarCanCollapse && sidebarCollapsed
-      ? COLLAPSED_SIDEBAR_WIDTH
-      : Math.min(sidebarWidth, responsiveSidebarMaxWidth)
+  const visibleSidebarWidth = Math.min(sidebarWidth, responsiveSidebarMaxWidth)
+  const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth
 
   const toggleSidebarGroup = (groupId: SidebarModelGroupId) => {
     setCollapsedSidebarGroups((current) => {
@@ -917,10 +1125,50 @@ function App() {
       else unlisten = remove
     })
 
+    let unlistenRemoved: (() => void) | undefined
+    void listen<string[]>(RUNS_REMOVED_EVENT, (event) => {
+      if (disposed) return
+      const removed = new Set(event.payload)
+      setRuns((current) => {
+        const next = current.filter((run) => !removed.has(run.id))
+        return next.length === current.length ? current : next
+      })
+    }).then((remove) => {
+      if (disposed) remove()
+      else unlistenRemoved = remove
+    })
+
+    let unlistenHistoryCleared: (() => void) | undefined
+    void listen(HISTORY_CLEARED_EVENT, () => {
+      if (disposed) return
+      setRuns((current) => (current.length ? [] : current))
+      setWorkflowTurns((current) =>
+        Object.keys(current).length ? {} : current,
+      )
+    }).then((remove) => {
+      if (disposed) remove()
+      else unlistenHistoryCleared = remove
+    })
+
+    // Fallback: whenever this window regains focus, re-sync history from the backend so
+    // clears performed in another window are reflected even if an event was missed.
+    const refetchRunsOnFocus = () => {
+      if (disposed || !isTauriRuntime()) return
+      void listHarnessRuns()
+        .then((nextRuns) => {
+          if (!disposed) setRuns(nextRuns.map(summarizeRun))
+        })
+        .catch(() => undefined)
+    }
+    window.addEventListener('focus', refetchRunsOnFocus)
+
     return () => {
       disposed = true
       window.clearInterval(catalogRefreshTimer)
+      window.removeEventListener('focus', refetchRunsOnFocus)
       unlisten?.()
+      unlistenRemoved?.()
+      unlistenHistoryCleared?.()
     }
   }, [])
 
@@ -1121,7 +1369,9 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (!import.meta.env.PROD || !isTauriRuntime()) return undefined
+    if (!import.meta.env.PROD || !isTauriRuntime() || !autoUpdateCheck) {
+      return undefined
+    }
     const initialTimer = window.setTimeout(
       () => void checkApplicationUpdate(true),
       10_000,
@@ -1134,86 +1384,60 @@ function App() {
       window.clearTimeout(initialTimer)
       window.clearInterval(interval)
     }
-  }, [])
-
-  const clearSidebarPeekTimer = () => {
-    if (sidebarPeekTimerRef.current === null) return
-    window.clearTimeout(sidebarPeekTimerRef.current)
-    sidebarPeekTimerRef.current = null
-  }
-  const openSidebarPeek = () => {
-    if (
-      !sidebarCanCollapse ||
-      !sidebarCollapsed ||
-      sidebarPeekNeedsReentryRef.current
-    )
-      return
-    clearSidebarPeekTimer()
-    setSidebarPeek(true)
-  }
-  const scheduleSidebarPeekClose = () => {
-    if (!sidebarCanCollapse || !sidebarCollapsed) return
-    sidebarPeekNeedsReentryRef.current = false
-    clearSidebarPeekTimer()
-    sidebarPeekTimerRef.current = window.setTimeout(() => {
-      sidebarPeekTimerRef.current = null
-      setSidebarPeek(false)
-    }, 140)
-  }
-  const handleSidebarButtonEnter = () => {
-    sidebarButtonHoveredRef.current = true
-    openSidebarPeek()
-  }
-  const handleSidebarButtonLeave = () => {
-    sidebarButtonHoveredRef.current = false
-    scheduleSidebarPeekClose()
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoUpdateCheck])
 
   useEffect(() => {
-    if (!sidebarCanCollapse || !sidebarCollapsed) {
-      clearSidebarPeekTimer()
-      setSidebarPeek(false)
-      sidebarPeekNeedsReentryRef.current = false
+    if (!isTauriRuntime()) return
+    void setCloseBehavior(getInitialCloseBehavior())
+  }, [])
+
+  useEffect(() => {
+    if (shellPage !== 'settings' || settingsSection !== 'storage') return
+    if (!isTauriRuntime() || dataDirectory !== null) return
+    let disposed = false
+    void appDataDirectory()
+      .then((dir) => {
+        if (!disposed) setDataDirectory(dir)
+      })
+      .catch(() => {
+        if (!disposed) setDataDirectory('')
+      })
+    return () => {
+      disposed = true
     }
-    return clearSidebarPeekTimer
-  }, [sidebarCanCollapse, sidebarCollapsed])
+  }, [shellPage, settingsSection, dataDirectory])
 
   const beginSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || sidebarCollapsed) return
+    if (event.button !== 0) return
     event.preventDefault()
+    const handle = event.currentTarget
+    const pointerId = event.pointerId
     let nextWidth = sidebarWidth
-    let collapsedByDrag = false
+    let finished = false
     document.body.classList.add('sidebar-resizing')
+    handle.setPointerCapture(pointerId)
 
-    const resize = (pointerEvent: PointerEvent) => {
-      if (
-        sidebarCanCollapse &&
-        pointerEvent.clientX < SIDEBAR_COLLAPSE_DRAG_THRESHOLD
-      ) {
-        collapsedByDrag = true
-        setSidebarCollapsed(true)
-        setSidebarPeek(false)
-        sidebarPeekNeedsReentryRef.current = false
-        try {
-          window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'true')
-        } catch {
-          // Keep the collapsed state for the current session.
-        }
-        finish()
-        return
-      }
+    function resize(pointerEvent: PointerEvent) {
       nextWidth = Math.min(
         responsiveSidebarMaxWidth,
         Math.max(MIN_SIDEBAR_WIDTH, pointerEvent.clientX),
       )
       setSidebarWidth(nextWidth)
     }
-    const finish = () => {
+
+    function finish() {
+      if (finished) return
+      finished = true
       document.body.classList.remove('sidebar-resizing')
       window.removeEventListener('pointermove', resize)
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('pointercancel', finish)
-      if (collapsedByDrag) return
+      window.removeEventListener('blur', finish)
+      handle.removeEventListener('lostpointercapture', finish)
+      if (handle.hasPointerCapture(pointerId)) {
+        handle.releasePointerCapture(pointerId)
+      }
       try {
         window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth))
       } catch {
@@ -1224,26 +1448,64 @@ function App() {
     window.addEventListener('pointermove', resize)
     window.addEventListener('pointerup', finish)
     window.addEventListener('pointercancel', finish)
-  }
-  const toggleSidebarCollapsed = () => {
-    if (!sidebarCanCollapse) return
-    setSidebarCollapsed((current) => {
-      const next = !current
-      sidebarPeekNeedsReentryRef.current =
-        next && sidebarButtonHoveredRef.current
-      clearSidebarPeekTimer()
-      setSidebarPeek(false)
-      try {
-        window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next))
-      } catch {
-        // Keep the collapsed state for the current session.
-      }
-      return next
-    })
+    window.addEventListener('blur', finish)
+    handle.addEventListener('lostpointercapture', finish)
   }
   const changeView = (next: AppView) => {
     setView(next)
     setSidebarOpen(false)
+  }
+  const syncExtensionsState = useCallback(async () => {
+    try {
+      const [nextPlugins, nextCatalog, nextApiModels, nextBindings] =
+        await Promise.all([
+          listModelPlugins(),
+          getHarnessCatalog(),
+          listApiModelCatalog(),
+          getModelDependencyBindings(),
+        ])
+      setPlugins(nextPlugins)
+      setPluginsLoaded(true)
+      setCatalog(nextCatalog)
+      setApiModelCatalog(nextApiModels)
+      setModelBindings(nextBindings)
+      setModelBindingsLoaded(true)
+      setInstalledCloudModelIds(getInitialCloudModels())
+      setCustomApiModels(getInitialCustomApiModels())
+    } catch (error) {
+      setToast(
+        `无法同步扩展状态：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }, [])
+  useEffect(() => {
+    if (!isTauriRuntime()) return undefined
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void listen<{ stage: string }>('plugin-install-progress', (event) => {
+      if (!disposed && event.payload.stage === 'complete') {
+        void syncExtensionsState()
+      }
+    }).then((cleanup) => {
+      if (disposed) cleanup()
+      else unlisten = cleanup
+    })
+    return () => {
+      disposed = true
+      unlisten?.()
+    }
+  }, [syncExtensionsState])
+  const openShellPage = (page: Exclude<ShellPage, 'workspace'>) => {
+    if (shellPage === 'workspace' && document.activeElement instanceof HTMLElement) {
+      extensionsReturnFocusRef.current = document.activeElement
+    }
+    setShellPage(page)
+    setSidebarOpen(false)
+  }
+  const openExtensions = () => openShellPage('extensions')
+  const openSettings = () => {
+    setSettingsSection('general')
+    openShellPage('settings')
   }
 
   const openProviderSettings = (providerId: string) => {
@@ -1259,8 +1521,10 @@ function App() {
         ? 'custom'
         : 'bailian',
     )
-    setSettingsSection('providers')
-    setSettingsOpen(true)
+    if (!providerDialogOpen && document.activeElement instanceof HTMLElement) {
+      settingsReturnFocusRef.current = document.activeElement
+    }
+    setProviderDialogOpen(true)
   }
 
   const selectPlugin = (pluginId: string) => {
@@ -1346,6 +1610,9 @@ function App() {
         current.filter((run) => !removableIds.has(run.id)),
       )
       setWorkflowTurns({})
+      if (isTauriRuntime()) {
+        void emit(HISTORY_CLEARED_EVENT, {}).catch(() => undefined)
+      }
       notify('历史消息已清除')
     } catch (error) {
       notify(
@@ -1464,6 +1731,9 @@ function App() {
       await Promise.all(removableIds.map((id) => deleteHarnessRun(id)))
       const removed = new Set(removableIds)
       setRuns((current) => current.filter((run) => !removed.has(run.id)))
+      if (isTauriRuntime()) {
+        void emit(RUNS_REMOVED_EVENT, removableIds).catch(() => undefined)
+      }
       notify('当前模型的对话记录已清除')
       return true
     } catch (error) {
@@ -1578,7 +1848,6 @@ function App() {
   }
 
   const renderPluginSidebarEntry = (plugin: ModelPlugin) => {
-    const group = modelSidebarGroup(plugin)
     const active =
       view === 'workspace' &&
       !workflowSelected &&
@@ -1598,7 +1867,6 @@ function App() {
         draggable
         key={plugin.id}
         onDragStart={(event) => {
-          setRailTooltip(null)
           setDraggingModelId(plugin.id)
           event.dataTransfer.effectAllowed = 'move'
           event.dataTransfer.setData(
@@ -1638,41 +1906,21 @@ function App() {
           aria-label={plugin.name}
           onMouseEnter={(event) => {
             startModelNameScroll(event.currentTarget)
-            const bounds = event.currentTarget.getBoundingClientRect()
-            setRailTooltip({
-              name: plugin.name,
-              detail: plugin.capabilities.slice(0, 2).join(' · '),
-              top: Math.min(window.innerHeight - 66, Math.max(8, bounds.top)),
-            })
           }}
           onMouseLeave={(event) => {
             stopModelNameScroll(event.currentTarget)
-            setRailTooltip(null)
           }}
           onFocus={(event) => {
             startModelNameScroll(event.currentTarget)
-            const bounds = event.currentTarget.getBoundingClientRect()
-            setRailTooltip({
-              name: plugin.name,
-              detail: plugin.capabilities.slice(0, 2).join(' · '),
-              top: Math.min(window.innerHeight - 66, Math.max(8, bounds.top)),
-            })
           }}
           onBlur={(event) => {
             stopModelNameScroll(event.currentTarget)
-            setRailTooltip(null)
           }}
           onClick={() => {
             selectPlugin(plugin.id)
           }}
         >
-          <span
-            className="sidebar-model-icon"
-            data-family={group}
-            aria-hidden="true"
-          >
-            <ModelCapabilityIcon capability={plugin.harnessCapabilities[0]} />
-          </span>
+          <span className="sidebar-model-dot" aria-hidden="true" />
           <span className="activity-model-name">
             <span className="activity-model-name-text">
               {plugin.name}
@@ -1772,11 +2020,281 @@ function App() {
     )
   }
 
+  const settingsRows: Record<SettingsSection, ReactNode> = {
+    general: (
+      <>
+        <div className="settings-card">
+        <div className="settings-row">
+          <span>
+            <strong>关闭窗口时</strong>
+            <small>隐藏到程序坞可以快速唤回，退出则完全关闭应用</small>
+          </span>
+          <div className="settings-segmented" aria-label="关闭窗口时">
+            {(
+              [
+                [false, '隐藏到程序坞'],
+                [true, '退出应用'],
+              ] as const
+            ).map(([quit, label]) => (
+              <button
+                className={quitOnClose === quit ? 'active' : ''}
+                type="button"
+                key={label}
+                aria-pressed={quitOnClose === quit}
+                onClick={() => selectCloseBehavior(quit)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="settings-row">
+          <span>
+            <strong>自动检查更新</strong>
+            <small>应用运行期间定期检查是否有新版本</small>
+          </span>
+          <button
+            className="settings-switch"
+            type="button"
+            role="switch"
+            aria-checked={autoUpdateCheck}
+            aria-label="自动检查更新"
+            onClick={() => selectAutoUpdateCheck(!autoUpdateCheck)}
+          />
+        </div>
+        </div>
+        <div className="settings-group-label">更新与数据</div>
+        <div className="settings-card">
+        <div className="settings-row">
+        <span>
+          <strong>软件更新</strong>
+          <small>
+            {appUpdate.status === 'available'
+              ? `版本 ${appUpdate.update?.version} 已可用`
+              : appUpdate.status === 'downloading'
+                ? appUpdate.progress === undefined
+                  ? '正在下载安装包'
+                  : `正在下载 ${Math.round(appUpdate.progress)}%`
+                : appUpdate.status === 'downloaded'
+                  ? `版本 ${appUpdate.update?.version} 已下载，点击重启安装`
+                  : appUpdate.status === 'installing'
+                    ? '正在安装更新'
+                    : appUpdate.status === 'current'
+                      ? `QwenAudio Toolkits ${runtime.version} 已是最新版`
+                      : appUpdate.message ?? `当前版本 ${runtime.version}`}
+          </small>
+        </span>
+        <button
+          className="settings-update-action"
+          type="button"
+          disabled={
+            appUpdate.status === 'checking' ||
+            appUpdate.status === 'downloading' ||
+            appUpdate.status === 'installing' ||
+            appUpdate.status === 'unavailable'
+          }
+          onClick={() =>
+            appUpdate.status === 'available' ||
+            appUpdate.status === 'downloaded'
+              ? void applyApplicationUpdate()
+              : void checkApplicationUpdate()
+          }
+        >
+          {appUpdate.status === 'checking' ||
+          appUpdate.status === 'downloading' ||
+          appUpdate.status === 'installing' ? (
+            <LoaderCircle className="model-spin" size={13} />
+          ) : appUpdate.status === 'available' ||
+            appUpdate.status === 'downloaded' ? (
+            <Download size={13} />
+          ) : (
+            <RefreshCw size={13} />
+          )}
+          {appUpdate.status === 'available'
+            ? '下载并安装'
+            : appUpdate.status === 'downloaded'
+              ? '重启安装'
+              : appUpdate.status === 'checking'
+                ? '检查中'
+                : appUpdate.status === 'downloading'
+                  ? '下载中'
+                  : appUpdate.status === 'installing'
+                    ? '安装中'
+                    : appUpdate.status === 'unavailable'
+                      ? '开发版本'
+                      : '检查更新'}
+        </button>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>任务数据</strong>
+          <small>输入、结果和运行记录仅保存在本机</small>
+        </span>
+        <button
+          className="settings-danger-action"
+          type="button"
+          disabled={clearingHistory}
+          onClick={() => void clearAllHistory()}
+        >
+          {clearingHistory ? (
+            <LoaderCircle className="model-spin" size={13} />
+          ) : (
+            <Trash2 size={13} />
+          )}
+          清除历史
+        </button>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>应用版本</strong>
+          <small>QwenAudio Toolkits 桌面版</small>
+        </span>
+        <span className="settings-value">v{runtime.version}</span>
+      </div>
+      </div>
+      <div className="settings-group-label">运行环境</div>
+      <div className="settings-card">
+      <div className="settings-row">
+        <span>
+          <strong>Harness Runtime</strong>
+          <small>{runtime.backend}</small>
+        </span>
+        <span className="settings-value ready">{runtime.apiUrl}</span>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>运行设备</strong>
+          <small>{runtime.platform}</small>
+        </span>
+        <span className="settings-value">{runtime.device}</span>
+      </div>
+      </div>
+      </>
+    ),
+    appearance: (
+      <>
+        <div className="settings-card">
+        <div className="settings-row theme-settings-row">
+        <span>
+          <strong>外观主题</strong>
+          <small>使用系统外观，或固定浅色与深色模式</small>
+        </span>
+        <div className="theme-segmented" aria-label="外观主题">
+          {(
+            [
+              ['system', Monitor, '跟随系统'],
+              ['light', Sun, '浅色'],
+              ['dark', Moon, '深色'],
+            ] as const
+          ).map(([theme, Icon, label]) => (
+            <button
+              className={themePreference === theme ? 'active' : ''}
+              type="button"
+              key={theme}
+              title={label}
+              aria-label={label}
+              aria-pressed={themePreference === theme}
+              onClick={() => selectTheme(theme)}
+            >
+              <Icon size={14} />
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>强调色</strong>
+          <small>按钮、选中项与高亮状态使用的主题色</small>
+        </span>
+        <div className="accent-swatches" aria-label="强调色">
+          {ACCENT_OPTIONS.map(({ id, label, swatch }) => (
+            <button
+              className={`accent-swatch${accent === id ? ' active' : ''}`}
+              type="button"
+              key={id}
+              title={label}
+              aria-label={label}
+              aria-pressed={accent === id}
+              style={{ '--swatch': swatch } as CSSProperties}
+              onClick={() => selectAccent(id)}
+            >
+              {accent === id && <Check size={12} strokeWidth={3} />}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>侧边栏密度</strong>
+          <small>紧凑模式可以在模型列表中显示更多条目</small>
+        </span>
+        <div className="settings-segmented" aria-label="侧边栏密度">
+          {SIDEBAR_DENSITY_OPTIONS.map(({ id, label }) => (
+            <button
+              className={sidebarDensity === id ? 'active' : ''}
+              type="button"
+              key={id}
+              aria-pressed={sidebarDensity === id}
+              onClick={() => selectSidebarDensity(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      </div>
+      </>
+    ),
+    storage: (
+      <>
+        <div className="settings-card">
+        <div className="settings-row">
+          <span>
+            <strong>模型与数据目录</strong>
+            <small>
+              {dataDirectory === null
+                ? '正在读取目录位置…'
+                : dataDirectory || '仅桌面版可查看数据目录'}
+            </small>
+          </span>
+          <button
+            className="settings-update-action"
+            type="button"
+            disabled={!dataDirectory}
+            onClick={() => void revealDataDirectory()}
+          >
+            在访达中显示
+          </button>
+        </div>
+        <div className="settings-row">
+          <span>
+            <strong>下载缓存</strong>
+            <small>已完成的模型安装包会保留在本地，可手动清理以释放空间</small>
+          </span>
+          <button
+            className="settings-update-action"
+            type="button"
+            disabled={cleaningCache || !isTauriRuntime()}
+            onClick={() => void cleanDownloadCache()}
+          >
+            {cleaningCache ? (
+              <LoaderCircle className="model-spin" size={13} />
+            ) : null}
+            清理缓存
+          </button>
+        </div>
+        </div>
+      </>
+    ),
+  }
+  const activeSettingsSection =
+    SETTINGS_SECTIONS.find((section) => section.id === settingsSection) ??
+    SETTINGS_SECTIONS[0]
+
   return (
     <div
-      className={`app-shell model-shell${usesOverlayTitlebar ? ' native-titlebar-enabled' : ''}`}
+      className={`app-shell model-shell${usesOverlayTitlebar ? ' native-titlebar-enabled' : ''} shell-page-${shellPage}`}
       data-theme={resolvedTheme}
-      data-sidebar-collapsed={sidebarCanCollapse && sidebarCollapsed}
       style={
         {
           '--model-sidebar-width': `${visibleSidebarWidth}px`,
@@ -1791,40 +2309,86 @@ function App() {
           aria-hidden="true"
         />
       )}
-      {sidebarCanCollapse && (
-        <>
-          <div
-            className={`sidebar-hover-edge${sidebarCollapsed && !sidebarPeek ? ' active' : ''}`}
-            aria-hidden="true"
-            onMouseEnter={openSidebarPeek}
-            onMouseLeave={scheduleSidebarPeekClose}
-          />
-          <button
-            className="sidebar-collapse-button"
-            type="button"
-            title={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
-            aria-label={sidebarCollapsed ? '展开侧栏' : '收起侧栏'}
-            onMouseEnter={handleSidebarButtonEnter}
-            onMouseLeave={handleSidebarButtonLeave}
-            onClick={toggleSidebarCollapsed}
-          >
-            <SidebarCollapseIcon collapsed={sidebarCollapsed} />
-          </button>
-        </>
-      )}
       <aside
         className={`app-sidebar model-sidebar${sidebarOpen ? ' open' : ''}`}
-        data-compact={sidebarCanCollapse && sidebarCollapsed && !sidebarPeek}
-        data-peek={sidebarCanCollapse && sidebarCollapsed && sidebarPeek}
-        onMouseEnter={sidebarCanCollapse ? openSidebarPeek : undefined}
-        onMouseLeave={sidebarCanCollapse ? scheduleSidebarPeekClose : undefined}
       >
         <div className="activity-rail-title-spacer" data-tauri-drag-region>
-          <div className="activity-rail-brand" data-tauri-drag-region>
-            <span>QwenAudio Toolkits</span>
-          </div>
+          {customTrafficLights && (
+            <div
+              className={`window-controls${trafficLightsFocused ? '' : ' is-blurred'}${
+                trafficLightsHidden ? ' is-hidden' : ''
+              }`}
+            >
+              <button
+                type="button"
+                className="window-control window-control-close"
+                aria-label="关闭"
+                onClick={() => void getCurrentWindow().close()}
+              />
+              <button
+                type="button"
+                className="window-control window-control-min"
+                aria-label="最小化"
+                onClick={() => void getCurrentWindow().minimize()}
+              />
+              <button
+                type="button"
+                className="window-control window-control-zoom"
+                aria-label="缩放"
+                onClick={() => void getCurrentWindow().toggleMaximize()}
+              />
+            </div>
+          )}
         </div>
 
+        {shellPage !== 'workspace' && (
+          <div className="sidebar-page-nav">
+            <button
+              className="sidebar-back-button"
+              type="button"
+              autoFocus
+              onClick={leaveShellPage}
+            >
+              <ArrowLeft size={15} />
+              <span>返回</span>
+            </button>
+            <div className="sidebar-page-title">
+              {shellPage === 'extensions' ? (
+                <ShoppingBag size={15} />
+              ) : (
+                <Settings size={15} />
+              )}
+              <span>{shellPage === 'extensions' ? '扩展' : '设置'}</span>
+            </div>
+            {shellPage === 'extensions' ? (
+              <div
+                ref={setExtensionsNavHost}
+                className="sidebar-page-nav-body"
+              />
+            ) : (
+              <nav
+                className="sidebar-page-nav-body settings-nav"
+                aria-label="设置分类"
+              >
+                {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
+                  <button
+                    key={id}
+                    className={settingsSection === id ? 'active' : ''}
+                    type="button"
+                    aria-current={settingsSection === id ? 'page' : undefined}
+                    onClick={() => setSettingsSection(id)}
+                  >
+                    <Icon size={15} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </nav>
+            )}
+          </div>
+        )}
+
+
+        {shellPage === 'workspace' && (
         <nav className="installed-models" aria-label="已安装模型">
           {SIDEBAR_MODEL_GROUPS.map((group) => {
             const models = groupedRunnablePlugins[group.id]
@@ -1842,7 +2406,6 @@ function App() {
                   aria-expanded={!collapsed}
                   onClick={() => toggleSidebarGroup(group.id)}
                 >
-                  {sidebarGroupIcon(group.id)}
                   <span>{group.label}</span>
                 </button>
                 {!collapsed && (
@@ -1854,107 +2417,126 @@ function App() {
             )
           })}
         </nav>
+        )}
 
-        <div className="sidebar-spacer" />
+        {shellPage === 'workspace' && <div className="sidebar-spacer" />}
 
-        <nav className="model-sidebar-utilities" aria-label="资源与设置">
+        <nav className="sidebar-dock" aria-label="资源与设置">
           {WORKFLOWS_ENABLED && (
             <button
-              className={view === 'workflows' ? 'active workflow' : 'workflow'}
+              className={`sidebar-dock-button${
+                shellPage === 'workspace' && view === 'workflows' ? ' active' : ''
+              }`}
               type="button"
+              aria-label="流程编排"
+              data-tooltip="流程编排"
               onClick={() => {
                 setEditingWorkflowId(null)
                 changeView('workflows')
               }}
             >
-              <GitBranch size={17} />
-              <span>流程编排</span>
+              <GitBranch size={18} />
             </button>
           )}
           <button
-            className={view === 'plugins' ? 'active store' : 'store'}
+            ref={extensionsTriggerRef}
+            className={`sidebar-dock-button${shellPage === 'extensions' ? ' active' : ''}`}
             type="button"
-            title="模型商店"
-            aria-label="模型商店"
-            onClick={() => changeView('plugins')}
+            aria-label="扩展"
+            aria-pressed={shellPage === 'extensions'}
+            data-tooltip="扩展"
+            onClick={shellPage === 'extensions' ? leaveShellPage : openExtensions}
           >
-            <ShoppingBag size={17} />
-            <span>模型商店</span>
+            <ShoppingBag size={18} />
           </button>
-          <div className="sidebar-settings-row">
+          <button
+            ref={settingsTriggerRef}
+            className={`sidebar-dock-button${shellPage === 'settings' ? ' active' : ''}`}
+            type="button"
+            aria-label="设置"
+            aria-pressed={shellPage === 'settings'}
+            data-tooltip="设置"
+            onClick={shellPage === 'settings' ? leaveShellPage : openSettings}
+          >
+            <Settings size={18} />
+          </button>
+          {(appUpdate.status === 'available' ||
+            appUpdate.status === 'downloading' ||
+            appUpdate.status === 'downloaded' ||
+            appUpdate.status === 'installing') && (
             <button
-              className="sidebar-settings-button"
+              className={`sidebar-dock-button sidebar-update-icon${
+                appUpdate.status === 'downloading' ? ' downloading' : ''
+              }`}
               type="button"
-              title="设置"
-              aria-label="设置"
-              onClick={() => setSettingsOpen(true)}
+              data-tooltip={
+                appUpdate.status === 'downloading'
+                  ? appUpdate.progress === undefined
+                    ? '正在下载安装包'
+                    : `正在下载 ${Math.round(appUpdate.progress)}%`
+                  : appUpdate.status === 'installing'
+                    ? '正在安装更新'
+                    : appUpdate.status === 'downloaded'
+                      ? `重启安装 ${appUpdate.update?.version ?? ''}`
+                      : `后台下载更新 ${appUpdate.update?.version ?? ''}`
+              }
+              aria-label={
+                appUpdate.status === 'downloading'
+                  ? '正在下载安装包'
+                  : appUpdate.status === 'installing'
+                    ? '正在安装更新'
+                    : appUpdate.status === 'downloaded'
+                      ? '重启安装新版本'
+                      : '下载新版本'
+              }
+              disabled={
+                appUpdate.status === 'downloading' ||
+                appUpdate.status === 'installing'
+              }
+              onClick={applyApplicationUpdate}
             >
-              <Settings size={17} />
-              <span>设置</span>
+              {appUpdate.status === 'downloading' ||
+              appUpdate.status === 'installing' ? (
+                <LoaderCircle className="model-spin" size={16} />
+              ) : (
+                <Download size={16} strokeWidth={2.2} />
+              )}
             </button>
-            {(appUpdate.status === 'available' ||
-              appUpdate.status === 'downloading' ||
-              appUpdate.status === 'downloaded' ||
-              appUpdate.status === 'installing') && (
-              <button
-                className={`sidebar-update-icon${
-                  appUpdate.status === 'downloading' ? ' downloading' : ''
-                }`}
-                type="button"
-                  title={
-                    appUpdate.status === 'downloading'
-                      ? appUpdate.progress === undefined
-                        ? '正在下载安装包'
-                        : `正在下载 ${Math.round(appUpdate.progress)}%`
-                      : appUpdate.status === 'installing'
-                        ? '正在安装更新'
-                        : appUpdate.status === 'downloaded'
-                          ? `重启安装 ${appUpdate.update?.version ?? ''}`
-                          : `后台下载更新 ${appUpdate.update?.version ?? ''}`
-                }
-                  aria-label={
-                    appUpdate.status === 'downloading'
-                      ? '正在下载安装包'
-                      : appUpdate.status === 'installing'
-                        ? '正在安装更新'
-                        : appUpdate.status === 'downloaded'
-                          ? '重启安装新版本'
-                          : '下载新版本'
-                  }
-                disabled={
-                  appUpdate.status === 'downloading' ||
-                  appUpdate.status === 'installing'
-                }
-                onClick={applyApplicationUpdate}
-              >
-                {appUpdate.status === 'downloading' ||
-                appUpdate.status === 'installing' ? (
-                  <LoaderCircle className="model-spin" size={14} />
-                ) : (
-                  <Download size={14} strokeWidth={2.2} />
-                )}
-              </button>
-            )}
-          </div>
+          )}
         </nav>
         <div
           className="sidebar-resize-handle"
           role="separator"
+          tabIndex={0}
           aria-label="调整左侧栏宽度"
           aria-orientation="vertical"
+          aria-valuemin={MIN_SIDEBAR_WIDTH}
+          aria-valuemax={responsiveSidebarMaxWidth}
+          aria-valuenow={visibleSidebarWidth}
+          onKeyDown={(event) => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+            event.preventDefault()
+            const direction = event.key === 'ArrowLeft' ? -1 : 1
+            const nextWidth = Math.min(
+              responsiveSidebarMaxWidth,
+              Math.max(
+                MIN_SIDEBAR_WIDTH,
+                visibleSidebarWidth + direction * 16,
+              ),
+            )
+            setSidebarWidth(nextWidth)
+            try {
+              window.localStorage.setItem(
+                SIDEBAR_WIDTH_KEY,
+                String(nextWidth),
+              )
+            } catch {
+              // Keep the resized width for the current session.
+            }
+          }}
           onPointerDown={beginSidebarResize}
         />
       </aside>
-
-      {railTooltip && (
-        <div
-          className="activity-rail-tooltip"
-          style={{ top: railTooltip.top, left: visibleSidebarWidth + 6 }}
-        >
-          <strong>{railTooltip.name}</strong>
-          <span>{railTooltip.detail}</span>
-        </div>
-      )}
 
       {sidebarOpen && (
         <button
@@ -1977,15 +2559,17 @@ function App() {
           </button>
           <div className="topbar-title">
             <span>
-              {view === 'workspace'
+              {shellPage === 'extensions'
+                ? '扩展'
+                : shellPage === 'settings'
+                  ? `设置 · ${activeSettingsSection.label}`
+                  : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
                   ? workflows.find(
                       (workflow) => workflow.id === selectedWorkflowId,
                     )?.name ?? '虚拟模型'
                   : selectedPlugin.name
-                : view === 'workflows'
-                  ? '流程编排'
-                  : '模型商店'}
+                : '流程编排'}
             </span>
           </div>
           <div className="topbar-actions">
@@ -1996,7 +2580,9 @@ function App() {
           </div>
         </header>
 
-        <div className="view-container model-view-container">
+        <div
+          className={`view-container model-view-container${shellPage !== 'workspace' ? ` page-${shellPage}` : ''}`}
+        >
           <Suspense
             fallback={
               <div className="app-view-loading" aria-label="正在加载">
@@ -2004,7 +2590,39 @@ function App() {
               </div>
             }
           >
-          {view === 'workspace' && (
+          {shellPage === 'extensions' && (
+            <PluginsView
+              plugins={plugins}
+              modelBindings={modelBindings}
+              runtime={runtime}
+              catalog={catalog}
+              apiModelCatalog={apiModelCatalog}
+              customApiModels={customApiModels}
+              installedCloudModelIds={installedCloudModelIds}
+              onCustomApiModelsChanged={saveCustomApiModels}
+              onConfigureProvider={openProviderSettings}
+              onPluginsChanged={setPlugins}
+              onModelBindingsChanged={setModelBindings}
+              onRemoveModelBindings={removeModelBindings}
+              onSetModelBinding={saveModelBinding}
+              onCatalogChanged={setCatalog}
+              onCloudModelInstalled={setCloudModelInstalled}
+              onAction={notify}
+              taxonomyHost={extensionsNavHost}
+            />
+          )}
+          {shellPage === 'settings' && (
+            <section
+              className="settings-page"
+              aria-labelledby="settings-page-title"
+            >
+              <header className="settings-page-heading">
+                <h2 id="settings-page-title">{activeSettingsSection.label}</h2>
+              </header>
+              {settingsRows[settingsSection]}
+            </section>
+          )}
+          {shellPage === 'workspace' && view === 'workspace' && (
             WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
               <WorkflowChatView
                 workflowId={selectedWorkflowId}
@@ -2026,7 +2644,7 @@ function App() {
                 runs={runs}
                 onRunText={runText}
                 onRunAudio={runAudio}
-                onOpenStore={() => changeView('plugins')}
+                onOpenStore={openExtensions}
                 onConfigureProvider={() =>
                   openProviderSettings(selectedPlugin.providerId ?? '')
                 }
@@ -2038,27 +2656,7 @@ function App() {
               />
             )
           )}
-          {view === 'plugins' && (
-            <PluginsView
-              plugins={plugins}
-              modelBindings={modelBindings}
-              runtime={runtime}
-              catalog={catalog}
-              apiModelCatalog={apiModelCatalog}
-              customApiModels={customApiModels}
-              installedCloudModelIds={installedCloudModelIds}
-              onCustomApiModelsChanged={saveCustomApiModels}
-              onConfigureProvider={openProviderSettings}
-              onPluginsChanged={setPlugins}
-              onModelBindingsChanged={setModelBindings}
-              onRemoveModelBindings={removeModelBindings}
-              onSetModelBinding={saveModelBinding}
-              onCatalogChanged={setCatalog}
-              onCloudModelInstalled={setCloudModelInstalled}
-              onAction={notify}
-            />
-          )}
-          {WORKFLOWS_ENABLED && view === 'workflows' && (
+          {shellPage === 'workspace' && WORKFLOWS_ENABLED && view === 'workflows' && (
             <WorkflowsView
               key={editingWorkflowId ?? 'new-workflow'}
               catalog={catalog}
@@ -2093,200 +2691,47 @@ function App() {
         </div>
       )}
 
-      {settingsOpen && (
+      {providerDialogOpen && (
         <div
           className="modal-backdrop"
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setSettingsOpen(false)
+            if (event.target === event.currentTarget) closeProviderDialog()
           }}
         >
           <section
             className="settings-dialog application-settings-dialog"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="settings-title"
+            aria-labelledby="provider-dialog-title"
           >
             <div className="dialog-heading">
               <div>
-                <span className="section-kicker">APPLICATION</span>
-                <h2 id="settings-title">设置</h2>
+                <span className="section-kicker">PROVIDER</span>
+                <h2 id="provider-dialog-title">Provider 配置</h2>
               </div>
               <button
                 className="icon-button"
                 type="button"
-                aria-label="关闭设置"
-                onClick={() => setSettingsOpen(false)}
+                autoFocus
+                aria-label="关闭 Provider 配置"
+                onClick={closeProviderDialog}
               >
                 <X size={17} />
               </button>
             </div>
-            <div className="settings-layout">
-              <nav aria-label="设置分类">
-                <button
-                  className={settingsSection === 'general' ? 'active' : ''}
-                  type="button"
-                  onClick={() => setSettingsSection('general')}
-                >
-                  <SlidersHorizontal size={14} />
-                  通用
-                </button>
-                <button
-                  className={settingsSection === 'providers' ? 'active' : ''}
-                  type="button"
-                  onClick={() => setSettingsSection('providers')}
-                >
-                  <BrainCircuit size={14} />
-                  Provider
-                </button>
-              </nav>
-              {settingsSection === 'general' ? (
-                <div className="settings-content general-settings-content">
-              <div className="settings-row theme-settings-row">
-                <span>
-                  <strong>外观主题</strong>
-                  <small>使用系统外观，或固定浅色与深色模式</small>
-                </span>
-                <div className="theme-segmented" aria-label="外观主题">
-                  {(
-                    [
-                      ['system', Monitor, '跟随系统'],
-                      ['light', Sun, '浅色'],
-                      ['dark', Moon, '深色'],
-                    ] as const
-                  ).map(([theme, Icon, label]) => (
-                    <button
-                      className={themePreference === theme ? 'active' : ''}
-                      type="button"
-                      key={theme}
-                      title={label}
-                      aria-label={label}
-                      aria-pressed={themePreference === theme}
-                      onClick={() => selectTheme(theme)}
-                    >
-                      <Icon size={14} />
-                    </button>
-                  ))}
-                </div>
+            <div className="settings-layout single">
+              <div className="settings-content provider-settings-content">
+                <ProviderSettings
+                  provider={settingsProvider}
+                  onProviderChange={setSettingsProvider}
+                  runtime={runtime}
+                  catalog={catalog}
+                  onCatalogChanged={setCatalog}
+                  onAction={notify}
+                  customProviderId={settingsCustomProviderId}
+                />
               </div>
-              <div className="settings-row">
-                <span>
-                  <strong>软件更新</strong>
-                  <small>
-                    {appUpdate.status === 'available'
-                      ? `版本 ${appUpdate.update?.version} 已可用`
-                      : appUpdate.status === 'downloading'
-                        ? appUpdate.progress === undefined
-                          ? '正在下载安装包'
-                          : `正在下载 ${Math.round(appUpdate.progress)}%`
-                        : appUpdate.status === 'downloaded'
-                          ? `版本 ${appUpdate.update?.version} 已下载，点击重启安装`
-                          : appUpdate.status === 'installing'
-                            ? '正在安装更新'
-                        : appUpdate.status === 'current'
-                          ? `QwenAudio Toolkits ${runtime.version} 已是最新版`
-                          : appUpdate.message ?? `当前版本 ${runtime.version}`}
-                  </small>
-                </span>
-                <button
-                  className="settings-update-action"
-                  type="button"
-                  disabled={
-                    appUpdate.status === 'checking' ||
-                    appUpdate.status === 'downloading' ||
-                    appUpdate.status === 'installing' ||
-                    appUpdate.status === 'unavailable'
-                  }
-                  onClick={() =>
-                    appUpdate.status === 'available' ||
-                    appUpdate.status === 'downloaded'
-                      ? void applyApplicationUpdate()
-                      : void checkApplicationUpdate()
-                  }
-                >
-                  {appUpdate.status === 'checking' ||
-                  appUpdate.status === 'downloading' ||
-                  appUpdate.status === 'installing' ? (
-                    <LoaderCircle className="model-spin" size={13} />
-                  ) : appUpdate.status === 'available' ||
-                    appUpdate.status === 'downloaded' ? (
-                    <Download size={13} />
-                  ) : (
-                    <RefreshCw size={13} />
-                  )}
-                  {appUpdate.status === 'available'
-                    ? '下载并安装'
-                    : appUpdate.status === 'downloaded'
-                      ? '重启安装'
-                    : appUpdate.status === 'checking'
-                      ? '检查中'
-                        : appUpdate.status === 'downloading'
-                          ? '下载中'
-                          : appUpdate.status === 'installing'
-                            ? '安装中'
-                        : appUpdate.status === 'unavailable'
-                          ? '开发版本'
-                          : '检查更新'}
-                </button>
-              </div>
-              <div className="settings-row">
-                <span>
-                  <strong>任务数据</strong>
-                  <small>输入、结果和运行记录仅保存在本机</small>
-                </span>
-                <button
-                  className="settings-danger-action"
-                  type="button"
-                  disabled={clearingHistory}
-                  onClick={() => void clearAllHistory()}
-                >
-                  {clearingHistory ? (
-                    <LoaderCircle className="model-spin" size={13} />
-                  ) : (
-                    <Trash2 size={13} />
-                  )}
-                  清除历史
-                </button>
-              </div>
-              <div className="settings-row">
-                <span>
-                  <strong>Harness Runtime</strong>
-                  <small>{runtime.backend}</small>
-                </span>
-                <span className="settings-value ready">{runtime.apiUrl}</span>
-              </div>
-              <div className="settings-row">
-                <span>
-                  <strong>运行设备</strong>
-                  <small>{runtime.platform}</small>
-                </span>
-                <span className="settings-value">{runtime.device}</span>
-              </div>
-              <button
-                className="secondary-action full-width"
-                type="button"
-                onClick={() => {
-                  setSettingsOpen(false)
-                  changeView('plugins')
-                }}
-              >
-                <ShoppingBag size={15} />
-                管理模型与插件
-              </button>
-                </div>
-              ) : (
-                <div className="settings-content provider-settings-content">
-                  <ProviderSettings
-                    provider={settingsProvider}
-                    onProviderChange={setSettingsProvider}
-                    runtime={runtime}
-                    catalog={catalog}
-                    onCatalogChanged={setCatalog}
-                    onAction={notify}
-                    customProviderId={settingsCustomProviderId}
-                  />
-                </div>
-              )}
             </div>
           </section>
         </div>

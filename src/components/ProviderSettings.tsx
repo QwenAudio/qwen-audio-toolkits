@@ -179,7 +179,7 @@ function BailianProviderPanel({
               </span>
             </div>
             <h2>阿里云百炼</h2>
-            <p>保存访问凭据后，可在模型商店中按需添加在线模型。</p>
+            <p>保存访问凭据后，可在扩展中按需添加在线模型。</p>
           </div>
           <span
             className={`provider-health ${settings.status === 'ready' ? 'ready' : ''}`}
@@ -227,7 +227,7 @@ function BailianProviderPanel({
         <span className="section-kicker">PROVIDER</span>
         <h2>连接状态</h2>
         <p className="provider-summary-copy">
-          凭据只用于连接服务。需要使用的模型请在商店中单独添加。
+          凭据只用于连接服务。需要使用的模型请在扩展中单独添加。
         </p>
         <dl className="provider-contract-facts">
           <div>
@@ -240,7 +240,7 @@ function BailianProviderPanel({
           </div>
           <div>
             <dt>模型参数</dt>
-            <dd>模型商店中选择</dd>
+            <dd>扩展中选择</dd>
           </div>
         </dl>
         <div className="provider-safety-note">
@@ -558,7 +558,7 @@ function CustomProviderPanel({
         <span className="section-kicker">PROVIDER</span>
         <h2>连接信息</h2>
         <p className="provider-summary-copy">
-          Provider 只负责连接；模型名称与 Model ID 在模型商店中管理。
+          Provider 只负责连接；模型名称与 Model ID 在扩展中管理。
         </p>
         <dl className="provider-contract-facts">
           <div>

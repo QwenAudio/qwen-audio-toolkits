@@ -3,67 +3,181 @@
     "OpenAI Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
     "PingFang SC", "Microsoft YaHei", sans-serif;
   font-size: 14px;
-  font-weight: 445;
+  font-weight: 400;
   color: var(--ink);
   background: var(--app-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --app-bg: #f3f3f3;
-  --ink: #1a1c1f;
-  --ink-soft: color-mix(in srgb, #1a1c1f 85%, transparent);
-  --muted: color-mix(in srgb, #1a1c1f 65%, transparent);
-  --muted-2: color-mix(in srgb, #1a1c1f 50%, transparent);
-  --line: color-mix(in oklab, #1a1c1f 5%, transparent);
-  --line-strong: color-mix(in oklab, #1a1c1f 12%, transparent);
+  --app-bg: #f7faf8;
+  --ink: #2f3835;
+  --ink-soft: color-mix(in srgb, #2f3835 84%, transparent);
+  --muted: color-mix(in srgb, #556059 68%, transparent);
+  --muted-2: color-mix(in srgb, #647069 54%, transparent);
+  --line: color-mix(in srgb, #66786f 10%, transparent);
+  --line-strong: color-mix(in srgb, #5a6d64 18%, transparent);
   --surface: #ffffff;
   --surface-soft: #ffffff;
   --surface-raised: #ffffff;
-  --sidebar: color-mix(in srgb, #ffffff 62%, transparent);
-  --sidebar-soft: color-mix(in srgb, #1a1c1f 6%, transparent);
-  --list-hover: color-mix(in srgb, #1a1c1f 6%, transparent);
-  --list-active: color-mix(in srgb, #1a1c1f 9%, transparent);
+  --surface-hover: #edf3ef;
+  --settings-card: color-mix(in srgb, var(--sidebar) 48%, var(--surface-raised));
+  --sidebar: #f0f7f3;
+  --sidebar-soft: #e6f0ea;
+  --list-hover: #eaf3ee;
+  --list-active: #dfece5;
   --input-bg: #ffffff;
-  --primary: #0078d4;
-  --primary-hover: #006cbe;
-  --primary-soft: #e8f3fb;
-  --primary-muted: #3794ff;
-  --primary-ring: rgba(0, 120, 212, 0.22);
-  --green: var(--primary-muted);
-  --green-dark: var(--primary);
-  --coral: #f0715f;
-  --yellow: #d8a82f;
-  --blue: #5e87e4;
-  --violet: #9b83f8;
-  --danger: #db554d;
+  --primary: #4c7e6c;
+  --primary-hover: #416f5e;
+  --primary-soft: #eaf4ef;
+  --primary-muted: #9cc0b0;
+  --primary-ring: rgba(79, 130, 112, 0.22);
+  --green: #8ab7a3;
+  --green-dark: #4c7e6c;
+  --green-soft: #eaf4ef;
+  --coral: #d99b8a;
+  --coral-dark: #a5624f;
+  --coral-soft: #f7ebe7;
+  --yellow: #9db8a9;
+  --yellow-dark: #557d69;
+  --yellow-soft: #eaf3ee;
+  --blue: #8fb3a3;
+  --blue-dark: #4a7864;
+  --blue-soft: #e6f1eb;
+  --violet: #a3c3b4;
+  --violet-dark: #55806c;
+  --violet-soft: #edf5f1;
+  --danger: #c96f6f;
   --shadow:
-    0 16px 42px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08);
+    0 18px 46px rgba(52, 79, 68, 0.14),
+    0 2px 8px rgba(52, 79, 68, 0.08);
 }
 
 :root[data-theme="dark"] {
-  --app-bg: #181818;
-  --ink: #f0f0f0;
-  --ink-soft: #dcdcdc;
-  --muted: #b3b3b3;
-  --muted-2: #8c8c8c;
-  --line: #454545;
-  --line-strong: #5a5a5a;
-  --surface: #1e1e1e;
-  --surface-soft: #252526;
-  --surface-raised: #252526;
-  --sidebar: #181818;
-  --sidebar-soft: #242424;
-  --list-hover: #2a2d2e;
-  --list-active: #37373d;
-  --input-bg: #282828;
-  --primary: #3794ff;
-  --primary-hover: #4da1ff;
-  --primary-soft: #17395c;
-  --primary-muted: #75beff;
-  --primary-ring: rgba(55, 148, 255, 0.28);
+  --app-bg: #1c1f21;
+  --ink: #eef2f0;
+  --ink-soft: #d6dedb;
+  --muted: #a2aeaa;
+  --muted-2: #7a8682;
+  --line: #333a38;
+  --line-strong: #444d4a;
+  --surface: #24282a;
+  --surface-soft: #24282a;
+  --surface-raised: #2b2f31;
+  --surface-hover: #343b39;
+  --sidebar: #1f2b26;
+  --sidebar-soft: #2a3831;
+  --list-hover: #31403a;
+  --list-active: #3a4c44;
+  --input-bg: #2b2f31;
+  --primary: #a2cdba;
+  --primary-hover: #b3d8c8;
+  --primary-soft: #2b3a34;
+  --primary-muted: #c0e0d1;
+  --primary-ring: rgba(162, 205, 186, 0.26);
+  --green: #a2cdba;
+  --green-dark: #b3d8c8;
+  --green-soft: #2b3a34;
+  --coral: #e0a695;
+  --coral-dark: #e8b5a5;
+  --coral-soft: #3f302c;
+  --yellow: #a9c9b8;
+  --yellow-dark: #bbd7c7;
+  --yellow-soft: #2b3a34;
+  --blue: #9cc6b3;
+  --blue-dark: #b0d4c2;
+  --blue-soft: #2b3a34;
+  --violet: #a9cdbc;
+  --violet-dark: #bcd9ca;
+  --violet-soft: #2b3a34;
+  --danger: #e38f8f;
   --shadow:
-    0 16px 42px rgba(0, 0, 0, 0.38), 0 2px 8px rgba(0, 0, 0, 0.24);
+    0 18px 46px rgba(7, 14, 11, 0.44),
+    0 2px 8px rgba(7, 14, 11, 0.3);
+}
+
+:root[data-accent="indigo"] {
+  --app-bg: #f7f8fc;
+  --sidebar: #f0f3fa;
+  --sidebar-soft: #e5eaf6;
+  --list-hover: #eaeef8;
+  --list-active: #dee5f4;
+  --surface-hover: #edf0f8;
+  --primary: #4d63b0;
+  --primary-hover: #41549a;
+  --primary-soft: #eef1f9;
+  --primary-muted: #a2add6;
+  --primary-ring: rgba(77, 99, 176, 0.22);
+}
+
+:root[data-accent="amber"] {
+  --app-bg: #faf8f2;
+  --sidebar: #f6f2e7;
+  --sidebar-soft: #eee8d8;
+  --list-hover: #f3eee0;
+  --list-active: #ece4cd;
+  --surface-hover: #f2edde;
+  --primary: #93702c;
+  --primary-hover: #7d5e22;
+  --primary-soft: #f7f1e3;
+  --primary-muted: #c8b183;
+  --primary-ring: rgba(147, 112, 44, 0.2);
+}
+
+:root[data-accent="rose"] {
+  --app-bg: #fbf7f8;
+  --sidebar: #f9f1f3;
+  --sidebar-soft: #f2e5e8;
+  --list-hover: #f6ecee;
+  --list-active: #efdee2;
+  --surface-hover: #f4eaec;
+  --primary: #a95f6f;
+  --primary-hover: #935060;
+  --primary-soft: #f9eff1;
+  --primary-muted: #d3a7b0;
+  --primary-ring: rgba(169, 95, 111, 0.2);
+}
+
+:root[data-theme="dark"][data-accent="indigo"] {
+  --app-bg: #1c1f24;
+  --sidebar: #20242e;
+  --sidebar-soft: #2a2f3d;
+  --list-hover: #313748;
+  --list-active: #3a4156;
+  --surface-hover: #333949;
+  --primary: #a8b5e4;
+  --primary-hover: #bac5ee;
+  --primary-soft: #2b3040;
+  --primary-muted: #c4cdf0;
+  --primary-ring: rgba(168, 181, 228, 0.26);
+}
+
+:root[data-theme="dark"][data-accent="amber"] {
+  --app-bg: #201e18;
+  --sidebar: #282519;
+  --sidebar-soft: #342f1f;
+  --list-hover: #3a3424;
+  --list-active: #453d2a;
+  --surface-hover: #383223;
+  --primary: #d2b077;
+  --primary-hover: #dfc08c;
+  --primary-soft: #383223;
+  --primary-muted: #e0cda4;
+  --primary-ring: rgba(210, 176, 119, 0.26);
+}
+
+:root[data-theme="dark"][data-accent="rose"] {
+  --app-bg: #211c1e;
+  --sidebar: #2b2224;
+  --sidebar-soft: #382b2e;
+  --list-hover: #3e3033;
+  --list-active: #4a393d;
+  --surface-hover: #3b2f32;
+  --primary: #dfa6b2;
+  --primary-hover: #e9bac4;
+  --primary-soft: #3c2c30;
+  --primary-muted: #e8c3cb;
+  --primary-ring: rgba(223, 166, 178, 0.26);
 }
 
 * {

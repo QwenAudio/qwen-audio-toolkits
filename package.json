@@ -21,7 +21,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "tsx scripts/workflow-smoke.mjs && tsx scripts/result-normalization-smoke.mjs && tsx scripts/caption-layout-smoke.mjs && node scripts/install-progress-smoke.mjs",
+    "test": "tsx scripts/workflow-smoke.mjs && tsx scripts/result-normalization-smoke.mjs && tsx scripts/caption-layout-smoke.mjs && tsx scripts/model-taxonomy-smoke.mjs && node scripts/install-progress-smoke.mjs",
     "test:custom-provider": "node scripts/custom-provider-smoke.mjs",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -44,6 +44,7 @@
     "lucide-react": "^1.27.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-markdown": "^10.1.0",
     "wavesurfer.js": "^7.12.11"
   },
   "devDependencies": {
