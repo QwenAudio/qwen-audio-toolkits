@@ -5323,6 +5323,9 @@ button.job-state {
   margin-top: 3px;
   color: var(--muted);
   font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .plugin-main-copy p {
