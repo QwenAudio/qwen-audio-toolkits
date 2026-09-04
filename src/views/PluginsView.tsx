@@ -1,11 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
+import { createPortal } from 'react-dom'
+import Markdown from 'react-markdown'
 import { listen } from '@tauri-apps/api/event'
 import {
   Boxes,
   BrainCircuit,
+  ChevronRight,
   CirclePlus,
   Cpu,
   Download,
+  FileText,
   Gauge,
   HardDrive,
   KeyRound,
@@ -22,6 +33,8 @@ import {
 } from 'lucide-react'
 import {
   getHarnessCatalog,
+  getModelPluginFiles,
+  getModelPluginReadme,
   installCatalogModel,
   installRecommendedModelDependency,
   isTauriRuntime,
@@ -30,6 +43,7 @@ import {
   setModelPluginSidebarVisible,
   setModelDownloadPaused,
   uninstallModelPlugin,
+  type ModelPluginFileEntry,
 } from '../services/harness'
 import {
   getModelBinding,
@@ -37,6 +51,13 @@ import {
   recommendedDependencies,
 } from '../modelDependencies'
 import { cloudModelsFromCatalog } from '../cloudModels'
+import { getModelNote } from '../content/modelNotes'
+import { formatFileSize } from '../utils/audio'
+import {
+  MODEL_PRIMARY_CATEGORIES,
+  modelTaxonomy,
+  type ModelPrimaryCategory,
+} from '../domain/modelTaxonomy'
 import {
   advanceInstallProgress,
   parseInstallSpeed,
@@ -59,7 +80,6 @@ interface PluginsViewProps {
   apiModelCatalog: ApiModelCatalogEntry[]
   customApiModels: CustomApiModelDefinition[]
   installedCloudModelIds: string[]
-  onCustomApiModelsChanged: (models: CustomApiModelDefinition[]) => void
   onConfigureProvider: (providerId: string) => void
   onPluginsChanged: (plugins: ModelPlugin[]) => void
   onModelBindingsChanged: (bindings: ModelDependencyBindings) => void
@@ -72,6 +92,8 @@ interface PluginsViewProps {
   onCatalogChanged: (catalog: HarnessCatalog) => void
   onCloudModelInstalled: (modelId: string, installed: boolean) => void
   onAction: (message: string) => void
+  /** When set, the category tree renders into this element (the app sidebar). */
+  taxonomyHost?: HTMLElement | null
 }
 
 function isApiPlugin(plugin: ModelPlugin): boolean {
@@ -113,7 +135,6 @@ export function PluginsView({
   apiModelCatalog,
   customApiModels,
   installedCloudModelIds,
-  onCustomApiModelsChanged,
   onConfigureProvider,
   onPluginsChanged,
   onModelBindingsChanged,
@@ -122,11 +143,13 @@ export function PluginsView({
   onCatalogChanged,
   onCloudModelInstalled,
   onAction,
+  taxonomyHost,
 }: PluginsViewProps) {
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<
-    'all' | 'audio' | 'understanding' | 'text' | 'generation'
+  const [primaryFilter, setPrimaryFilter] = useState<
+    'all' | ModelPrimaryCategory
   >('all')
+  const [secondaryFilter, setSecondaryFilter] = useState('all')
   const [runtimeFilter, setRuntimeFilter] = useState<
     'all' | 'offline' | 'api'
   >('all')
@@ -140,6 +163,46 @@ export function PluginsView({
   )
   const [busyId, setBusyId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const workspaceRef = useRef<HTMLDivElement>(null)
+  const [detailsWidth, setDetailsWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('plugins-details-width'))
+      return Number.isFinite(saved) && saved >= 380 ? saved : 0
+    } catch {
+      return 0
+    }
+  })
+  const [resizingDetails, setResizingDetails] = useState(false)
+
+  const startDetailsResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setResizingDetails(true)
+    const onMove = (ev: PointerEvent) => {
+      const rect = workspaceRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const width = Math.round(rect.right - ev.clientX - 3)
+      setDetailsWidth(
+        Math.min(Math.max(width, 380), Math.round(rect.width) - 340),
+      )
+    }
+    const onUp = () => {
+      setResizingDetails(false)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setDetailsWidth((width) => {
+        if (width) {
+          try {
+            localStorage.setItem('plugins-details-width', String(width))
+          } catch {
+            /* ignore */
+          }
+        }
+        return width
+      })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
   const [installProgress, setInstallProgress] = useState(0)
   const [installDetail, setInstallDetail] = useState('')
   const [installStage, setInstallStage] = useState('')
@@ -158,56 +221,11 @@ export function PluginsView({
   const [selectedVariants, setSelectedVariants] = useState<
     Record<string, string>
   >({})
-  const [customModelEditorOpen, setCustomModelEditorOpen] = useState(false)
-  const [customModelName, setCustomModelName] = useState('')
-  const [customModelServiceId, setCustomModelServiceId] = useState('')
-  const [customModelCapability, setCustomModelCapability] = useState<
-    CustomApiModelDefinition['capability']
-  >('text.generate')
-  const customProviders = useMemo(
-    () =>
-      catalog?.providers.filter(
-        ({ id }) =>
-          id === 'api.openai-compatible' || id.startsWith('api.custom.'),
-      ) ?? [],
-    [catalog],
-  )
-  const [customModelProviderId, setCustomModelProviderId] = useState(
-    customProviders[0]?.id ?? 'api.openai-compatible',
-  )
-  const selectedCustomProvider = customProviders.find(
-    ({ id }) => id === customModelProviderId,
-  )
-  const customCapabilityOptions = [
-    ...(selectedCustomProvider?.capabilities.includes('text.generate') !== false
-      ? [{ value: 'text.generate' as const, label: 'LLM · 文本生成' }]
-      : []),
-    ...(selectedCustomProvider?.capabilities.includes('speech.transcribe') !== false
-      ? [{ value: 'speech.transcribe' as const, label: 'ASR · 语音识别' }]
-      : []),
-    ...(selectedCustomProvider?.capabilities.includes('speech.synthesize') !== false
-      ? [{ value: 'speech.synthesize' as const, label: 'TTS · 语音合成' }]
-      : []),
-  ]
-  useEffect(() => {
-    const provider = customProviders.find(
-      ({ id }) => id === customModelProviderId,
-    )
-    if (!provider && customProviders[0]) {
-      setCustomModelProviderId(customProviders[0].id)
-      setCustomModelCapability(
-        customProviders[0]
-          .capabilities[0] as CustomApiModelDefinition['capability'],
-      )
-      return
-    }
-    if (provider && !provider.capabilities.includes(customModelCapability)) {
-      setCustomModelCapability(
-        provider.capabilities[0] as CustomApiModelDefinition['capability'],
-      )
-    }
-  }, [customModelCapability, customModelProviderId, customProviders])
-  const [customModelVoice, setCustomModelVoice] = useState('alloy')
+  const [selectedReadme, setSelectedReadme] = useState<string | null>(null)
+  const [detailsTab, setDetailsTab] = useState<'card' | 'files'>('card')
+  const [selectedFiles, setSelectedFiles] = useState<
+    ModelPluginFileEntry[] | null
+  >(null)
   const desktopRuntime = isTauriRuntime()
   const installProgressLabel = `${Math.round(installProgress)}%`
   const compactInstallProgress = installSpeed
@@ -227,12 +245,62 @@ export function PluginsView({
     () => [...plugins, ...cloudModels].sort(compareCatalogModels),
     [cloudModels, plugins],
   )
+  const taxonomyByModelId = useMemo(
+    () =>
+      new Map(
+        allModels.map((model) => [model.id, modelTaxonomy(model)] as const),
+      ),
+    [allModels],
+  )
+  const categoryTree = useMemo(
+    () =>
+      MODEL_PRIMARY_CATEGORIES.map((category) => {
+        const categoryModels = allModels.filter(
+          (model) =>
+            taxonomyByModelId.get(model.id)?.primaryCategory === category.id,
+        )
+        const secondaryCounts = new Map<string, number>()
+        for (const model of categoryModels) {
+          const secondaryCategory =
+            taxonomyByModelId.get(model.id)?.secondaryCategory
+          if (!secondaryCategory) continue
+          secondaryCounts.set(
+            secondaryCategory,
+            (secondaryCounts.get(secondaryCategory) ?? 0) + 1,
+          )
+        }
+        return {
+          ...category,
+          count: categoryModels.length,
+          secondary: [...secondaryCounts.entries()]
+            .map(([id, count]) => ({ id, count }))
+            .sort((left, right) => left.id.localeCompare(right.id, 'en')),
+        }
+      }),
+    [allModels, taxonomyByModelId],
+  )
+  const activeCategory =
+    primaryFilter === 'all'
+      ? undefined
+      : categoryTree.find((category) => category.id === primaryFilter)
 
   useEffect(() => {
     if (!pendingDeleteId) return undefined
     const timer = window.setTimeout(() => setPendingDeleteId(null), 3200)
     return () => window.clearTimeout(timer)
   }, [pendingDeleteId])
+
+
+  useEffect(() => {
+    if (
+      secondaryFilter !== 'all' &&
+      !activeCategory?.secondary.some(
+        (category) => category.id === secondaryFilter,
+      )
+    ) {
+      setSecondaryFilter('all')
+    }
+  }, [activeCategory, secondaryFilter])
 
   useEffect(() => {
     if (!desktopRuntime) return undefined
@@ -271,36 +339,12 @@ export function PluginsView({
           (plugin.apiAliases ?? []).some((alias) =>
             alias.toLowerCase().includes(search.toLowerCase()),
           )
+        const taxonomy = taxonomyByModelId.get(plugin.id)
         const filterMatch =
-          filter === 'all' ||
-          (filter === 'audio' &&
-            plugin.harnessCapabilities.some((capability) =>
-              [
-                'audio.enhance',
-                'audio.live',
-                'speech.detect',
-                'audio.separate',
-              ].includes(capability),
-            )) ||
-          (filter === 'understanding' &&
-            plugin.harnessCapabilities.some((capability) =>
-              [
-                'speech.transcribe',
-                'audio.classify',
-                'speech.keyword',
-                'speech.language',
-                'speaker.embed',
-                'speaker.diarize',
-              ].includes(capability),
-            )) ||
-          (filter === 'text' &&
-            plugin.harnessCapabilities.some((capability) =>
-              ['text.generate', 'text.punctuate', 'text.normalize'].includes(
-                capability,
-              ),
-            )) ||
-          (filter === 'generation' &&
-            plugin.harnessCapabilities.includes('speech.synthesize'))
+          primaryFilter === 'all' ||
+          (taxonomy?.primaryCategory === primaryFilter &&
+            (secondaryFilter === 'all' ||
+              taxonomy.secondaryCategory === secondaryFilter))
         const apiPlugin = isApiPlugin(plugin)
         const runtimeMatch =
           runtimeFilter === 'all' ||
@@ -308,7 +352,14 @@ export function PluginsView({
           (runtimeFilter === 'offline' && !apiPlugin)
         return searchMatch && filterMatch && runtimeMatch
       }),
-    [allModels, filter, runtimeFilter, search],
+    [
+      allModels,
+      primaryFilter,
+      runtimeFilter,
+      search,
+      secondaryFilter,
+      taxonomyByModelId,
+    ],
   )
   const selectedPlugin =
     filteredPlugins.find((plugin) => plugin.id === selectedId) ??
@@ -316,6 +367,54 @@ export function PluginsView({
   const selectedIsApi = selectedPlugin
     ? isApiPlugin(selectedPlugin)
     : false
+  const selectedNote = selectedPlugin
+    ? getModelNote(selectedPlugin.id)
+    : undefined
+  const selectedPluginId = selectedPlugin?.id
+  useEffect(() => {
+    let cancelled = false
+    if (!selectedPluginId || !isTauriRuntime()) {
+      setSelectedReadme(null)
+      return undefined
+    }
+    setSelectedReadme(null)
+    getModelPluginReadme(selectedPluginId)
+      .then((readme) => {
+        if (!cancelled) setSelectedReadme(readme)
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedReadme(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedPluginId])
+  const selectedHasFiles = Boolean(
+    selectedPlugin &&
+      !selectedIsApi &&
+      selectedPlugin.installed &&
+      isTauriRuntime(),
+  )
+  useEffect(() => {
+    let cancelled = false
+    setDetailsTab('card')
+    setSelectedFiles(null)
+    if (!selectedPluginId || !isTauriRuntime() || !selectedHasFiles) {
+      return () => {
+        cancelled = true
+      }
+    }
+    getModelPluginFiles(selectedPluginId)
+      .then((files) => {
+        if (!cancelled) setSelectedFiles(files)
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedFiles(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedPluginId, selectedHasFiles])
   const selectedVariant = selectedPlugin?.variants?.find(
     (variant) =>
       variant.id ===
@@ -339,6 +438,15 @@ export function PluginsView({
   const selectedCloudBusy = Boolean(
     selectedPlugin && selectedIsApi && cloudBusyIds.has(selectedPlugin.id),
   )
+  const selectedDependencyReferences =
+    selectedPlugin && !selectedIsApi
+      ? referencingModels(selectedPlugin.id, allModels, modelBindings)
+      : []
+  const selectedRetainedDependency = Boolean(
+    selectedPlugin?.installed &&
+      selectedPlugin.sidebarVisible === false &&
+      selectedDependencyReferences.length > 0,
+  )
   const anotherOperationBusy = Boolean(
     busyId && !installJobsRef.current[busyId],
   )
@@ -348,37 +456,6 @@ export function PluginsView({
     plugin.selectedVariantId ??
     plugin.defaultVariantId
 
-  const addCustomApiModel = () => {
-    const modelId = customModelServiceId.trim()
-    if (!modelId) {
-      onAction('请填写 Model ID')
-      return
-    }
-    const id = `custom-api-${crypto.randomUUID()}`
-    onCustomApiModelsChanged([
-      ...customApiModels,
-      {
-        id,
-        name: customModelName.trim() || modelId,
-        modelId,
-        providerId: customModelProviderId,
-        capability: customModelCapability,
-        ...(customModelCapability === 'speech.synthesize'
-          ? { defaultVoice: customModelVoice.trim() || 'alloy' }
-          : {}),
-      },
-    ])
-    setCustomModelName('')
-    setCustomModelServiceId('')
-    setCustomModelCapability('text.generate')
-    setCustomModelProviderId(customProviders[0]?.id ?? 'api.openai-compatible')
-    setCustomModelVoice('alloy')
-    setCustomModelEditorOpen(false)
-    setFilter('text')
-    setRuntimeFilter('api')
-    setSelectedId(id)
-    onAction('自定义 API 模型已添加到模型商店')
-  }
 
   const setCloudModelInstalled = async (
     plugin: ModelPlugin,
@@ -679,70 +756,117 @@ export function PluginsView({
     }
   }
 
-  return (
-    <div className="plugins-page">
-      <div className="plugin-toolbar">
-        <label className="search-field plugin-search">
-          <Search size={15} />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="搜索模型、能力或作者"
-            aria-label="搜索插件"
-          />
-        </label>
-        <div className="filter-tabs">
-          <button
-            className={filter === 'all' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('all')}
-          >
-            全部
-          </button>
-          <button
-            className={filter === 'audio' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('audio')}
-          >
-            音频处理
-          </button>
-          <button
-            className={filter === 'understanding' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('understanding')}
-          >
-            音频理解
-          </button>
-          <button
-            className={filter === 'text' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('text')}
-          >
-            文本智能
-          </button>
-          <button
-            className={filter === 'generation' ? 'active' : ''}
-            type="button"
-            onClick={() => setFilter('generation')}
-          >
-            音频生成
-          </button>
-        </div>
-        <button
-          className="catalog-add-api-model"
-          type="button"
-          onClick={() => setCustomModelEditorOpen(true)}
-        >
-          <CirclePlus size={13} />
-          添加 API 模型
-        </button>
+  const taxonomy = (
+    <aside
+      className="catalog-taxonomy"
+      aria-label="模型分类"
+    >
+      <div className="taxonomy-heading">
+        <span>模型分类</span>
+        <small>{allModels.length}</small>
       </div>
+      <nav className="taxonomy-tree" role="tree">
+          <button
+            className={`taxonomy-all${primaryFilter === 'all' ? ' active' : ''}`}
+            type="button"
+            role="treeitem"
+            aria-current={primaryFilter === 'all' ? 'page' : undefined}
+            onClick={() => {
+              setPrimaryFilter('all')
+              setSecondaryFilter('all')
+            }}
+          >
+            <span>全部模型</span>
+            <small>{allModels.length}</small>
+          </button>
+          {categoryTree.map((category) => {
+            const expanded = primaryFilter === category.id
+            return (
+              <div
+                key={category.id}
+                className={`taxonomy-branch${expanded ? ' expanded' : ''}`}
+              >
+                <button
+                  className="taxonomy-primary"
+                  type="button"
+                  role="treeitem"
+                  aria-expanded={expanded && category.secondary.length > 0}
+                  aria-current={expanded ? 'page' : undefined}
+                  onClick={() => {
+                    setPrimaryFilter(category.id)
+                    setSecondaryFilter('all')
+                  }}
+                >
+                  <ChevronRight size={13} />
+                  <span>{category.label}</span>
+                  <small>{category.count}</small>
+                </button>
+                {expanded && category.secondary.length > 0 && (
+                  <div className="taxonomy-secondary-group" role="group">
+                    <button
+                      className={secondaryFilter === 'all' ? 'active' : ''}
+                      type="button"
+                      role="treeitem"
+                      aria-current={
+                        secondaryFilter === 'all' ? 'page' : undefined
+                      }
+                      onClick={() => setSecondaryFilter('all')}
+                    >
+                      <span>全部</span>
+                      <small>{category.count}</small>
+                    </button>
+                    {category.secondary.map((secondary) => (
+                      <button
+                        key={secondary.id}
+                        className={
+                          secondaryFilter === secondary.id ? 'active' : ''
+                        }
+                        type="button"
+                        role="treeitem"
+                        title={secondary.id}
+                        aria-current={
+                          secondaryFilter === secondary.id ? 'page' : undefined
+                        }
+                        onClick={() => setSecondaryFilter(secondary.id)}
+                      >
+                        <span>{secondary.id}</span>
+                        <small>{secondary.count}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+      </nav>
+    </aside>
+  )
 
-      <div className="plugins-workspace">
+  return (
+    <div className={`plugins-page${taxonomyHost ? ' embedded' : ''}`}>
+      {taxonomyHost ? createPortal(taxonomy, taxonomyHost) : taxonomy}
+
+      <div
+        ref={workspaceRef}
+        className="plugins-workspace"
+        style={
+          detailsWidth
+            ? ({ '--plugins-details-w': `${detailsWidth}px` } as CSSProperties)
+            : undefined
+        }
+      >
         <main className="plugin-catalog">
-          <div className="catalog-heading">
-            <div className="catalog-heading-actions">
-              {Object.keys(installJobs).length > 0 && (
+          <div className="plugin-catalog-head">
+            <label className="search-field plugin-search">
+              <Search size={15} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="搜索模型、能力或作者"
+                aria-label="搜索插件"
+              />
+            </label>
+            {Object.keys(installJobs).length > 0 && (
                 <span className="catalog-install-status">
                   <RefreshCw size={13} />
                   {Object.values(installJobs).filter(
@@ -753,7 +877,7 @@ export function PluginsView({
                   · {Object.values(installJobs).length} 个任务
                 </span>
               )}
-              <div className="runtime-scope" aria-label="按运行方式筛选">
+            <div className="runtime-scope" aria-label="按运行方式筛选">
                 <button
                   className={runtimeFilter === 'offline' ? 'active' : ''}
                   type="button"
@@ -784,8 +908,8 @@ export function PluginsView({
                   云端 API
                 </button>
               </div>
-            </div>
           </div>
+
 
           <div className="plugin-list">
             {!filteredPlugins.length && (
@@ -801,18 +925,9 @@ export function PluginsView({
             )}
             {filteredPlugins.map((plugin) => {
               const apiPlugin = isApiPlugin(plugin)
-              const requiresApiConfig = apiPlugin && !plugin.enabled
               const installState = installJobs[plugin.id]
-              const isQueued = installState === 'queued'
+              const requiresApiConfig = apiPlugin && !plugin.enabled
               const isCloudBusy = cloudBusyIds.has(plugin.id)
-              const isBusy =
-                Boolean(installState && installState !== 'queued') ||
-                busyId === plugin.id ||
-                isCloudBusy
-              const canQueueInstall =
-                !apiPlugin &&
-                !plugin.installed &&
-                plugin.catalogManaged === true
               const dependencyReferences = apiPlugin
                 ? []
                 : referencingModels(plugin.id, allModels, modelBindings)
@@ -820,15 +935,11 @@ export function PluginsView({
                 plugin.installed &&
                 plugin.sidebarVisible === false &&
                 dependencyReferences.length > 0
-              const actionDisabled =
-                (!plugin.installed &&
-                  !apiPlugin &&
-                  (!plugin.catalogManaged || plugin.installable === false)) ||
+              const installDisabled =
+                (!plugin.catalogManaged || plugin.installable === false) ||
                 retainedDependency ||
-                isQueued ||
-                (!canQueueInstall && !apiPlugin && Boolean(busyId)) ||
-                isCloudBusy ||
-                (canQueueInstall && anotherOperationBusy)
+                Boolean(busyId) ||
+                anotherOperationBusy
               return (
                 <article
                   key={plugin.id}
@@ -838,12 +949,110 @@ export function PluginsView({
                   <div className="plugin-main-copy">
                     <div className="plugin-title-line">
                       <h2>{plugin.name}</h2>
-                      <span
-                        className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
+                      <div className="plugin-row-action">
+                    {installState ? (
+                      <button
+                        className="install-button installing"
+                        type="button"
+                        disabled
+                        title={installDetail || undefined}
                       >
-                        {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
-                        {apiPlugin ? '云端 API' : '离线运行'}
-                      </span>
+                        <RefreshCw className="model-spin" size={14} />
+                        {installState === 'queued'
+                          ? '排队中'
+                          : installState === 'paused'
+                            ? '已暂停'
+                            : installState === 'canceling'
+                              ? '取消中'
+                              : compactInstallProgress}
+                      </button>
+                    ) : apiPlugin ? (
+                      requiresApiConfig ? (
+                        <button
+                          className="install-button"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onConfigureProvider(plugin.providerId ?? '')
+                          }}
+                        >
+                          <KeyRound size={14} />
+                          配置
+                        </button>
+                      ) : (
+                        <button
+                          className={
+                            plugin.installed
+                              ? `installed-button${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`
+                              : 'install-button'
+                          }
+                          type="button"
+                          disabled={isCloudBusy || Boolean(busyId)}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            if (plugin.installed) void removePlugin(plugin)
+                            else void setCloudModelInstalled(plugin, true)
+                          }}
+                        >
+                          {plugin.installed ? (
+                            <>
+                              <Trash2 size={14} />
+                              {pendingDeleteId === plugin.id ? '确认' : '删除'}
+                            </>
+                          ) : (
+                            <>
+                              <CirclePlus size={14} />
+                              添加
+                            </>
+                          )}
+                        </button>
+                      )
+                    ) : plugin.installed ? (
+                      <button
+                        className={`installed-button${retainedDependency ? ' retained-dependency' : ''}${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`}
+                        type="button"
+                        title={
+                          retainedDependency
+                            ? `仍被 ${dependencyReferences.length} 个模型使用`
+                            : undefined
+                        }
+                        disabled={retainedDependency || Boolean(busyId)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void removePlugin(plugin)
+                        }}
+                      >
+                        {retainedDependency ? (
+                          <>
+                            <PackageCheck size={14} />
+                            依赖中
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 size={14} />
+                            {pendingDeleteId === plugin.id ? '确认' : '删除'}
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <button
+                        className="install-button"
+                        type="button"
+                        disabled={installDisabled}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void installOrAddPlugin(plugin)
+                        }}
+                      >
+                        <Download size={14} />
+                        {plugin.installable === false
+                          ? '适配中'
+                          : plugin.catalogManaged
+                            ? '安装'
+                            : '仅兼容'}
+                      </button>
+                    )}
+                      </div>
                     </div>
                     <span className="plugin-author">
                       模型：{plugin.author} ·{' '}
@@ -851,6 +1060,12 @@ export function PluginsView({
                     </span>
                     <p>{plugin.description}</p>
                     <div className="plugin-capabilities">
+                      <span
+                        className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
+                      >
+                        {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
+                        {apiPlugin ? '云端 API' : '离线运行'}
+                      </span>
                       <span>
                         {plugin.streamingMode === 'streaming'
                           ? '流式'
@@ -862,174 +1077,58 @@ export function PluginsView({
                       <span>{plugin.runtime}</span>
                     </div>
                   </div>
-                  <div className="plugin-hardware">
-                    {!apiPlugin && (
-                      <span>
-                        {plugin.variants?.find(
-                          (variant) => variant.id === variantIdFor(plugin),
-                        )?.size ?? plugin.size}
-                      </span>
-                    )}
-                    <div>
-                      {plugin.acceleration.slice(0, 3).map((item) => (
-                        <small key={item}>{item}</small>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="plugin-row-action">
-                    {installState ? (
-                      <div
-                        className={`installing-state ${installState}`}
-                        title={installDetail || undefined}
-                      >
-                        <div className="installing-state-heading">
-                          <span>
-                            {installState === 'queued'
-                              ? '排队中'
-                              : installState === 'paused'
-                                ? '已暂停'
-                                : installState === 'canceling'
-                                  ? '正在取消'
-                                  : compactInstallProgress}
-                          </span>
-                          <span className="install-task-actions">
-                            {(installState === 'running' ||
-                              installState === 'paused') && (
-                              <button
-                                type="button"
-                                title={installState === 'paused' ? '继续下载' : '暂停下载'}
-                                aria-label={installState === 'paused' ? '继续下载' : '暂停下载'}
-                                disabled={
-                                  installState === 'running' &&
-                                  installStage !== 'downloading'
-                                }
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void toggleInstallPaused(plugin.id)
-                                }}
-                              >
-                                {installState === 'paused' ? (
-                                  <Play size={12} />
-                                ) : (
-                                  <Pause size={12} />
-                                )}
-                              </button>
-                            )}
-                            {installState !== 'canceling' && (
-                              <button
-                                type="button"
-                                title="取消下载"
-                                aria-label="取消下载"
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  void cancelInstall(plugin.id)
-                                }}
-                              >
-                                <X size={12} />
-                              </button>
-                            )}
-                          </span>
-                        </div>
-                        <i>
-                          <b
-                            style={{
-                              width: `${isQueued ? 0 : installProgress}%`,
-                            }}
-                          />
-                        </i>
-                      </div>
-                    ) : isBusy ? (
-                      <div className="installing-state">
-                        <span>{installDetail || '处理中'}</span>
-                      </div>
-                    ) : (
-                      <button
-                        className={
-                          plugin.installed
-                            ? `installed-button${retainedDependency ? ' retained-dependency' : ''}${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`
-                            : 'install-button'
-                        }
-                        type="button"
-                        title={
-                          retainedDependency
-                            ? `仍被 ${dependencyReferences.length} 个模型使用`
-                            : undefined
-                        }
-                        disabled={actionDisabled}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          if (apiPlugin) {
-                            if (requiresApiConfig) {
-                              onConfigureProvider(plugin.providerId ?? '')
-                            } else if (plugin.installed) {
-                              void removePlugin(plugin)
-                            } else {
-                              void setCloudModelInstalled(plugin, true)
-                            }
-                            return
-                          }
-                          if (plugin.installed) {
-                            void removePlugin(plugin)
-                          } else {
-                            void installOrAddPlugin(plugin)
-                          }
-                        }}
-                      >
-                        {retainedDependency ? (
-                          <>
-                            <PackageCheck size={15} />
-                            依赖中
-                          </>
-                        ) : apiPlugin ? (
-                          <>
-                            {requiresApiConfig ? (
-                              <KeyRound size={15} />
-                            ) : plugin.installed ? (
-                              <Trash2 size={15} />
-                            ) : (
-                              <CirclePlus size={15} />
-                            )}
-                            {requiresApiConfig
-                              ? '配置'
-                              : plugin.installed
-                                ? '删除'
-                                : '添加'}
-                          </>
-                        ) : plugin.installed ? (
-                          <>
-                            <Trash2 size={15} />
-                            删除
-                          </>
-                        ) : (
-                          <>
-                            <Download size={15} />{' '}
-                            {plugin.installable === false
-                              ? '适配中'
-                              : plugin.catalogManaged
-                                ? '安装'
-                                : '仅兼容'}
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
                 </article>
               )
             })}
           </div>
-
         </main>
 
+        <div
+          className={`plugins-resize-handle${resizingDetails ? ' active' : ''}`}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整展示区宽度"
+          onPointerDown={startDetailsResize}
+        />
+
         <aside className="plugin-details">
+          {!selectedPlugin && (
+            <div className="plugin-empty-category plugin-details-empty">
+              <BrainCircuit size={22} />
+              <strong>选择一个模型查看详情</strong>
+              <p>在中间列表中点击模型，这里会显示它的主页与安装选项。</p>
+            </div>
+          )}
+
           {selectedPlugin && (
             <>
-              <div className="plugin-details-heading">
-                <div>
+              <div className="plugin-project-header">
+                <div className="plugin-project-title">
+                  <span className="plugin-project-owner">
+                    {selectedPlugin.author}
+                  </span>
+                  <span className="plugin-project-sep">/</span>
                   <h2>{selectedPlugin.name}</h2>
-                  <small>
-                    {displayPluginVersion(selectedPlugin, selectedIsApi)}{' '}
-                    · {selectedPlugin.author}
-                  </small>
+                </div>
+                {selectedPlugin.description && (
+                  <p className="plugin-project-description">
+                    {selectedPlugin.description}
+                  </p>
+                )}
+                <div className="plugin-project-meta">
+                  <span>
+                    v{displayPluginVersion(selectedPlugin, selectedIsApi)}
+                  </span>
+                  {selectedPlugin.license && <span>{selectedPlugin.license}</span>}
+                  {!selectedIsApi && (
+                    <span>{selectedVariant?.size ?? selectedPlugin.size}</span>
+                  )}
+                  <span>{selectedIsApi ? '云端 API' : '离线运行'}</span>
+                </div>
+                <div className="plugin-capabilities">
+                  {selectedPlugin.capabilities.map((capability) => (
+                    <span key={capability}>{capability}</span>
+                  ))}
                 </div>
               </div>
 
@@ -1084,11 +1183,11 @@ export function PluginsView({
                 </span>
               </div>
 
-              {(selectedIsApi ||
+              <div className="plugin-detail-actions">
+                {(selectedIsApi ||
                   !selectedPlugin.installed ||
                   selectedPlugin.sidebarVisible === false ||
                   selectedInstallState !== undefined) && (
-                <div className="plugin-detail-actions">
                   <button
                     className="secondary-action full-width"
                     type="button"
@@ -1168,6 +1267,7 @@ export function PluginsView({
                     </>
                   )}
                   </button>
+                )}
                 {selectedInstallState && (
                   <div className="selected-install-actions">
                     {(selectedInstallState === 'running' ||
@@ -1213,22 +1313,108 @@ export function PluginsView({
                     )}
                   </div>
                 )}
-                </div>
-              )}
+                {selectedPlugin.installed &&
+                  !selectedInstallState &&
+                  !selectedCloudBusy &&
+                  selectedPlugin.adapter !== 'web-audio' && (
+                    <button
+                      className={`installed-button plugin-detail-remove${
+                        selectedRetainedDependency ? ' retained-dependency' : ''
+                      }${pendingDeleteId === selectedPlugin.id ? ' confirming-delete' : ''}`}
+                      type="button"
+                      title={
+                        selectedRetainedDependency
+                          ? `仍被 ${selectedDependencyReferences.length} 个模型使用`
+                          : undefined
+                      }
+                      disabled={selectedRetainedDependency || Boolean(busyId)}
+                      onClick={() => void removePlugin(selectedPlugin)}
+                    >
+                      {selectedRetainedDependency ? (
+                        <>
+                          <PackageCheck size={15} />
+                          依赖中
+                        </>
+                      ) : (
+                        <>
+                          <Trash2 size={15} />
+                          {pendingDeleteId === selectedPlugin.id
+                            ? '再次点击确认删除'
+                            : selectedIsApi
+                              ? '从工作台移除'
+                              : '删除模型'}
+                        </>
+                      )}
+                    </button>
+                  )}
+              </div>
 
-              <section className="model-introduction-card">
-                <header>
-                  <strong>模型介绍</strong>
-                </header>
-                <div className="model-introduction-body">
-                  <p>{selectedPlugin.description}</p>
-                  <div className="plugin-capabilities">
-                    {selectedPlugin.capabilities.map((capability) => (
-                      <span key={capability}>{capability}</span>
-                    ))}
+              <div className="plugin-project-tabs" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={detailsTab === 'card'}
+                  className={detailsTab === 'card' ? 'active' : ''}
+                  onClick={() => setDetailsTab('card')}
+                >
+                  模型卡片
+                </button>
+                {selectedHasFiles && (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={detailsTab === 'files'}
+                    className={detailsTab === 'files' ? 'active' : ''}
+                    onClick={() => setDetailsTab('files')}
+                  >
+                    文件
+                  </button>
+                )}
+              </div>
+
+              {detailsTab === 'files' ? (
+                <section className="plugin-files-card">
+                  {selectedFiles === null ? (
+                    <p className="plugin-files-empty">正在读取文件…</p>
+                  ) : selectedFiles.length === 0 ? (
+                    <p className="plugin-files-empty">暂无文件</p>
+                  ) : (
+                    <ul className="plugin-files-list">
+                      {selectedFiles.map((file) => (
+                        <li key={file.path}>
+                          <FileText size={14} />
+                          <span className="plugin-file-path">{file.path}</span>
+                          <span className="plugin-file-size">
+                            {formatFileSize(file.size)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              ) : (
+                <section className="model-introduction-card">
+                  <div className="model-introduction-body">
+                    {selectedReadme || selectedNote ? (
+                      <div className="model-note">
+                        <Markdown
+                          components={{
+                            a: ({ href, children }) => (
+                              <a href={href} target="_blank" rel="noreferrer">
+                                {children}
+                              </a>
+                            ),
+                          }}
+                        >
+                          {selectedReadme ?? selectedNote ?? ''}
+                        </Markdown>
+                      </div>
+                    ) : (
+                      <p>{selectedPlugin.description}</p>
+                    )}
                   </div>
-                </div>
-              </section>
+                </section>
+              )}
 
               {selectedDependencies.length > 0 && (
                 <section className="runtime-card model-dependencies-card">
@@ -1415,128 +1601,6 @@ export function PluginsView({
         </aside>
       </div>
 
-      {customModelEditorOpen && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setCustomModelEditorOpen(false)
-            }
-          }}
-        >
-          <section
-            className="custom-model-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="custom-model-title"
-          >
-            <div className="dialog-heading">
-              <div>
-                <span className="section-kicker">API MODEL</span>
-                <h2 id="custom-model-title">添加自定义 API 模型</h2>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="关闭"
-                onClick={() => setCustomModelEditorOpen(false)}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <div className="custom-model-form">
-              <label>
-                <span>Provider</span>
-                <select value={customModelProviderId} onChange={(event) => {
-                  const providerId = event.target.value
-                  const provider = customProviders.find(({ id }) => id === providerId)
-                  const nextCapability = provider?.capabilities.includes(customModelCapability)
-                    ? customModelCapability
-                    : (provider?.capabilities[0] as CustomApiModelDefinition['capability'] | undefined)
-                  setCustomModelProviderId(providerId)
-                  if (nextCapability) setCustomModelCapability(nextCapability)
-                }}>
-                  {customProviders.map((provider) => (
-                    <option key={provider.id} value={provider.id}>{provider.name}</option>
-                  ))}
-                </select>
-                <small>连接信息在“设置 → Provider”中统一管理。</small>
-              </label>
-              <label>
-                <span>模型名称</span>
-                <input
-                  value={customModelName}
-                  placeholder="留空则使用 Model ID"
-                  onChange={(event) => setCustomModelName(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>模型类型</span>
-                <select
-                  value={customModelCapability}
-                  onChange={(event) =>
-                    setCustomModelCapability(
-                      event.target.value as CustomApiModelDefinition['capability'],
-                    )
-                  }
-                >
-                  {customCapabilityOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Model ID</span>
-                <input
-                  value={customModelServiceId}
-                  placeholder={
-                    customModelCapability === 'speech.transcribe'
-                      ? '例如 gpt-4o-mini-transcribe 或 whisper-1'
-                      : customModelCapability === 'speech.synthesize'
-                        ? '例如 gpt-4o-mini-tts 或 tts-1'
-                        : '例如 qwen3:8b 或 gpt-4o-mini'
-                  }
-                  onChange={(event) =>
-                    setCustomModelServiceId(event.target.value)
-                  }
-                />
-              </label>
-              {customModelCapability === 'speech.synthesize' && (
-                <label>
-                  <span>默认音色</span>
-                  <input
-                    value={customModelVoice}
-                    placeholder="例如 alloy"
-                    onChange={(event) => setCustomModelVoice(event.target.value)}
-                  />
-                  <small>使用时仍可在对话窗口临时切换音色。</small>
-                </label>
-              )}
-              <div className="custom-model-actions">
-                <button
-                  className="secondary-action"
-                  type="button"
-                  onClick={() =>
-                    onConfigureProvider(customModelProviderId)
-                  }
-                >
-                  <KeyRound size={15} />
-                  配置 Provider
-                </button>
-                <button
-                  className="primary-action"
-                  type="button"
-                  onClick={addCustomApiModel}
-                >
-                  <CirclePlus size={15} />
-                  添加模型
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
 
     </div>
   )

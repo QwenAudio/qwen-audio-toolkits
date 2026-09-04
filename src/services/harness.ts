@@ -46,7 +46,7 @@ function runTimeoutMs(request: HarnessTaskRequest): number {
   )
 }
 
-export class HarnessRunError extends Error {
+class HarnessRunError extends Error {
   run: HarnessRun
 
   constructor(run: HarnessRun) {
@@ -71,6 +71,26 @@ interface DroppedAudioFile {
   name: string
   mimeType: string
   dataBase64: string
+}
+
+export async function setCloseBehavior(quitOnClose: boolean): Promise<void> {
+  await invoke<void>('set_close_behavior', { quitOnClose })
+}
+
+export async function appDataDirectory(): Promise<string> {
+  return invoke<string>('app_data_directory')
+}
+
+export async function revealInFileManager(path: string): Promise<void> {
+  await invoke<void>('reveal_in_file_manager', { path })
+}
+
+export async function cleanupDownloadCache(): Promise<number> {
+  return invoke<number>('cleanup_download_cache')
+}
+
+export async function hideWindowControls(): Promise<void> {
+  await invoke<void>('hide_window_controls')
 }
 
 export async function readDroppedAudioFile(path: string): Promise<File> {
@@ -182,13 +202,13 @@ export function deleteBailianVoice(voiceId: string): Promise<void> {
   return invoke<void>('harness_delete_bailian_voice', { voiceId })
 }
 
-export interface SystemAudioChunk {
+interface SystemAudioChunk {
   sessionId: string
   pcmBase64: string
   sampleRate: number
 }
 
-export interface SystemAudioSession {
+interface SystemAudioSession {
   sessionId: string
   sampleRate: number
 }
@@ -210,10 +230,6 @@ export function playSystemAudioChunk(
   return invoke('system_audio_play_chunk', { sessionId, pcmBase64 })
 }
 
-export function flushSystemAudioPlayback(sessionId: string): Promise<void> {
-  return invoke('system_audio_flush_playback', { sessionId })
-}
-
 export async function subscribeSystemAudio(
   listener: (chunk: SystemAudioChunk) => void,
 ): Promise<UnlistenFn> {
@@ -224,10 +240,6 @@ export async function subscribeSystemAudio(
 
 export function cancelHarnessRun(runId: string): Promise<HarnessRun> {
   return invoke<HarnessRun>('harness_cancel_run', { runId })
-}
-
-export function retryHarnessRun(runId: string): Promise<HarnessRun> {
-  return invoke<HarnessRun>('harness_retry_run', { runId })
 }
 
 export function deleteHarnessRun(runId: string): Promise<void> {
@@ -391,20 +403,6 @@ export function refreshModelPlugins(): Promise<ModelPlugin[]> {
   return invoke<ModelPlugin[]>('plugin_refresh_catalog')
 }
 
-export function setModelCatalogSource(
-  url?: string,
-): Promise<ModelPlugin[]> {
-  return invoke<ModelPlugin[]>('plugin_set_catalog_source', {
-    update: { url: url?.trim() || null },
-  })
-}
-
-export function installModelPlugin(path: string): Promise<ModelPlugin> {
-  return invoke<ModelPlugin>('plugin_install_package', {
-    request: { path },
-  })
-}
-
 export function installCatalogModel(
   pluginId: string,
   variantId?: string,
@@ -466,4 +464,19 @@ export function uninstallModelPlugin(
   pluginId: string,
 ): Promise<PluginRemovalResult> {
   return invoke<PluginRemovalResult>('plugin_uninstall', { pluginId })
+}
+
+export function getModelPluginReadme(pluginId: string): Promise<string | null> {
+  return invoke<string | null>('plugin_readme', { pluginId })
+}
+
+export interface ModelPluginFileEntry {
+  path: string
+  size: number
+}
+
+export function getModelPluginFiles(
+  pluginId: string,
+): Promise<ModelPluginFileEntry[]> {
+  return invoke<ModelPluginFileEntry[]>('plugin_files', { pluginId })
 }

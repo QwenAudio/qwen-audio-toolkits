@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { save } from '@tauri-apps/plugin-dialog'
 
-export interface ExportableAudioFile {
+interface ExportableAudioFile {
   fileName: string
   filePath: string
   dataUrl: string

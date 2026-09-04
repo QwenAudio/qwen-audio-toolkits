@@ -19,7 +19,7 @@ import type {
 } from '../types'
 
 export const WORKFLOW_STORAGE_KEY = 'qwen-audio-toolkits.visual-workflow-v4'
-export const SAVED_WORKFLOWS_STORAGE_KEY = 'qwen-audio.saved-workflows-v1'
+const SAVED_WORKFLOWS_STORAGE_KEY = 'qwen-audio.saved-workflows-v1'
 const DEFAULT_WORKFLOWS_STORAGE_KEY =
   'qwen-audio.default-workflows-installed-v2'
 const WORKFLOW_ITN_MIGRATION_KEY =
@@ -27,7 +27,7 @@ const WORKFLOW_ITN_MIGRATION_KEY =
 
 type WorkflowAudioOutput = TtsGenerateResult | AudioProcessResult
 
-export interface StoredWorkflowNode {
+interface StoredWorkflowNode {
   id: string
   type?: string
   position?: { x: number; y: number }
@@ -47,13 +47,13 @@ export interface StoredWorkflowNode {
   }
 }
 
-export interface StoredWorkflowEdge {
+interface StoredWorkflowEdge {
   id?: string
   source: string
   target: string
 }
 
-export interface StoredWorkflow {
+interface StoredWorkflow {
   nodes: StoredWorkflowNode[]
   edges: StoredWorkflowEdge[]
 }
@@ -65,12 +65,12 @@ export interface SavedWorkflow extends StoredWorkflow {
   updatedAt: number
 }
 
-export interface WorkflowTemplate extends StoredWorkflow {
+interface WorkflowTemplate extends StoredWorkflow {
   id: string
   name: string
 }
 
-export interface WorkflowConversationOutput {
+interface WorkflowConversationOutput {
   transcript: string
   transcription: AsrTranscriptionResult | null
   reply: string
@@ -79,7 +79,7 @@ export interface WorkflowConversationOutput {
   nodeResults: WorkflowNodeResult[]
 }
 
-export interface StreamingWorkflowOutput {
+interface StreamingWorkflowOutput {
   reply: string
   audio: WorkflowAudioOutput | null
   steps: string[]
@@ -98,7 +98,7 @@ export interface WorkflowNodeResult {
   exposedAs: string[]
 }
 
-export interface WorkflowStreamingAsrConfig {
+interface WorkflowStreamingAsrConfig {
   label: string
   providerId?: string
   modelId?: string
@@ -106,14 +106,14 @@ export interface WorkflowStreamingAsrConfig {
   parameters: Record<string, string | number | boolean>
 }
 
-export interface WorkflowStreamingVadConfig {
+interface WorkflowStreamingVadConfig {
   providerId?: string
   modelId?: string
   adapter?: string
   parameters: Record<string, string | number | boolean>
 }
 
-export interface WorkflowStreamingEnhancementConfig {
+interface WorkflowStreamingEnhancementConfig {
   providerId: string
   modelId?: string
   adapter?: string
@@ -579,17 +579,6 @@ export function saveStoredWorkflow(
     updatedAt: now,
   }
   const next = [saved, ...current.filter((item) => item.id !== saved.id)]
-  window.localStorage.setItem(
-    SAVED_WORKFLOWS_STORAGE_KEY,
-    JSON.stringify(next),
-  )
-  return next
-}
-
-export function removeStoredWorkflow(workflowId: string): SavedWorkflow[] {
-  const next = listSavedWorkflows().filter(
-    (workflow) => workflow.id !== workflowId,
-  )
   window.localStorage.setItem(
     SAVED_WORKFLOWS_STORAGE_KEY,
     JSON.stringify(next),

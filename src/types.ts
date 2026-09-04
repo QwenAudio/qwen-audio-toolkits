@@ -1,13 +1,4 @@
-export type ViewId =
-  | 'home'
-  | 'library'
-  | 'edit'
-  | 'generate'
-  | 'live'
-  | 'batch'
-  | 'plugins'
-
-export type ClipKind = 'recording' | 'generated' | 'music' | 'stream'
+type ClipKind = 'recording' | 'generated' | 'music' | 'stream'
 
 export interface AudioClip {
   id: string
@@ -23,16 +14,6 @@ export interface AudioClip {
   url?: string
   processingAudioUrl?: string
   transcriptionAudioUrl?: string
-}
-
-export interface ProcessingEffect {
-  id: string
-  name: string
-  description: string
-  enabled: boolean
-  value: number
-  valueLabel: string
-  tone: 'green' | 'coral' | 'yellow' | 'blue'
 }
 
 export interface ModelPlugin {
@@ -72,7 +53,7 @@ export interface ModelPlugin {
   recommendedDependencies?: ModelDependencyDefinition[]
 }
 
-export interface ModelDependencyDefinition {
+interface ModelDependencyDefinition {
   role: 'speech-segmentation' | 'reference-transcription' | string
   label: string
   pluginId: string
@@ -121,7 +102,7 @@ export interface CustomApiModelDefinition {
   defaultVoice?: string
 }
 
-export type PluginPortType =
+type PluginPortType =
   | 'audio'
   | 'speech-segments'
   | 'transcript'
@@ -134,7 +115,7 @@ export type PluginPortType =
   | 'speaker-segments'
   | 'audio-tracks'
 
-export interface PluginPortDefinition {
+interface PluginPortDefinition {
   name: string
   label?: string
   type: PluginPortType
@@ -142,7 +123,7 @@ export interface PluginPortDefinition {
   optional?: boolean
 }
 
-export interface PluginParameterOption {
+interface PluginParameterOption {
   label: string
   value: string | number | boolean
 }
@@ -160,7 +141,7 @@ export interface PluginParameterDefinition {
   multiline?: boolean
 }
 
-export interface ModelVariant {
+interface ModelVariant {
   id: string
   name: string
   precision: string
@@ -173,17 +154,6 @@ export interface RuntimeStatus {
   device: string
   platform: string
   version: string
-}
-
-export interface TtsModelStatus {
-  id: string
-  name: string
-  installed: boolean
-  loaded: boolean
-  path: string
-  sampleRate: number
-  speakerCount: number
-  runtime: string
 }
 
 export interface TtsGenerateResult {
@@ -201,26 +171,13 @@ export interface TtsGenerateResult {
   engine: string
 }
 
-export interface AsrModelStatus {
-  id: string
-  name: string
-  installed: boolean
-  loaded: boolean
-  path: string
-  sampleRate: number
-  languages: string[]
-  tokenTimestamps: boolean
-  vad: boolean
-  runtime: string
-}
-
-export interface AsrToken {
+interface AsrToken {
   text: string
   start: number
   end: number
 }
 
-export interface AsrSegment {
+interface AsrSegment {
   id: string
   start: number
   end: number
@@ -281,24 +238,6 @@ export interface PunctuationResult {
   inferenceSeconds: number
 }
 
-export interface AudioProcessorStatus {
-  id: string
-  name: string
-  installed: boolean
-  loaded: boolean
-  path: string
-  sampleRate: number
-  vadInstalled: boolean
-  runtime: string
-}
-
-export type AudioProcessOperation =
-  | 'trim'
-  | 'denoise'
-  | 'silence'
-  | 'normalize'
-  | 'fade'
-
 export interface AudioProcessResult {
   fileName: string
   filePath: string
@@ -336,7 +275,7 @@ export type HarnessCapabilityId =
   | 'speaker.diarize'
   | 'audio.separate'
 
-export type HarnessRunStatus =
+type HarnessRunStatus =
   | 'queued'
   | 'running'
   | 'canceling'
@@ -357,7 +296,7 @@ export interface HarnessTaskRequest {
   parameters?: Record<string, unknown>
 }
 
-export interface HarnessArtifact {
+interface HarnessArtifact {
   id: string
   kind: 'audio' | 'transcript' | 'stream' | 'data'
   name: string
@@ -461,7 +400,7 @@ export interface CosyVoiceStreamEvent {
   error?: string
 }
 
-export interface HarnessCapability {
+interface HarnessCapability {
   id: HarnessCapabilityId
   name: string
   description: string
@@ -471,7 +410,7 @@ export interface HarnessCapability {
   supportsStreaming: boolean
 }
 
-export interface HarnessModel {
+interface HarnessModel {
   id: string
   name: string
   installed: boolean
@@ -529,16 +468,16 @@ export interface ApiProviderSettings {
   ttsSampleRate: number
 }
 
-export type ApiAuthType = 'bearer' | 'token' | 'custom-header' | 'none'
-export type ApiAsrMode = 'multipart' | 'binary' | 'template-json-base64'
-export type ApiTtsMode =
+type ApiAuthType = 'bearer' | 'token' | 'custom-header' | 'none'
+type ApiAsrMode = 'multipart' | 'binary' | 'template-json-base64'
+type ApiTtsMode =
   | 'standard-json'
   | 'voice-path-json'
   | 'nested-voice-json'
   | 'query-model-json'
   | 'template-json'
-export type ApiAudioResponseEncoding = 'raw' | 'hex' | 'base64' | 'stream-base64'
-export type ApiAudioFormat = 'wav' | 'pcm16'
+type ApiAudioResponseEncoding = 'raw' | 'hex' | 'base64' | 'stream-base64'
+type ApiAudioFormat = 'wav' | 'pcm16'
 
 export interface ApiProviderUpdate {
   id?: string

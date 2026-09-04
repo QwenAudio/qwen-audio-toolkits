@@ -1,8 +1,8 @@
 import type { ModelDependencyBindings, ModelPlugin } from './types'
 
-export type ModelDependencyRole = string
+type ModelDependencyRole = string
 
-export interface ModelDependency {
+interface ModelDependency {
   role: ModelDependencyRole
   label: string
   pluginId: string

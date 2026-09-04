@@ -37,14 +37,22 @@ use harness::{
 };
 use plugins::{
     plugin_api_catalog, plugin_cancel_download, plugin_catalog, plugin_dependency_bindings,
-    plugin_install_catalog, plugin_install_package, plugin_install_recommended_dependency,
-    plugin_refresh_catalog, plugin_replace_dependency_bindings, plugin_set_catalog_source,
-    plugin_set_dependency_binding, plugin_set_download_paused, plugin_set_sidebar_visible,
-    plugin_uninstall, DependencyBindings, PluginDescriptor, PluginInstallRequest,
+    plugin_files, plugin_install_catalog, plugin_install_package,
+    plugin_install_recommended_dependency, plugin_readme, plugin_refresh_catalog,
+    plugin_replace_dependency_bindings, plugin_set_catalog_source, plugin_set_dependency_binding,
+    plugin_set_download_paused, plugin_set_sidebar_visible, plugin_uninstall, DependencyBindings,
+    PluginDescriptor, PluginInstallRequest,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 #[cfg(all(target_os = "macos", debug_assertions))]
 use system_audio::run_process_tap_smoke_test;
 use system_audio::{
@@ -189,6 +197,80 @@ fn runtime_status() -> RuntimeStatus {
         platform: std::env::consts::OS,
         version: env!("CARGO_PKG_VERSION"),
     }
+}
+
+struct CloseBehavior(AtomicBool);
+
+#[tauri::command]
+fn set_close_behavior(state: tauri::State<'_, CloseBehavior>, quit_on_close: bool) {
+    state.0.store(quit_on_close, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn app_data_directory(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("无法定位应用数据目录: {error}"))?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+fn reveal_in_file_manager(path: String) -> Result<(), String> {
+    let target = PathBuf::from(&path);
+    if !target.exists() {
+        return Err(format!("路径不存在: {path}"));
+    }
+    #[cfg(target_os = "macos")]
+    let status = std::process::Command::new("open").arg(&target).status();
+    #[cfg(target_os = "windows")]
+    let status = std::process::Command::new("explorer").arg(&target).status();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let status = std::process::Command::new("xdg-open").arg(&target).status();
+    let status = status.map_err(|error| format!("无法启动文件管理器: {error}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("文件管理器打开失败".to_string())
+    }
+}
+
+#[tauri::command]
+fn cleanup_download_cache(app: tauri::AppHandle) -> Result<usize, String> {
+    downloads::clear_completed_downloads(&app)
+}
+
+#[tauri::command]
+fn hide_window_controls(window: tauri::WebviewWindow) -> Result<(), String> {
+    if !matches!(window.label(), "main" | "extensions" | "settings") {
+        return Err("window controls can only be hidden for app windows".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let handle = window.clone();
+        window
+            .run_on_main_thread(move || {
+                use objc2_app_kit::{NSWindow, NSWindowButton};
+
+                let Ok(ns_window) = handle.ns_window() else {
+                    return;
+                };
+                let ns_window = unsafe { &*ns_window.cast::<NSWindow>() };
+                for button in [
+                    NSWindowButton::CloseButton,
+                    NSWindowButton::MiniaturizeButton,
+                    NSWindowButton::ZoomButton,
+                ] {
+                    if let Some(button) = ns_window.standardWindowButton(button) {
+                        button.setHidden(true);
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -627,6 +709,7 @@ pub fn run() {
         .manage(asr_runtime)
         .manage(tts_runtime)
         .manage(harness_runtime)
+        .manage(CloseBehavior(AtomicBool::new(false)))
         .manage(SystemAudioRuntime::new())
         .setup(|app| {
             if let Err(error) = downloads::clear_completed_downloads(app.handle()) {
@@ -670,6 +753,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
+                    if window.state::<CloseBehavior>().0.load(Ordering::Relaxed) {
+                        return;
+                    }
                     api.prevent_close();
                     if let Err(error) = window.hide() {
                         log::warn!("could not hide main window: {error}");
@@ -679,6 +765,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             runtime_status,
+            set_close_behavior,
+            app_data_directory,
+            reveal_in_file_manager,
+            cleanup_download_cache,
+            hide_window_controls,
             read_dropped_audio_file,
             export_audio_file,
             plugin_runtime_catalog,
@@ -730,7 +821,9 @@ pub fn run() {
             plugin_replace_dependency_bindings,
             plugin_set_dependency_binding,
             plugin_set_sidebar_visible,
-            plugin_uninstall
+            plugin_uninstall,
+            plugin_readme,
+            plugin_files
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

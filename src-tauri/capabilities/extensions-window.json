@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "extensions-window",
+  "description": "allows child windows to manage their own UI lifecycle",
+  "windows": ["extensions", "settings"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-close",
+    "core:window:allow-set-theme",
+    "core:window:allow-start-dragging"
+  ]
+}

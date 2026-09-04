@@ -1,4 +1,4 @@
-export interface NormalizedAudioAsset {
+interface NormalizedAudioAsset {
   id: string
   name: string
   dataUrl: string
@@ -9,7 +9,7 @@ export interface NormalizedAudioAsset {
   peaks?: number[]
 }
 
-export interface NormalizedTimedSegment {
+interface NormalizedTimedSegment {
   id: string
   start: number
   end: number
@@ -17,13 +17,13 @@ export interface NormalizedTimedSegment {
   text?: string
 }
 
-export interface NormalizedRuntime {
+interface NormalizedRuntime {
   engine?: string
   inferenceSeconds?: number
   realTimeFactor?: number
 }
 
-export interface NormalizedHarnessResult {
+interface NormalizedHarnessResult {
   raw: Record<string, unknown>
   sourceAudioUrl?: string
   audio: NormalizedAudioAsset[]

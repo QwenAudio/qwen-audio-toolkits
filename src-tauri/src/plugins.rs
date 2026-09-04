@@ -1914,6 +1914,91 @@ pub fn plugin_uninstall(
     })
 }
 
+#[tauri::command]
+pub fn plugin_readme(app: AppHandle, plugin_id: String) -> Result<Option<String>, String> {
+    if plugin_id.is_empty()
+        || plugin_id.contains("..")
+        || plugin_id.contains('/')
+        || plugin_id.contains('\\')
+    {
+        return Ok(None);
+    }
+    let directory = plugins_directory(&app)?.join(&plugin_id);
+    for name in [
+        "README.md",
+        "readme.md",
+        "Readme.md",
+        "README.markdown",
+        "readme.markdown",
+    ] {
+        let path = directory.join(name);
+        if path.is_file() {
+            return fs::read_to_string(&path)
+                .map(Some)
+                .map_err(|error| format!("无法读取 README: {error}"));
+        }
+    }
+    Ok(None)
+}
+
+#[derive(serde::Serialize)]
+pub struct PluginFileEntry {
+    pub path: String,
+    pub size: u64,
+}
+
+#[tauri::command]
+pub fn plugin_files(app: AppHandle, plugin_id: String) -> Result<Vec<PluginFileEntry>, String> {
+    if plugin_id.is_empty()
+        || plugin_id.contains("..")
+        || plugin_id.contains('/')
+        || plugin_id.contains('\\')
+    {
+        return Ok(Vec::new());
+    }
+    let directory = plugins_directory(&app)?.join(&plugin_id);
+    if !directory.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut entries = Vec::new();
+    let mut stack = vec![directory.clone()];
+    while let Some(current) = stack.pop() {
+        let read = fs::read_dir(&current).map_err(|error| format!("无法读取模型目录: {error}"))?;
+        for entry in read {
+            let entry = entry.map_err(|error| format!("无法读取模型目录: {error}"))?;
+            let file_type = entry
+                .file_type()
+                .map_err(|error| format!("无法读取模型目录: {error}"))?;
+            if file_type.is_dir() {
+                stack.push(entry.path());
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let relative = path
+                .strip_prefix(&directory)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .replace('\\', "/");
+            let size = entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+            entries.push(PluginFileEntry {
+                path: relative,
+                size,
+            });
+            if entries.len() >= 2000 {
+                break;
+            }
+        }
+        if entries.len() >= 2000 {
+            break;
+        }
+    }
+    entries.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(entries)
+}
+
 pub(crate) fn catalog(app: &AppHandle) -> Result<Vec<PluginDescriptor>, String> {
     let state = read_state(app)?;
     let mut plugins = builtin_plugins(app, &state)?;

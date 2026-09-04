@@ -23,10 +23,6 @@ import {
 } from '../utils/captionLayout'
 import './CaptionOverlay.css'
 
-const DEBUG_STRESS_FIXTURE =
-  import.meta.env.DEV &&
-  import.meta.env.VITE_CAPTION_DEBUG_FIXTURE === 'stress'
-
 function overlapLength(previous: string, candidate: string): number {
   const maximum = Math.min(previous.length, candidate.length)
   for (let length = maximum; length >= 2; length -= 1) {
@@ -80,20 +76,6 @@ export function CaptionOverlay() {
   const visiblePanelHeight = captionPanelHeight(visibleLines.length)
 
   useEffect(() => {
-    if (!DEBUG_STRESS_FIXTURE) return
-    const debugCurrent = [
-      '这是一段用于验证字幕小行上限的超长实时内容'.repeat(4),
-      '换行符压力测试',
-      '当前内容应该顶掉全部历史并且只保留最后四个小行'.repeat(3),
-    ].join('\r\n\u0085\u2028\u2029')
-    currentRef.current = debugCurrent
-    setHistory(['历史一', '历史二', '历史三', '历史四'])
-    setCurrent(debugCurrent)
-    setStatus('speech')
-    void getCurrentWindow().show().catch(() => undefined)
-  }, [])
-
-  useEffect(() => {
     if (!import.meta.env.DEV) return
     console.debug('[caption-layout]', {
       historyItems: history.length,
@@ -111,7 +93,6 @@ export function CaptionOverlay() {
   ])
 
   useEffect(() => {
-    if (DEBUG_STRESS_FIXTURE) return
     let disposed = false
     let remove: (() => void) | undefined
     void listen<CaptionOutputUpdate>(CAPTION_UPDATE_EVENT, ({ payload }) => {

@@ -15,7 +15,7 @@ function clampProgress(progress: number): number {
  * installation owns 84–99%, and the final successful command completion is
  * represented by 100% in the caller.
  */
-export function mapInstallProgress(
+function mapInstallProgress(
   progress: number,
   scope: InstallProgressScope,
 ): number {

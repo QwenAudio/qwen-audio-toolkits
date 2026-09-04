@@ -8,6 +8,3 @@ export function isAudioFile(file: File): boolean {
   )
 }
 
-export function filterAudioFiles(files: FileList | File[]): File[] {
-  return Array.from(files).filter(isAudioFile)
-}

@@ -1,7 +1,5 @@
 import type {
-  AudioClip,
   ModelPlugin,
-  ProcessingEffect,
   RuntimeStatus,
 } from './types'
 
@@ -30,87 +28,6 @@ export function createWaveSamples(
     )
   })
 }
-
-export const initialClips: AudioClip[] = [
-  {
-    id: 'interview-main',
-    name: '采访录音_主轨.wav',
-    duration: 156.4,
-    sampleRate: 48000,
-    channels: 1,
-    kind: 'recording',
-    samples: createWaveSamples(3, 280, 0.92),
-    color: '#827df8',
-    sizeLabel: '28.6 MB',
-    sourceLabel: '文件',
-  },
-  {
-    id: 'room-tone',
-    name: '环境底噪.wav',
-    duration: 42.8,
-    sampleRate: 48000,
-    channels: 2,
-    kind: 'recording',
-    samples: createWaveSamples(9, 180, 0.34),
-    color: '#e9b949',
-    sizeLabel: '7.8 MB',
-    sourceLabel: '录音',
-  },
-  {
-    id: 'opening-music',
-    name: 'opening_theme.flac',
-    duration: 68.2,
-    sampleRate: 44100,
-    channels: 2,
-    kind: 'music',
-    samples: createWaveSamples(14, 240, 0.86),
-    color: '#6c9cff',
-    sizeLabel: '19.2 MB',
-    sourceLabel: '文件',
-  },
-  {
-    id: 'narration-alt',
-    name: '旁白_第二版.wav',
-    duration: 18.6,
-    sampleRate: 24000,
-    channels: 1,
-    kind: 'generated',
-    samples: createWaveSamples(21, 170, 0.74),
-    color: '#ff765f',
-    sizeLabel: '872 KB',
-    sourceLabel: 'Kokoro',
-  },
-]
-
-export const initialEffects: ProcessingEffect[] = [
-  {
-    id: 'denoise',
-    name: '智能降噪',
-    description: 'DPDFNet2 · 48 kHz 高保真',
-    enabled: true,
-    value: 58,
-    valueLabel: '58%',
-    tone: 'green',
-  },
-  {
-    id: 'silence',
-    name: '静音压缩',
-    description: 'Silero VAD · 保留自然停顿',
-    enabled: true,
-    value: 40,
-    valueLabel: '120 ms',
-    tone: 'coral',
-  },
-  {
-    id: 'loudness',
-    name: '响度标准化',
-    description: '门限语音 RMS · 峰值保护',
-    enabled: true,
-    value: 72,
-    valueLabel: '-16 dB',
-    tone: 'yellow',
-  },
-]
 
 export const initialPlugins: ModelPlugin[] = [
   {

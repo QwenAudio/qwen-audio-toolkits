@@ -37,11 +37,6 @@ assert.match(
   /\.caption-badge small \{[\s\S]*?display: none;/,
 )
 assert.match(overlaySource, /resizeQueueRef\.current = resizeQueueRef\.current/)
-assert.match(
-  overlaySource,
-  /import\.meta\.env\.VITE_CAPTION_DEBUG_FIXTURE === 'stress'/,
-)
-
 assert.equal(
   normalizeCaptionText('A\r\nB\rC\nD\u0085E\u2028F\u2029G'),
   'A B C D E F G',
