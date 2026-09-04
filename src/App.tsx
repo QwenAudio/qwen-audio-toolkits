@@ -41,7 +41,7 @@ import {
 } from './components/ProviderSettings'
 import { initialPlugins, fallbackRuntime } from './data'
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
-import { capabilityDefinition } from './domain/capabilities'
+import { modelTaxonomy } from './domain/modelTaxonomy'
 import {
   appDataDirectory,
   cleanupDownloadCache,
@@ -162,23 +162,18 @@ const MIN_SIDEBAR_WIDTH = 200
 const MAX_SIDEBAR_WIDTH = 520
 const MIN_WORKSPACE_WIDTH = 480
 
-type SidebarModelGroupId =
-  | 'pinned'
-  | 'audio'
-  | 'understanding'
-  | 'text'
-  | 'generation'
-  | 'workflows'
-
-const SIDEBAR_MODEL_GROUPS: Array<{
-  id: SidebarModelGroupId
+interface SidebarModelGroup {
+  id: string
   label: string
-}> = [
-  { id: 'pinned', label: '已置顶' },
-  { id: 'audio', label: '音频处理' },
-  { id: 'understanding', label: '音频理解' },
-  { id: 'text', label: '文本智能' },
-  { id: 'generation', label: '音频生成' },
+  models: ModelPlugin[]
+}
+
+// 复用扩展页 taxonomy 分类（Audio-to-Text 等）作为侧边栏分组
+const SIDEBAR_TAXONOMY_GROUP_ORDER = [
+  'Audio-to-Text',
+  'Text-to-Audio',
+  'Audio-to-Audio',
+  'Text-to-Text',
 ]
 
 function getInitialTheme(): ThemePreference {
@@ -248,20 +243,18 @@ function getInitialSidebarWidth() {
 }
 
 function getInitialCollapsedSidebarGroups() {
-  if (typeof window === 'undefined') return new Set<SidebarModelGroupId>()
+  if (typeof window === 'undefined') return new Set<string>()
   try {
     const value = JSON.parse(
       window.localStorage.getItem(SIDEBAR_COLLAPSED_GROUPS_KEY) ?? '[]',
     )
-    return new Set<SidebarModelGroupId>(
+    return new Set<string>(
       Array.isArray(value)
-        ? value.filter((item): item is SidebarModelGroupId =>
-            SIDEBAR_MODEL_GROUPS.some((group) => group.id === item),
-          )
+        ? value.filter((item): item is string => typeof item === 'string')
         : [],
     )
   } catch {
-    return new Set<SidebarModelGroupId>()
+    return new Set<string>()
   }
 }
 
@@ -384,21 +377,6 @@ function getInitialPinnedModels(): string[] {
       : []
   } catch {
     return []
-  }
-}
-
-function modelSidebarGroup(plugin: ModelPlugin): SidebarModelGroupId {
-  const capability = plugin.harnessCapabilities[0]
-  if (!capability) return 'understanding'
-  switch (capabilityDefinition(capability).category) {
-    case '音频处理':
-      return 'audio'
-    case '文本智能':
-      return 'text'
-    case '音频生成':
-      return 'generation'
-    default:
-      return 'understanding'
   }
 }
 
@@ -928,36 +906,37 @@ function App() {
           (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
     )
   }, [pinnedModelIds, runnablePlugins, sidebarModelOrder])
-  const groupedRunnablePlugins = useMemo(
-    () =>
-      ({
-        pinned: orderedRunnablePlugins.filter((plugin) =>
+  const sidebarModelGroups = useMemo<SidebarModelGroup[]>(() => {
+    const taxonomyGroups = new Map<string, ModelPlugin[]>()
+    for (const plugin of orderedRunnablePlugins) {
+      if (pinnedModelIds.includes(plugin.id)) continue
+      const label = modelTaxonomy(plugin).secondaryCategory
+      const models = taxonomyGroups.get(label) ?? []
+      models.push(plugin)
+      taxonomyGroups.set(label, models)
+    }
+    const rank = (label: string) => {
+      const index = SIDEBAR_TAXONOMY_GROUP_ORDER.indexOf(label)
+      return index === -1 ? SIDEBAR_TAXONOMY_GROUP_ORDER.length : index
+    }
+    const orderedLabels = [...taxonomyGroups.keys()].sort(
+      (left, right) => rank(left) - rank(right) || left.localeCompare(right),
+    )
+    return [
+      {
+        id: 'pinned',
+        label: '已置顶',
+        models: orderedRunnablePlugins.filter((plugin) =>
           pinnedModelIds.includes(plugin.id),
         ),
-        audio: orderedRunnablePlugins.filter(
-          (plugin) =>
-            !pinnedModelIds.includes(plugin.id) &&
-            modelSidebarGroup(plugin) === 'audio',
-        ),
-        understanding: orderedRunnablePlugins.filter(
-          (plugin) =>
-            !pinnedModelIds.includes(plugin.id) &&
-            modelSidebarGroup(plugin) === 'understanding',
-        ),
-        text: orderedRunnablePlugins.filter(
-          (plugin) =>
-            !pinnedModelIds.includes(plugin.id) &&
-            modelSidebarGroup(plugin) === 'text',
-        ),
-        generation: orderedRunnablePlugins.filter(
-          (plugin) =>
-            !pinnedModelIds.includes(plugin.id) &&
-            modelSidebarGroup(plugin) === 'generation',
-        ),
-        workflows: [],
-      }) satisfies Record<SidebarModelGroupId, ModelPlugin[]>,
-    [pinnedModelIds, orderedRunnablePlugins],
-  )
+      },
+      ...orderedLabels.map((label) => ({
+        id: label,
+        label,
+        models: taxonomyGroups.get(label) ?? [],
+      })),
+    ]
+  }, [pinnedModelIds, orderedRunnablePlugins])
   const responsiveSidebarMaxWidth = Math.max(
     MIN_SIDEBAR_WIDTH,
     Math.min(
@@ -968,7 +947,7 @@ function App() {
   const visibleSidebarWidth = Math.min(sidebarWidth, responsiveSidebarMaxWidth)
   const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth
 
-  const toggleSidebarGroup = (groupId: SidebarModelGroupId) => {
+  const toggleSidebarGroup = (groupId: string) => {
     setCollapsedSidebarGroups((current) => {
       const next = new Set(current)
       if (next.has(groupId)) next.delete(groupId)
@@ -2375,8 +2354,8 @@ function App() {
 
         {shellPage === 'workspace' && (
         <nav className="installed-models" aria-label="已安装模型">
-          {SIDEBAR_MODEL_GROUPS.map((group) => {
-            const models = groupedRunnablePlugins[group.id]
+          {sidebarModelGroups.map((group) => {
+            const models = group.models
             if (!models.length) return null
             const collapsed = collapsedSidebarGroups.has(group.id)
             return (
