@@ -23,7 +23,6 @@
     "lint": "oxlint",
     "test": "tsx scripts/workflow-smoke.mjs && tsx scripts/result-normalization-smoke.mjs && tsx scripts/caption-layout-smoke.mjs && tsx scripts/model-taxonomy-smoke.mjs && node scripts/install-progress-smoke.mjs",
     "test:custom-provider": "node scripts/custom-provider-smoke.mjs",
-    "preview": "vite preview",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build --config src-tauri/tauri.local.conf.json",
@@ -41,22 +40,21 @@
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.10.1",
     "@xyflow/react": "^12.11.2",
-    "lucide-react": "^1.27.0",
+    "lucide-react": "^1.31.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
     "wavesurfer.js": "^7.12.11"
   },
   "devDependencies": {
-    "@playwright/test": "^1.62.0",
     "@tauri-apps/cli": "^2.11.4",
-    "@types/node": "^24.13.2",
+    "@types/node": "^26.2.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.5",
-    "oxlint": "^1.71.0",
-    "tsx": "^4.23.11",
+    "oxlint": "^1.78.0",
+    "tsx": "^4.23.13",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.2.1"
   }
 }
