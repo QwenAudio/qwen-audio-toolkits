@@ -949,31 +949,7 @@ export function PluginsView({
                   <div className="plugin-main-copy">
                     <div className="plugin-title-line">
                       <h2>{plugin.name}</h2>
-                    </div>
-                    <span className="plugin-author">
-                      模型：{plugin.author} ·{' '}
-                      {displayPluginVersion(plugin, apiPlugin)}
-                    </span>
-                    <p>{plugin.description}</p>
-                    <div className="plugin-capabilities">
-                      <span
-                        className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
-                      >
-                        {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
-                        {apiPlugin ? '云端 API' : '离线运行'}
-                      </span>
-                      <span>
-                        {plugin.streamingMode === 'streaming'
-                          ? '流式'
-                          : '整段处理'}
-                      </span>
-                      {plugin.capabilities.map((capability) => (
-                        <span key={capability}>{capability}</span>
-                      ))}
-                      <span>{plugin.runtime}</span>
-                    </div>
-                  </div>
-                  <div className="plugin-row-action">
+                      <div className="plugin-row-action">
                     {installState ? (
                       <button
                         className="install-button installing"
@@ -1076,6 +1052,30 @@ export function PluginsView({
                             : '仅兼容'}
                       </button>
                     )}
+                      </div>
+                    </div>
+                    <span className="plugin-author">
+                      模型：{plugin.author} ·{' '}
+                      {displayPluginVersion(plugin, apiPlugin)}
+                    </span>
+                    <p>{plugin.description}</p>
+                    <div className="plugin-capabilities">
+                      <span
+                        className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
+                      >
+                        {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
+                        {apiPlugin ? '云端 API' : '离线运行'}
+                      </span>
+                      <span>
+                        {plugin.streamingMode === 'streaming'
+                          ? '流式'
+                          : '整段处理'}
+                      </span>
+                      {plugin.capabilities.map((capability) => (
+                        <span key={capability}>{capability}</span>
+                      ))}
+                      <span>{plugin.runtime}</span>
+                    </div>
                   </div>
                 </article>
               )
