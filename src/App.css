@@ -4042,9 +4042,9 @@ button.job-state {
   border-radius: 4px;
 }
 .execution-mode-tag.offline {
-  color: #31715f;
+  color: var(--primary-hover);
   background: var(--surface-soft);
-  border-color: #c7e3d8;
+  border-color: var(--primary-ring);
 }
 .execution-mode-tag.api {
   color: var(--primary);
@@ -4488,12 +4488,12 @@ button.job-state {
   line-height: 1.45;
 }
 .plugin-execution-banner.offline {
-  color: #31715f;
+  color: var(--primary-hover);
   background: var(--surface-soft);
-  border-color: #c7e3d8;
+  border-color: var(--primary-ring);
 }
 .plugin-execution-banner.offline small {
-  color: #527a6b;
+  color: var(--primary);
 }
 .plugin-execution-banner.api {
   color: var(--primary-hover);
@@ -4501,15 +4501,7 @@ button.job-state {
   border-color: var(--primary-ring);
 }
 .plugin-execution-banner.api small {
-  color: #527a6b;
-}
-:root[data-theme="dark"] .execution-mode-tag.offline,
-:root[data-theme="dark"] .plugin-execution-banner.offline {
-  color: #8fd4bd;
-  border-color: #3e5a50;
-}
-:root[data-theme="dark"] .plugin-execution-banner.offline small {
-  color: #a9cabe;
+  color: var(--primary);
 }
 .plugin-detail-actions {
   display: flex;
