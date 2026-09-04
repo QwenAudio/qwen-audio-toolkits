@@ -4978,6 +4978,17 @@ button.job-state {
   border-style: dashed;
 }
 
+.plugin-row-action {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.install-button.installing {
+  cursor: progress;
+  opacity: 0.85;
+}
+
 .plugin-details-empty {
   margin: auto 0;
 }
@@ -5048,7 +5059,18 @@ button.job-state {
   background: transparent;
   border: 0;
   border-radius: 0;
-  grid-template-columns: clamp(300px, 34%, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 1fr) 6px max(420px, var(--plugins-details-w, 58%));
+}
+
+.plugins-resize-handle {
+  cursor: col-resize;
+  touch-action: none;
+  background: linear-gradient(var(--line), var(--line)) center / 1px 100% no-repeat;
+}
+
+.plugins-resize-handle:hover,
+.plugins-resize-handle.active {
+  background: linear-gradient(var(--primary), var(--primary)) center / 2px 100% no-repeat;
 }
 
 .catalog-taxonomy {
@@ -5175,7 +5197,6 @@ button.job-state {
   min-height: 0;
   padding: 0 10px 14px 14px;
   overflow: hidden;
-  border-right: 1px solid var(--line);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
@@ -7413,7 +7434,7 @@ button.job-state {
   }
 
   .plugins-workspace {
-    grid-template-columns: clamp(280px, 38%, 360px) minmax(0, 1fr);
+    grid-template-columns: minmax(260px, 1fr) 6px max(380px, var(--plugins-details-w, 55%));
   }
 }
 
@@ -7577,6 +7598,10 @@ button.job-state {
   .plugins-page > .plugins-workspace {
     grid-row: 2;
     grid-column: 1 / -1;
+  }
+
+  .plugins-resize-handle {
+    display: none;
   }
 
   .plugins-workspace {

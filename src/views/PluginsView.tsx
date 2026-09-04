@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import Markdown from 'react-markdown'
 import { listen } from '@tauri-apps/api/event'
@@ -158,6 +166,46 @@ export function PluginsView({
   )
   const [busyId, setBusyId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const workspaceRef = useRef<HTMLDivElement>(null)
+  const [detailsWidth, setDetailsWidth] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('plugins-details-width'))
+      return Number.isFinite(saved) && saved >= 380 ? saved : 0
+    } catch {
+      return 0
+    }
+  })
+  const [resizingDetails, setResizingDetails] = useState(false)
+
+  const startDetailsResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setResizingDetails(true)
+    const onMove = (ev: PointerEvent) => {
+      const rect = workspaceRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const width = Math.round(rect.right - ev.clientX - 3)
+      setDetailsWidth(
+        Math.min(Math.max(width, 380), Math.round(rect.width) - 340),
+      )
+    }
+    const onUp = () => {
+      setResizingDetails(false)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      setDetailsWidth((width) => {
+        if (width) {
+          try {
+            localStorage.setItem('plugins-details-width', String(width))
+          } catch {
+            /* ignore */
+          }
+        }
+        return width
+      })
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+  }
   const [installProgress, setInstallProgress] = useState(0)
   const [installDetail, setInstallDetail] = useState('')
   const [installStage, setInstallStage] = useState('')
@@ -902,7 +950,13 @@ export function PluginsView({
       {taxonomyHost ? createPortal(taxonomy, taxonomyHost) : taxonomy}
 
       <div
+        ref={workspaceRef}
         className="plugins-workspace"
+        style={
+          detailsWidth
+            ? ({ '--plugins-details-w': `${detailsWidth}px` } as CSSProperties)
+            : undefined
+        }
         inert={customModelEditorOpen ? true : undefined}
         aria-hidden={customModelEditorOpen}
       >
@@ -986,6 +1040,20 @@ export function PluginsView({
             {filteredPlugins.map((plugin) => {
               const apiPlugin = isApiPlugin(plugin)
               const installState = installJobs[plugin.id]
+              const requiresApiConfig = apiPlugin && !plugin.enabled
+              const isCloudBusy = cloudBusyIds.has(plugin.id)
+              const dependencyReferences = apiPlugin
+                ? []
+                : referencingModels(plugin.id, allModels, modelBindings)
+              const retainedDependency =
+                plugin.installed &&
+                plugin.sidebarVisible === false &&
+                dependencyReferences.length > 0
+              const installDisabled =
+                (!plugin.catalogManaged || plugin.installable === false) ||
+                retainedDependency ||
+                Boolean(busyId) ||
+                anotherOperationBusy
               return (
                 <article
                   key={plugin.id}
@@ -1001,26 +1069,6 @@ export function PluginsView({
                         {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
                         {apiPlugin ? '云端 API' : '离线运行'}
                       </span>
-                      {installState ? (
-                        <span
-                          className="plugin-row-status installing"
-                          title={installDetail || undefined}
-                        >
-                          <RefreshCw size={11} className="model-spin" />
-                          {installState === 'queued'
-                            ? '排队中'
-                            : installState === 'paused'
-                              ? '已暂停'
-                              : installState === 'canceling'
-                                ? '取消中'
-                                : compactInstallProgress}
-                        </span>
-                      ) : plugin.installed ? (
-                        <span className="plugin-row-status installed">
-                          <PackageCheck size={11} />
-                          已安装
-                        </span>
-                      ) : null}
                     </div>
                     <span className="plugin-author">
                       模型：{plugin.author} ·{' '}
@@ -1039,11 +1087,123 @@ export function PluginsView({
                       <span>{plugin.runtime}</span>
                     </div>
                   </div>
+                  <div className="plugin-row-action">
+                    {installState ? (
+                      <button
+                        className="install-button installing"
+                        type="button"
+                        disabled
+                        title={installDetail || undefined}
+                      >
+                        <RefreshCw className="model-spin" size={14} />
+                        {installState === 'queued'
+                          ? '排队中'
+                          : installState === 'paused'
+                            ? '已暂停'
+                            : installState === 'canceling'
+                              ? '取消中'
+                              : compactInstallProgress}
+                      </button>
+                    ) : apiPlugin ? (
+                      requiresApiConfig ? (
+                        <button
+                          className="install-button"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onConfigureProvider(plugin.providerId ?? '')
+                          }}
+                        >
+                          <KeyRound size={14} />
+                          配置
+                        </button>
+                      ) : (
+                        <button
+                          className={
+                            plugin.installed
+                              ? `installed-button${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`
+                              : 'install-button'
+                          }
+                          type="button"
+                          disabled={isCloudBusy || Boolean(busyId)}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            if (plugin.installed) void removePlugin(plugin)
+                            else void setCloudModelInstalled(plugin, true)
+                          }}
+                        >
+                          {plugin.installed ? (
+                            <>
+                              <Trash2 size={14} />
+                              {pendingDeleteId === plugin.id ? '确认' : '删除'}
+                            </>
+                          ) : (
+                            <>
+                              <CirclePlus size={14} />
+                              添加
+                            </>
+                          )}
+                        </button>
+                      )
+                    ) : plugin.installed ? (
+                      <button
+                        className={`installed-button${retainedDependency ? ' retained-dependency' : ''}${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`}
+                        type="button"
+                        title={
+                          retainedDependency
+                            ? `仍被 ${dependencyReferences.length} 个模型使用`
+                            : undefined
+                        }
+                        disabled={retainedDependency || Boolean(busyId)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void removePlugin(plugin)
+                        }}
+                      >
+                        {retainedDependency ? (
+                          <>
+                            <PackageCheck size={14} />
+                            依赖中
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 size={14} />
+                            {pendingDeleteId === plugin.id ? '确认' : '删除'}
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <button
+                        className="install-button"
+                        type="button"
+                        disabled={installDisabled}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void installOrAddPlugin(plugin)
+                        }}
+                      >
+                        <Download size={14} />
+                        {plugin.installable === false
+                          ? '适配中'
+                          : plugin.catalogManaged
+                            ? '安装'
+                            : '仅兼容'}
+                      </button>
+                    )}
+                  </div>
                 </article>
               )
             })}
           </div>
         </main>
+
+        <div
+          className={`plugins-resize-handle${resizingDetails ? ' active' : ''}`}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整展示区宽度"
+          onPointerDown={startDetailsResize}
+        />
 
         <aside className="plugin-details">
           {!selectedPlugin && (
