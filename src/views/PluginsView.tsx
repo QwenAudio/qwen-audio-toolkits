@@ -949,12 +949,6 @@ export function PluginsView({
                   <div className="plugin-main-copy">
                     <div className="plugin-title-line">
                       <h2>{plugin.name}</h2>
-                      <span
-                        className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
-                      >
-                        {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
-                        {apiPlugin ? '云端 API' : '离线运行'}
-                      </span>
                     </div>
                     <span className="plugin-author">
                       模型：{plugin.author} ·{' '}
@@ -962,6 +956,12 @@ export function PluginsView({
                     </span>
                     <p>{plugin.description}</p>
                     <div className="plugin-capabilities">
+                      <span
+                        className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
+                      >
+                        {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
+                        {apiPlugin ? '云端 API' : '离线运行'}
+                      </span>
                       <span>
                         {plugin.streamingMode === 'streaming'
                           ? '流式'

@@ -5268,15 +5268,19 @@ button.job-state {
 
 .plugin-title-line h2 {
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink);
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .execution-mode-tag {
   display: inline-flex;
-  height: 21px;
+  height: 19px;
   flex: 0 0 auto;
   align-items: center;
   gap: 4px;
