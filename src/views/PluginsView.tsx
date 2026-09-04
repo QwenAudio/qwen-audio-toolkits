@@ -917,7 +917,59 @@ export function PluginsView({
                 aria-label="搜索插件"
               />
             </label>
+            {Object.keys(installJobs).length > 0 && (
+                <span className="catalog-install-status">
+                  <RefreshCw size={13} />
+                  {Object.values(installJobs).filter(
+                    (state) => state === 'running',
+                  ).length > 0
+                    ? '正在安装'
+                    : '等待安装'}{' '}
+                  · {Object.values(installJobs).length} 个任务
+                </span>
+              )}
+            <div className="runtime-scope" aria-label="按运行方式筛选">
+                <button
+                  className={runtimeFilter === 'offline' ? 'active' : ''}
+                  type="button"
+                  aria-pressed={runtimeFilter === 'offline'}
+                  title="仅显示离线模型；再次点击恢复全部"
+                  onClick={() =>
+                    setRuntimeFilter((current) =>
+                      current === 'offline' ? 'all' : 'offline',
+                    )
+                  }
+                >
+                  <HardDrive size={13} />
+                  离线
+                </button>
+                <i />
+                <button
+                  className={runtimeFilter === 'api' ? 'active' : ''}
+                  type="button"
+                  aria-pressed={runtimeFilter === 'api'}
+                  title="仅显示云端 API；再次点击恢复全部"
+                  onClick={() =>
+                    setRuntimeFilter((current) =>
+                      current === 'api' ? 'all' : 'api',
+                    )
+                  }
+                >
+                  <Wifi size={13} />
+                  云端 API
+                </button>
+              </div>
           </div>
+
+          <button
+            ref={customModelTriggerRef}
+            className="catalog-add-api-model plugin-catalog-add"
+            type="button"
+            onClick={() => setCustomModelEditorOpen(true)}
+          >
+            <CirclePlus size={13} />
+            添加 API 模型
+          </button>
 
           <div className="plugin-list">
             {!filteredPlugins.length && (
@@ -994,62 +1046,6 @@ export function PluginsView({
         </main>
 
         <aside className="plugin-details">
-          <div className="plugin-details-head">
-            <div className="plugin-details-filters">
-              {Object.keys(installJobs).length > 0 && (
-                <span className="catalog-install-status">
-                  <RefreshCw size={13} />
-                  {Object.values(installJobs).filter(
-                    (state) => state === 'running',
-                  ).length > 0
-                    ? '正在安装'
-                    : '等待安装'}{' '}
-                  · {Object.values(installJobs).length} 个任务
-                </span>
-              )}
-              <div className="runtime-scope" aria-label="按运行方式筛选">
-                <button
-                  className={runtimeFilter === 'offline' ? 'active' : ''}
-                  type="button"
-                  aria-pressed={runtimeFilter === 'offline'}
-                  title="仅显示离线模型；再次点击恢复全部"
-                  onClick={() =>
-                    setRuntimeFilter((current) =>
-                      current === 'offline' ? 'all' : 'offline',
-                    )
-                  }
-                >
-                  <HardDrive size={13} />
-                  离线
-                </button>
-                <i />
-                <button
-                  className={runtimeFilter === 'api' ? 'active' : ''}
-                  type="button"
-                  aria-pressed={runtimeFilter === 'api'}
-                  title="仅显示云端 API；再次点击恢复全部"
-                  onClick={() =>
-                    setRuntimeFilter((current) =>
-                      current === 'api' ? 'all' : 'api',
-                    )
-                  }
-                >
-                  <Wifi size={13} />
-                  云端 API
-                </button>
-              </div>
-            </div>
-            <button
-              ref={customModelTriggerRef}
-              className="catalog-add-api-model"
-              type="button"
-              onClick={() => setCustomModelEditorOpen(true)}
-            >
-              <CirclePlus size={13} />
-              添加 API 模型
-            </button>
-          </div>
-
           {!selectedPlugin && (
             <div className="plugin-empty-category plugin-details-empty">
               <BrainCircuit size={22} />

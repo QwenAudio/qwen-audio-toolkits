@@ -4953,34 +4953,29 @@ button.job-state {
   gap: 7px;
 }
 
-.plugin-catalog-head,
-.plugin-details-head {
+.plugin-catalog-head {
   display: flex;
   height: 36px;
   align-items: center;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .plugin-catalog-head .plugin-search {
-  width: 100%;
-}
-
-.plugin-details-head {
-  justify-content: space-between;
-  gap: 10px;
-  margin: -16px -22px 14px;
-  padding: 0 22px;
-}
-
-.plugin-details-filters {
-  display: inline-flex;
+  flex: 1;
   min-width: 0;
-  align-items: center;
-  gap: 10px;
 }
 
-.plugin-details-filters .runtime-scope {
+.plugin-catalog-head .runtime-scope {
+  flex: none;
   margin-left: 0;
+}
+
+.plugin-catalog-add {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 8px;
+  border-style: dashed;
 }
 
 .plugin-details-empty {
@@ -5181,7 +5176,7 @@ button.job-state {
   padding: 0 10px 14px 14px;
   overflow: hidden;
   border-right: 1px solid var(--line);
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 .catalog-add-api-model {
@@ -5473,11 +5468,6 @@ button.job-state {
   flex-shrink: 0;
   width: 100%;
   max-width: 760px;
-}
-
-.plugin-details > .plugin-details-head {
-  width: auto;
-  max-width: none;
 }
 
 .plugin-project-header {
