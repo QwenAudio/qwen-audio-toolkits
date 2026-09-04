@@ -8250,7 +8250,7 @@ body.sidebar-resizing .model-app-frame {
 .sidebar-model-group-label {
   display: flex;
   width: 100%;
-  min-height: 32px;
+  min-height: 30px;
   align-items: center;
   padding: 0 8px;
   color: var(--ink);
@@ -8283,8 +8283,8 @@ body.sidebar-resizing .model-app-frame {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 1px;
-  padding: 0 6px 3px 12px;
+  gap: 2px;
+  padding: 0 6px 2px 12px;
 }
 
 .installed-models > button,
@@ -8292,8 +8292,8 @@ body.sidebar-resizing .model-app-frame {
   position: relative;
   display: inline-flex;
   width: 100%;
-  height: 30px;
-  min-height: 30px;
+  height: 28px;
+  min-height: 28px;
   align-items: center;
   justify-content: flex-start;
   padding: 0 8px;
@@ -8450,7 +8450,7 @@ body.sidebar-resizing .model-app-frame {
 .installed-model-entry {
   position: relative;
   width: 100%;
-  height: 36px;
+  height: 28px;
   border-radius: 5px;
   cursor: grab;
 }
