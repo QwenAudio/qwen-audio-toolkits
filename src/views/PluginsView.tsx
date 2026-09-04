@@ -890,31 +890,6 @@ export function PluginsView({
 
   return (
     <div className={`plugins-page${taxonomyHost ? ' embedded' : ''}`}>
-      <div
-        className="plugin-toolbar"
-        inert={customModelEditorOpen ? true : undefined}
-        aria-hidden={customModelEditorOpen}
-      >
-        <label className="search-field plugin-search">
-          <Search size={15} />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="搜索模型、能力或作者"
-            aria-label="搜索插件"
-          />
-        </label>
-        <button
-          ref={customModelTriggerRef}
-          className="catalog-add-api-model"
-          type="button"
-          onClick={() => setCustomModelEditorOpen(true)}
-        >
-          <CirclePlus size={13} />
-          添加 API 模型
-        </button>
-      </div>
-
       {taxonomyHost ? createPortal(taxonomy, taxonomyHost) : taxonomy}
 
       <div
@@ -923,6 +898,18 @@ export function PluginsView({
         aria-hidden={customModelEditorOpen}
       >
         <main className="plugin-catalog">
+          <div className="plugin-catalog-head">
+            <label className="search-field plugin-search">
+              <Search size={15} />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="搜索模型、能力或作者"
+                aria-label="搜索插件"
+              />
+            </label>
+          </div>
+
           <div className="catalog-heading">
             <div className="catalog-heading-actions">
               {Object.keys(installJobs).length > 0 && (
@@ -1204,6 +1191,18 @@ export function PluginsView({
         </main>
 
         <aside className="plugin-details">
+          <div className="plugin-details-head">
+            <button
+              ref={customModelTriggerRef}
+              className="catalog-add-api-model"
+              type="button"
+              onClick={() => setCustomModelEditorOpen(true)}
+            >
+              <CirclePlus size={13} />
+              添加 API 模型
+            </button>
+          </div>
+
           {selectedPlugin && (
             <>
               <div className="plugin-project-header">

@@ -4770,12 +4770,6 @@ button.job-state {
   grid-template-columns: 190px minmax(0, 1fr);
 }
 
-.plugins-page > .plugin-toolbar {
-  grid-row: 1;
-  grid-column: 2;
-  margin-bottom: -1px;
-}
-
 .plugins-page > .catalog-taxonomy {
   grid-row: 1 / -1;
   grid-column: 1;
@@ -4927,11 +4921,6 @@ button.job-state {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.plugins-page.embedded > .plugin-toolbar {
-  grid-column: 1;
-  padding: 0 0 12px;
-}
-
 .plugins-page.embedded > .plugins-workspace {
   grid-column: 1;
 }
@@ -4966,20 +4955,22 @@ button.job-state {
   gap: 7px;
 }
 
-.plugin-toolbar {
+.plugin-catalog-head,
+.plugin-details-head {
   display: flex;
+  height: 36px;
   align-items: center;
-  min-height: 45px;
-  gap: 12px;
-  padding: 6px 9px;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
+  margin-bottom: 10px;
 }
 
-.plugin-search {
+.plugin-catalog-head .plugin-search {
   width: min(440px, 100%);
-  flex: 1 1 280px;
+}
+
+.plugin-details-head {
+  justify-content: flex-end;
+  margin: -16px -14px 10px;
+  padding: 0 14px;
 }
 
 .runtime-filter,
@@ -5171,7 +5162,7 @@ button.job-state {
   padding: 0 14px 14px;
   overflow: hidden;
   border-right: 0;
-  grid-template-rows: 44px minmax(0, 1fr) auto;
+  grid-template-rows: auto 44px minmax(0, 1fr) auto;
 }
 
 .catalog-heading {
@@ -5217,11 +5208,6 @@ button.job-state {
   background: var(--surface-raised);
   border: 1px solid var(--line);
   border-radius: 5px;
-}
-
-.plugin-toolbar > .catalog-add-api-model {
-  flex: 0 0 auto;
-  margin-left: auto;
 }
 
 .catalog-add-api-model:hover {
@@ -7646,7 +7632,7 @@ button.job-state {
   }
 
   .plugins-page > .catalog-taxonomy {
-    grid-row: 2;
+    grid-row: 1;
     grid-column: 1 / -1;
     border: 1px solid var(--line);
     border-bottom: 0;
@@ -7687,18 +7673,12 @@ button.job-state {
     height: auto;
     min-height: 100%;
     overflow: visible;
-    grid-template-rows: auto auto auto;
+    grid-template-rows: auto auto;
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .plugins-page > .plugin-toolbar {
-    grid-row: 1;
-    grid-column: 1 / -1;
-    border-left: 1px solid var(--line);
-  }
-
   .plugins-page > .plugins-workspace {
-    grid-row: 3;
+    grid-row: 2;
     grid-column: 1 / -1;
   }
 
@@ -7820,19 +7800,8 @@ button.job-state {
     display: none;
   }
 
-  .plugin-intro-actions .secondary-action,
-  .plugin-toolbar .runtime-filter {
+  .plugin-intro-actions .secondary-action {
     display: none;
-  }
-
-  .plugin-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .plugin-search {
-    width: 100%;
-    flex-basis: auto;
   }
 
   .plugin-row {
