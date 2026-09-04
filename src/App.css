@@ -4971,12 +4971,6 @@ button.job-state {
   margin-left: 0;
 }
 
-.plugin-catalog-add {
-  width: 100%;
-  justify-content: center;
-  margin-bottom: 8px;
-  border-style: dashed;
-}
 
 .plugin-row-action {
   position: absolute;
@@ -5200,25 +5194,7 @@ button.job-state {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
-.catalog-add-api-model {
-  display: inline-flex;
-  min-height: 29px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  color: var(--ink-soft);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  background: var(--surface-raised);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-}
 
-.catalog-add-api-model:hover {
-  color: var(--primary);
-  border-color: var(--primary-ring);
-}
 
 .catalog-install-status {
   display: inline-flex;
@@ -5344,51 +5320,35 @@ button.job-state {
 }
 
 .plugin-main-copy p {
-  display: -webkit-box;
+  display: block;
   margin: 6px 0 7px;
   overflow: hidden;
   color: var(--ink-soft);
   font-size: 13px;
   line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .plugin-capabilities {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
+  overflow: hidden;
 }
 
 .plugin-capabilities span {
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   height: 19px;
   padding: 0 5px;
   color: var(--ink-soft);
   font-size: 12px;
+  white-space: nowrap;
   background: var(--surface-soft);
   border: 1px solid var(--line);
   border-radius: 3px;
-}
-
-.plugin-row-status {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 3px;
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.plugin-row-status.installing {
-  color: var(--primary);
-}
-
-.plugin-row-status.installed {
-  color: var(--success, var(--ink-soft));
 }
 
 .install-button,
@@ -6315,57 +6275,6 @@ button.job-state {
 
 .provider-config-body .api-provider-workspace {
   min-height: 500px;
-}
-
-.custom-model-dialog {
-  width: min(560px, calc(100vw - 40px));
-  overflow: hidden;
-  background: var(--surface-raised);
-  border: 0;
-  border-radius: 8px;
-  box-shadow: 0 28px 90px rgba(12, 11, 24, 0.3);
-}
-
-.custom-model-form {
-  display: grid;
-  gap: 14px;
-  padding: 20px;
-}
-
-.custom-model-form label {
-  display: grid;
-  gap: 6px;
-}
-
-.custom-model-form label > span {
-  color: var(--ink-soft);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.custom-model-form label > small {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.custom-model-form input,
-.custom-model-form select {
-  width: 100%;
-  height: 36px;
-  padding: 0 10px;
-  color: var(--ink);
-  font-size: 14px;
-  outline: 0;
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
-  border-radius: 5px;
-}
-
-.custom-model-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 6px;
 }
 
 .dialog-heading {

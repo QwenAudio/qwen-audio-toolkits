@@ -675,10 +675,7 @@ function App() {
   useEffect(() => {
     if (shellPage === 'workspace' || providerDialogOpen) return undefined
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (
-        event.key !== 'Escape' ||
-        document.querySelector('.custom-model-dialog')
-      ) {
+      if (event.key !== 'Escape') {
         return
       }
       event.preventDefault()
@@ -820,18 +817,6 @@ function App() {
       customApiModels,
     ).filter((plugin) => plugin.installed)
   }, [apiModelCatalog, catalog, customApiModels, installedCloudModelIds])
-
-  const saveCustomApiModels = (models: CustomApiModelDefinition[]) => {
-    setCustomApiModels(models)
-    try {
-      window.localStorage.setItem(
-        CUSTOM_API_MODELS_STORAGE_KEY,
-        JSON.stringify(models),
-      )
-    } catch {
-      // Keep the current session state when storage is unavailable.
-    }
-  }
 
   useEffect(() => {
     if (!modelBindingsLoaded) return
@@ -2599,7 +2584,6 @@ function App() {
               apiModelCatalog={apiModelCatalog}
               customApiModels={customApiModels}
               installedCloudModelIds={installedCloudModelIds}
-              onCustomApiModelsChanged={saveCustomApiModels}
               onConfigureProvider={openProviderSettings}
               onPluginsChanged={setPlugins}
               onModelBindingsChanged={setModelBindings}

@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -81,7 +80,6 @@ interface PluginsViewProps {
   apiModelCatalog: ApiModelCatalogEntry[]
   customApiModels: CustomApiModelDefinition[]
   installedCloudModelIds: string[]
-  onCustomApiModelsChanged: (models: CustomApiModelDefinition[]) => void
   onConfigureProvider: (providerId: string) => void
   onPluginsChanged: (plugins: ModelPlugin[]) => void
   onModelBindingsChanged: (bindings: ModelDependencyBindings) => void
@@ -137,7 +135,6 @@ export function PluginsView({
   apiModelCatalog,
   customApiModels,
   installedCloudModelIds,
-  onCustomApiModelsChanged,
   onConfigureProvider,
   onPluginsChanged,
   onModelBindingsChanged,
@@ -229,61 +226,6 @@ export function PluginsView({
   const [selectedFiles, setSelectedFiles] = useState<
     ModelPluginFileEntry[] | null
   >(null)
-  const [customModelEditorOpen, setCustomModelEditorOpen] = useState(false)
-  const customModelTriggerRef = useRef<HTMLButtonElement>(null)
-  const [customModelName, setCustomModelName] = useState('')
-  const [customModelServiceId, setCustomModelServiceId] = useState('')
-  const [customModelCapability, setCustomModelCapability] = useState<
-    CustomApiModelDefinition['capability']
-  >('text.generate')
-  const customProviders = useMemo(
-    () =>
-      catalog?.providers.filter(
-        ({ id }) =>
-          id === 'api.openai-compatible' || id.startsWith('api.custom.'),
-      ) ?? [],
-    [catalog],
-  )
-  const [customModelProviderId, setCustomModelProviderId] = useState(
-    customProviders[0]?.id ?? 'api.openai-compatible',
-  )
-  const selectedCustomProvider = customProviders.find(
-    ({ id }) => id === customModelProviderId,
-  )
-  const customCapabilityOptions = [
-    ...(selectedCustomProvider?.capabilities.includes('text.generate') !== false
-      ? [{ value: 'text.generate' as const, label: 'LLM · 文本生成' }]
-      : []),
-    ...(selectedCustomProvider?.capabilities.includes('speech.transcribe') !== false
-      ? [{ value: 'speech.transcribe' as const, label: 'ASR · 语音识别' }]
-      : []),
-    ...(selectedCustomProvider?.capabilities.includes('speech.synthesize') !== false
-      ? [{ value: 'speech.synthesize' as const, label: 'TTS · 语音合成' }]
-      : []),
-  ]
-  const closeCustomModelEditor = useCallback(() => {
-    setCustomModelEditorOpen(false)
-    window.requestAnimationFrame(() => customModelTriggerRef.current?.focus())
-  }, [])
-  useEffect(() => {
-    const provider = customProviders.find(
-      ({ id }) => id === customModelProviderId,
-    )
-    if (!provider && customProviders[0]) {
-      setCustomModelProviderId(customProviders[0].id)
-      setCustomModelCapability(
-        customProviders[0]
-          .capabilities[0] as CustomApiModelDefinition['capability'],
-      )
-      return
-    }
-    if (provider && !provider.capabilities.includes(customModelCapability)) {
-      setCustomModelCapability(
-        provider.capabilities[0] as CustomApiModelDefinition['capability'],
-      )
-    }
-  }, [customModelCapability, customModelProviderId, customProviders])
-  const [customModelVoice, setCustomModelVoice] = useState('alloy')
   const desktopRuntime = isTauriRuntime()
   const installProgressLabel = `${Math.round(installProgress)}%`
   const compactInstallProgress = installSpeed
@@ -348,17 +290,6 @@ export function PluginsView({
     return () => window.clearTimeout(timer)
   }, [pendingDeleteId])
 
-  useEffect(() => {
-    if (!customModelEditorOpen) return undefined
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
-      closeCustomModelEditor()
-    }
-    document.addEventListener('keydown', closeOnEscape, true)
-    return () => document.removeEventListener('keydown', closeOnEscape, true)
-  }, [closeCustomModelEditor, customModelEditorOpen])
 
   useEffect(() => {
     if (
@@ -525,38 +456,6 @@ export function PluginsView({
     plugin.selectedVariantId ??
     plugin.defaultVariantId
 
-  const addCustomApiModel = () => {
-    const modelId = customModelServiceId.trim()
-    if (!modelId) {
-      onAction('请填写 Model ID')
-      return
-    }
-    const id = `custom-api-${crypto.randomUUID()}`
-    onCustomApiModelsChanged([
-      ...customApiModels,
-      {
-        id,
-        name: customModelName.trim() || modelId,
-        modelId,
-        providerId: customModelProviderId,
-        capability: customModelCapability,
-        ...(customModelCapability === 'speech.synthesize'
-          ? { defaultVoice: customModelVoice.trim() || 'alloy' }
-          : {}),
-      },
-    ])
-    setCustomModelName('')
-    setCustomModelServiceId('')
-    setCustomModelCapability('text.generate')
-    setCustomModelProviderId(customProviders[0]?.id ?? 'api.openai-compatible')
-    setCustomModelVoice('alloy')
-    closeCustomModelEditor()
-    setPrimaryFilter(customModelCapability === 'text.generate' ? 'text' : 'audio')
-    setSecondaryFilter('all')
-    setRuntimeFilter('api')
-    setSelectedId(id)
-    onAction('自定义 API 模型已添加到扩展')
-  }
 
   const setCloudModelInstalled = async (
     plugin: ModelPlugin,
@@ -861,8 +760,6 @@ export function PluginsView({
     <aside
       className="catalog-taxonomy"
       aria-label="模型分类"
-      inert={customModelEditorOpen ? true : undefined}
-      aria-hidden={customModelEditorOpen}
     >
       <div className="taxonomy-heading">
         <span>模型分类</span>
@@ -957,8 +854,6 @@ export function PluginsView({
             ? ({ '--plugins-details-w': `${detailsWidth}px` } as CSSProperties)
             : undefined
         }
-        inert={customModelEditorOpen ? true : undefined}
-        aria-hidden={customModelEditorOpen}
       >
         <main className="plugin-catalog">
           <div className="plugin-catalog-head">
@@ -1015,15 +910,6 @@ export function PluginsView({
               </div>
           </div>
 
-          <button
-            ref={customModelTriggerRef}
-            className="catalog-add-api-model plugin-catalog-add"
-            type="button"
-            onClick={() => setCustomModelEditorOpen(true)}
-          >
-            <CirclePlus size={13} />
-            添加 API 模型
-          </button>
 
           <div className="plugin-list">
             {!filteredPlugins.length && (
@@ -1715,129 +1601,6 @@ export function PluginsView({
         </aside>
       </div>
 
-      {customModelEditorOpen && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              closeCustomModelEditor()
-            }
-          }}
-        >
-          <section
-            className="custom-model-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="custom-model-title"
-          >
-            <div className="dialog-heading">
-              <div>
-                <span className="section-kicker">API MODEL</span>
-                <h2 id="custom-model-title">添加自定义 API 模型</h2>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                autoFocus
-                aria-label="关闭"
-                onClick={closeCustomModelEditor}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <div className="custom-model-form">
-              <label>
-                <span>Provider</span>
-                <select value={customModelProviderId} onChange={(event) => {
-                  const providerId = event.target.value
-                  const provider = customProviders.find(({ id }) => id === providerId)
-                  const nextCapability = provider?.capabilities.includes(customModelCapability)
-                    ? customModelCapability
-                    : (provider?.capabilities[0] as CustomApiModelDefinition['capability'] | undefined)
-                  setCustomModelProviderId(providerId)
-                  if (nextCapability) setCustomModelCapability(nextCapability)
-                }}>
-                  {customProviders.map((provider) => (
-                    <option key={provider.id} value={provider.id}>{provider.name}</option>
-                  ))}
-                </select>
-                <small>连接信息在“设置 → Provider”中统一管理。</small>
-              </label>
-              <label>
-                <span>模型名称</span>
-                <input
-                  value={customModelName}
-                  placeholder="留空则使用 Model ID"
-                  onChange={(event) => setCustomModelName(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>模型类型</span>
-                <select
-                  value={customModelCapability}
-                  onChange={(event) =>
-                    setCustomModelCapability(
-                      event.target.value as CustomApiModelDefinition['capability'],
-                    )
-                  }
-                >
-                  {customCapabilityOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Model ID</span>
-                <input
-                  value={customModelServiceId}
-                  placeholder={
-                    customModelCapability === 'speech.transcribe'
-                      ? '例如 gpt-4o-mini-transcribe 或 whisper-1'
-                      : customModelCapability === 'speech.synthesize'
-                        ? '例如 gpt-4o-mini-tts 或 tts-1'
-                        : '例如 qwen3:8b 或 gpt-4o-mini'
-                  }
-                  onChange={(event) =>
-                    setCustomModelServiceId(event.target.value)
-                  }
-                />
-              </label>
-              {customModelCapability === 'speech.synthesize' && (
-                <label>
-                  <span>默认音色</span>
-                  <input
-                    value={customModelVoice}
-                    placeholder="例如 alloy"
-                    onChange={(event) => setCustomModelVoice(event.target.value)}
-                  />
-                  <small>使用时仍可在对话窗口临时切换音色。</small>
-                </label>
-              )}
-              <div className="custom-model-actions">
-                <button
-                  className="secondary-action"
-                  type="button"
-                  onClick={() =>
-                    onConfigureProvider(customModelProviderId)
-                  }
-                >
-                  <KeyRound size={15} />
-                  配置 Provider
-                </button>
-                <button
-                  className="primary-action"
-                  type="button"
-                  onClick={addCustomApiModel}
-                >
-                  <CirclePlus size={15} />
-                  添加模型
-                </button>
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
 
     </div>
   )
