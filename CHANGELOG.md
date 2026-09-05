@@ -13,6 +13,9 @@ All notable user-facing changes are documented here. The project follows
 
 ### Changed
 
+- Native macOS window controls have more balanced titlebar insets. Desktop
+  commands prefer an installed Xcode 26+ SDK over older Command Line Tools
+  so local Tahoe builds use the current native control appearance.
 - Model installation now accepts declared directories as well as files and
   reports download and dependency progress consistently.
 - The unavailable Fun Audio Music Separation cloud model was removed from the

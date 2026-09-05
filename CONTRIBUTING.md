@@ -24,6 +24,13 @@ npm ci
 npm run desktop:dev
 ```
 
+On macOS, the desktop commands prefer `/Applications/Xcode.app` when it
+provides SDK 26 or newer and the default Command Line Tools SDK is older.
+This keeps native window controls consistent with current macOS Tahoe apps.
+Explicit `DEVELOPER_DIR` and `SDKROOT` settings take precedence; the scripts
+do not change the global `xcode-select` configuration. Without a newer SDK,
+the existing toolchain remains in use and native controls may look different.
+
 The browser preview (`npm run dev`) is suitable for frontend work but cannot
 exercise native audio or inference.
 
