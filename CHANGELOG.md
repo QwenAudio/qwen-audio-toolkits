@@ -3,7 +3,7 @@
 All notable user-facing changes are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.12 - 2026-09-06
 
 ### Added
 
@@ -16,10 +16,16 @@ All notable user-facing changes are documented here. The project follows
 - Native macOS window controls have more balanced titlebar insets. Desktop
   commands prefer an installed Xcode 26+ SDK over older Command Line Tools
   so local Tahoe builds use the current native control appearance.
+- Local realtime Fun-ASR Nano transcription on macOS now runs on the
+  `runtime-llamacpp-v0.1.10` native runtime, whose `llama-funasr-cli` gains a
+  resident `--stream` mode aligned with the Python streaming session, so
+  partial captions appear incrementally instead of after full utterances.
 - Model installation now accepts declared directories as well as files and
   reports download and dependency progress consistently.
 - The unavailable Fun Audio Music Separation cloud model was removed from the
   model store while local source-separation support remains available.
+- Routine dependency updates (Lucide icons, Tauri plugins, sherpa-onnx,
+  and other Dependabot bumps).
 
 ## 0.1.20 - 2026-08-07
 

@@ -4022,9 +4022,7 @@ fn funasr_runtime_asset() -> Result<PluginAssetManifest, String> {
         (os, arch) => return Err(format!("FunASR 官方运行时暂不支持当前平台: {os}/{arch}")),
     };
     Ok(PluginAssetManifest {
-        source: format!(
-            "https://github.com/QwenAudio/Fun-ASR/releases/download/{tag}/{archive}"
-        ),
+        source: format!("https://github.com/QwenAudio/Fun-ASR/releases/download/{tag}/{archive}"),
         path: "runtime".to_string(),
         sha256: sha256.to_string(),
     })

@@ -3357,7 +3357,7 @@ dependencies = [
 
 [[package]]
 name = "qwenaudio-toolkits"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "axum",
  "base64 0.22.1",
