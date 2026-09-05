@@ -197,7 +197,7 @@ const SENSEVOICE_GGUF_MANIFEST: &str = r#"{
   "adapter": "funasr-sensevoice-gguf",
   "capabilities": ["speech.asr"],
   "displayCapabilities": ["语音识别", "语种与情感", "GGUF"],
-  "runtime": {"kind": "native", "entry": "llama-funasr-sensevoice", "package": "funasr-llamacpp-0.1.9"},
+  "runtime": {"kind": "native", "entry": "llama-funasr-sensevoice", "package": "funasr-llamacpp-0.1.10"},
   "models": [
     {"id":"sensevoice-small-gguf-q8","name":"SenseVoice Small","precision":"Q8","source":"","sha256":"4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5","files":["sensevoice-small-q8.gguf"],"repositoryHosted":true,"estimatedSizeMb":243},
     {"id":"sensevoice-small-gguf-f16","name":"SenseVoice Small","precision":"F16","source":"","sha256":"2389039651f4574dbd674f1f1e296b8b1147b2e19a5fd9c2cd69e82669c78d8e","files":["sensevoice-small-f16.gguf"],"repositoryHosted":true,"estimatedSizeMb":449},
@@ -217,7 +217,7 @@ const PARAFORMER_GGUF_MANIFEST: &str = r#"{
   "adapter": "funasr-paraformer-gguf",
   "capabilities": ["speech.asr"],
   "displayCapabilities": ["语音识别", "中英文", "GGUF"],
-  "runtime": {"kind": "native", "entry": "llama-funasr-paraformer", "package": "funasr-llamacpp-0.1.9"},
+  "runtime": {"kind": "native", "entry": "llama-funasr-paraformer", "package": "funasr-llamacpp-0.1.10"},
   "models": [
     {"id":"paraformer-gguf-q8","name":"Paraformer","precision":"Q8","source":"","sha256":"42bf76ea1575a336aaca4c1b7c01a82b79113e6d04d0d6b799561bfcf07ee011","files":["paraformer-q8.gguf"],"repositoryHosted":true,"estimatedSizeMb":226},
     {"id":"paraformer-gguf-f16","name":"Paraformer","precision":"F16","source":"","sha256":"5d1fda4e132f003faeb3a0e34dd19601fb6d0a82b3fe8292326b86ac35eba803","files":["paraformer-f16.gguf"],"repositoryHosted":true,"estimatedSizeMb":415},
@@ -237,7 +237,7 @@ const FSMN_VAD_GGUF_MANIFEST: &str = r#"{
   "adapter": "funasr-fsmn-vad-gguf",
   "capabilities": ["speech.vad"],
   "displayCapabilities": ["VAD", "长音频", "GGUF"],
-  "runtime": {"kind": "native", "entry": "llama-funasr-vad", "package": "funasr-llamacpp-0.1.9"},
+  "runtime": {"kind": "native", "entry": "llama-funasr-vad", "package": "funasr-llamacpp-0.1.10"},
   "models": [{"id":"fsmn-vad-gguf","name":"FSMN-VAD","precision":"F32","source":"","sha256":"1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479","files":["fsmn-vad.gguf"],"repositoryHosted":true,"estimatedSizeMb":2}],
   "acceleration": ["CPU"],
   "tone": "yellow"
@@ -310,7 +310,7 @@ const FUNASR_NANO_MANIFEST: &str = r#"{
   "adapter": "funasr-nano",
   "capabilities": ["speech.asr"],
   "displayCapabilities": ["语音识别", "中英日方言", "内置 VAD"],
-  "runtime": {"kind": "native", "entry": "llama-funasr-cli", "package": "funasr-llamacpp-0.1.9"},
+  "runtime": {"kind": "native", "entry": "llama-funasr-cli", "package": "funasr-llamacpp-0.1.10"},
   "models": [{
     "id": "funasr-nano-2512-official-q4km",
     "name": "Fun-ASR-Nano-2512",
@@ -3232,7 +3232,7 @@ fn runtime_package_for_entry(entry: &str) -> &'static str {
         "llama-funasr-cli"
         | "llama-funasr-sensevoice"
         | "llama-funasr-paraformer"
-        | "llama-funasr-vad" => "funasr-llamacpp-0.1.9",
+        | "llama-funasr-vad" => "funasr-llamacpp-0.1.10",
         _ => "",
     }
 }
@@ -3994,28 +3994,36 @@ fn install_deepfilter_runtime(app: &AppHandle, destination: &Path) -> Result<(),
 }
 
 fn funasr_runtime_asset() -> Result<PluginAssetManifest, String> {
-    let (archive, sha256) = match (env::consts::OS, env::consts::ARCH) {
+    // runtime-llamacpp-v0.1.10 adds `llama-funasr-cli --stream` (LOCKED/PARTIAL/DONE
+    // realtime protocol 流式在 qwen-audio-toolkits 的本地实时识别里依赖该协议),
+    // currently built for macos-arm64 only; other platforms stay on v0.1.9 until
+    // their assets are rebuilt on those platforms.
+    let (archive, sha256, tag) = match (env::consts::OS, env::consts::ARCH) {
         ("macos", "aarch64") => (
             "funasr-llamacpp-macos-arm64.tar.gz",
-            "2d5786784ad09d8f4def1d942f678728638fe601d00acf0dad7cf094a9328363",
+            "e4fb4978e580b5b9cda0fec30ad49787738452fa3c33c6cb5e23861ebf3e77e5",
+            "runtime-llamacpp-v0.1.10",
         ),
         ("windows", "x86_64") => (
             "funasr-llamacpp-windows-x64.zip",
             "6767af74e42c8b928742e12d5995c139636d9482ea151cdbb51f1b7573667772",
+            "runtime-llamacpp-v0.1.9",
         ),
         ("linux", "x86_64") => (
             "funasr-llamacpp-linux-x64.tar.gz",
             "2cd54174a3755f89c11f071dedfb935eff96007617e2e952604d90230ea9eb48",
+            "runtime-llamacpp-v0.1.9",
         ),
         ("linux", "aarch64") => (
             "funasr-llamacpp-linux-arm64.tar.gz",
             "521866e75594e56eb5023b65eb1ecf6ab7c3b5069522b71cd33aa37b8406ed4b",
+            "runtime-llamacpp-v0.1.9",
         ),
         (os, arch) => return Err(format!("FunASR 官方运行时暂不支持当前平台: {os}/{arch}")),
     };
     Ok(PluginAssetManifest {
         source: format!(
-            "https://github.com/QwenAudio/Fun-ASR/releases/download/runtime-llamacpp-v0.1.9/{archive}"
+            "https://github.com/QwenAudio/Fun-ASR/releases/download/{tag}/{archive}"
         ),
         path: "runtime".to_string(),
         sha256: sha256.to_string(),
@@ -5181,7 +5189,7 @@ mod tests {
     fn legacy_catalog_entries_infer_versioned_runtime_packages() {
         assert_eq!(
             runtime_package_for_entry("llama-funasr-cli"),
-            "funasr-llamacpp-0.1.9"
+            "funasr-llamacpp-0.1.10"
         );
         assert_eq!(
             runtime_package_for_entry("cosyvoice.cpp"),
