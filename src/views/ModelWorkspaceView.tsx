@@ -974,6 +974,9 @@ export function ModelWorkspaceView({
   const [streamingRunId, setStreamingRunId] = useState<string | null>(null)
   const [liveTranscript, setLiveTranscript] = useState('')
   const liveTranscriptRef = useRef('')
+  // 本地流式引擎(如 Fun-ASR Nano llama.cpp)每次会话都要现起进程加载模型,
+  // 首个 partial 之前会有 1-3 秒空白,先显示"引擎加载中"把这段时间显性化。
+  const [streamEngineLoading, setStreamEngineLoading] = useState(false)
   const ttsStreamSessionRef = useRef<string | null>(null)
   const ttsPlaybackContextRef = useRef<AudioContext | null>(null)
   const ttsPlaybackCursorRef = useRef(0)
@@ -1563,6 +1566,7 @@ export function ModelWorkspaceView({
         ? event.text
         : liveTranscriptRef.current
       if (event.kind === 'partial' || event.kind === 'final') {
+        setStreamEngineLoading(false)
         liveTranscriptRef.current = event.text
         setLiveTranscript(event.text)
         void publishCaptionOutput(
@@ -1574,6 +1578,7 @@ export function ModelWorkspaceView({
         return
       }
       if (event.kind === 'completed') {
+        setStreamEngineLoading(false)
         streamPushFailedRef.current = true
         void publishCaptionOutput(latestText, true, 'stopped').finally(
           stopCaptionOutput,
@@ -1589,6 +1594,7 @@ export function ModelWorkspaceView({
         setBusy(false)
         onActionRef.current('实时识别已完成')
       } else if (event.kind === 'error') {
+        setStreamEngineLoading(false)
         streamPushFailedRef.current = true
         void stopCaptionOutput()
         if (recorderRef.current?.state === 'recording') {
@@ -2269,6 +2275,7 @@ export function ModelWorkspaceView({
         systemAudioRunIdRef.current = started.run.id
         liveTranscriptRef.current = ''
         setLiveTranscript('')
+        setStreamEngineLoading(true)
       } else if (streamingEnhanceModel && plugin.providerId) {
         const started = await startEnhancementStream(
           plugin.providerId,
@@ -2466,6 +2473,7 @@ export function ModelWorkspaceView({
       setStreamingRunId(started.run.id)
       liveTranscriptRef.current = ''
       setLiveTranscript('')
+      setStreamEngineLoading(true)
       setSelectedRunId(null)
       streamPushFailedRef.current = false
       streamPushQueueRef.current = Promise.resolve()
@@ -2819,7 +2827,8 @@ export function ModelWorkspaceView({
                       <p>
                         {streamingTtsModel
                           ? '音频生成后立即播放'
-                          : liveTranscript || '正在聆听…'}
+                          : liveTranscript ||
+                            (streamEngineLoading ? '引擎加载中…' : '正在聆听…')}
                       </p>
                     </div>
                   )}
