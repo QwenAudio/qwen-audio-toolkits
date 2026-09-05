@@ -89,10 +89,6 @@ export async function cleanupDownloadCache(): Promise<number> {
   return invoke<number>('cleanup_download_cache')
 }
 
-export async function hideWindowControls(): Promise<void> {
-  await invoke<void>('hide_window_controls')
-}
-
 export async function readDroppedAudioFile(path: string): Promise<File> {
   const payload = await invoke<DroppedAudioFile>('read_dropped_audio_file', {
     path,

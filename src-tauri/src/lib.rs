@@ -241,39 +241,6 @@ fn cleanup_download_cache(app: tauri::AppHandle) -> Result<usize, String> {
 }
 
 #[tauri::command]
-fn hide_window_controls(window: tauri::WebviewWindow) -> Result<(), String> {
-    if !matches!(window.label(), "main" | "extensions" | "settings") {
-        return Err("window controls can only be hidden for app windows".into());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let handle = window.clone();
-        window
-            .run_on_main_thread(move || {
-                use objc2_app_kit::{NSWindow, NSWindowButton};
-
-                let Ok(ns_window) = handle.ns_window() else {
-                    return;
-                };
-                let ns_window = unsafe { &*ns_window.cast::<NSWindow>() };
-                for button in [
-                    NSWindowButton::CloseButton,
-                    NSWindowButton::MiniaturizeButton,
-                    NSWindowButton::ZoomButton,
-                ] {
-                    if let Some(button) = ns_window.standardWindowButton(button) {
-                        button.setHidden(true);
-                    }
-                }
-            })
-            .map_err(|error| error.to_string())?;
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
 fn read_dropped_audio_file(path: String) -> Result<DroppedAudioFile, String> {
     let path = PathBuf::from(path);
     let extension = path
@@ -769,7 +736,6 @@ pub fn run() {
             app_data_directory,
             reveal_in_file_manager,
             cleanup_download_cache,
-            hide_window_controls,
             read_dropped_audio_file,
             export_audio_file,
             plugin_runtime_catalog,

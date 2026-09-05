@@ -49,7 +49,6 @@ import {
   deleteHarnessRun,
   getHarnessCatalog,
   getModelDependencyBindings,
-  hideWindowControls,
   installRecommendedModelDependency,
   isTauriRuntime,
   listApiModelCatalog,
@@ -493,10 +492,6 @@ function App() {
     useState<HTMLDivElement | null>(null)
   const [plugins, setPlugins] = useState<ModelPlugin[]>(initialPlugins)
   const [pluginsLoaded, setPluginsLoaded] = useState(() => !isTauriRuntime())
-  // Custom Copilot-style traffic lights replace the hidden native ones.
-  const [customTrafficLights, setCustomTrafficLights] = useState(false)
-  const [trafficLightsFocused, setTrafficLightsFocused] = useState(true)
-  const [trafficLightsHidden, setTrafficLightsHidden] = useState(false)
   const [runtime, setRuntime] = useState<RuntimeStatus>(fallbackRuntime)
   const [catalog, setCatalog] = useState<HarnessCatalog | null>(null)
   const [apiModelCatalog, setApiModelCatalog] = useState<
@@ -685,43 +680,6 @@ function App() {
     document.documentElement.dataset.accent = accent
     document.documentElement.dataset.density = sidebarDensity
   }, [accent, sidebarDensity])
-
-  // Replace the native traffic lights with Copilot-sized custom dots.
-  useEffect(() => {
-    if (!usesOverlayTitlebar || !isTauriRuntime()) return undefined
-    let disposed = false
-    const unlisteners: Array<() => void> = []
-    const win = getCurrentWindow()
-    const syncFullscreen = async () => {
-      try {
-        const fullscreen = await win.isFullscreen()
-        if (!disposed) setTrafficLightsHidden(fullscreen)
-      } catch {
-        // Fullscreen state is best-effort; the dots stay visible otherwise.
-      }
-    }
-    hideWindowControls()
-      .then(() => {
-        if (disposed) return
-        setCustomTrafficLights(true)
-        void syncFullscreen()
-      })
-      .catch(() => {})
-    win
-      .onFocusChanged(({ payload }) => {
-        if (!disposed) setTrafficLightsFocused(payload)
-      })
-      .then(unlisten => unlisteners.push(unlisten))
-      .catch(() => {})
-    win
-      .onResized(() => void syncFullscreen())
-      .then(unlisten => unlisteners.push(unlisten))
-      .catch(() => {})
-    return () => {
-      disposed = true
-      unlisteners.forEach(unlisten => unlisten())
-    }
-  }, [usesOverlayTitlebar])
 
   const selectAccent = (value: AccentColor) => {
     setAccent(value)
@@ -2276,34 +2234,7 @@ function App() {
       <aside
         className={`app-sidebar model-sidebar${sidebarOpen ? ' open' : ''}`}
       >
-        <div className="activity-rail-title-spacer" data-tauri-drag-region>
-          {customTrafficLights && (
-            <div
-              className={`window-controls${trafficLightsFocused ? '' : ' is-blurred'}${
-                trafficLightsHidden ? ' is-hidden' : ''
-              }`}
-            >
-              <button
-                type="button"
-                className="window-control window-control-close"
-                aria-label="关闭"
-                onClick={() => void getCurrentWindow().close()}
-              />
-              <button
-                type="button"
-                className="window-control window-control-min"
-                aria-label="最小化"
-                onClick={() => void getCurrentWindow().minimize()}
-              />
-              <button
-                type="button"
-                className="window-control window-control-zoom"
-                aria-label="缩放"
-                onClick={() => void getCurrentWindow().toggleMaximize()}
-              />
-            </div>
-          )}
-        </div>
+        <div className="activity-rail-title-spacer" data-tauri-drag-region />
 
         {shellPage !== 'workspace' && (
           <div className="sidebar-page-nav">
