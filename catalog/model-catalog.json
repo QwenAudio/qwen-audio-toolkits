@@ -21,7 +21,7 @@
       "runtime": {
         "kind": "native",
         "entry": "llama-funasr-vad",
-        "package": "funasr-llamacpp-0.1.9"
+        "package": "funasr-llamacpp-0.1.10"
       },
       "models": [
         {
@@ -62,7 +62,7 @@
       "runtime": {
         "kind": "native",
         "entry": "llama-funasr-paraformer",
-        "package": "funasr-llamacpp-0.1.9"
+        "package": "funasr-llamacpp-0.1.10"
       },
       "models": [
         {
@@ -127,7 +127,7 @@
       "runtime": {
         "kind": "native",
         "entry": "llama-funasr-sensevoice",
-        "package": "funasr-llamacpp-0.1.9"
+        "package": "funasr-llamacpp-0.1.10"
       },
       "models": [
         {
@@ -192,7 +192,7 @@
       "runtime": {
         "kind": "native",
         "entry": "llama-funasr-cli",
-        "package": "funasr-llamacpp-0.1.9"
+        "package": "funasr-llamacpp-0.1.10"
       },
       "models": [
         {
