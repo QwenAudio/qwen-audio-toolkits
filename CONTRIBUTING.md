@@ -62,3 +62,10 @@ should update `CHANGELOG.md` and the relevant documentation.
 By contributing, you agree that your contribution is licensed under
 Apache-2.0. Be respectful, constructive, and careful with user audio and
 credentials. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## Sidebar presentation
+
+Keep full model names and taxonomy labels (such as `Audio-to-Text`) in the
+sidebar. The default width is 260px; saved user widths take precedence. Model
+rows use 30px height, or 26px in compact mode. Bottom utility buttons remain
+icon-only with hover labels.
