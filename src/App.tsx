@@ -156,7 +156,7 @@ const DEFAULT_VOICE_WORKFLOW_MODELS_KEY =
 const WORKFLOWS_ENABLED = false
 const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000
 const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000
-const DEFAULT_SIDEBAR_WIDTH = 240
+const DEFAULT_SIDEBAR_WIDTH = 260
 const MIN_SIDEBAR_WIDTH = 200
 const MAX_SIDEBAR_WIDTH = 520
 const MIN_WORKSPACE_WIDTH = 480
@@ -1826,6 +1826,8 @@ function App() {
           className={`installed-model-button${active ? ' active' : ''}`}
           type="button"
           aria-label={plugin.name}
+          title={plugin.name}
+          aria-current={active ? 'page' : undefined}
           onMouseEnter={(event) => {
             startModelNameScroll(event.currentTarget)
           }}
@@ -1842,7 +1844,6 @@ function App() {
             selectPlugin(plugin.id)
           }}
         >
-          <span className="sidebar-model-dot" aria-hidden="true" />
           <span className="activity-model-name">
             <span className="activity-model-name-text">
               {plugin.name}
@@ -2302,6 +2303,7 @@ function App() {
                   onClick={() => toggleSidebarGroup(group.id)}
                 >
                   <span>{group.label}</span>
+                  <span className="sidebar-group-count">{models.length}</span>
                 </button>
                 {!collapsed && (
                   <div className="sidebar-model-group-items">

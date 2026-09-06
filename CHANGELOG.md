@@ -13,6 +13,9 @@ All notable user-facing changes are documented here. The project follows
 
 ### Changed
 
+- Refined sidebar spacing and model-name hierarchy, added group counts and
+  full-name tooltips, and increased the default sidebar width to 260px.
+
 - Native macOS window controls have more balanced titlebar insets. Desktop
   commands prefer an installed Xcode 26+ SDK over older Command Line Tools
   so local Tahoe builds use the current native control appearance.

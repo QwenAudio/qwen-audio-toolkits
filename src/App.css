@@ -9869,3 +9869,27 @@ body.detail-resizing .model-workspace {
 
 }
 
+
+/* Sidebar readability: compact rows and quiet section headings. */
+.model-sidebar .installed-models { padding: 4px 12px 8px; gap: 10px; }
+.model-sidebar .sidebar-model-group-label {
+  min-height: 24px;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sidebar-group-count { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
+.model-sidebar .sidebar-model-group-items { padding: 2px 0 0; gap: 2px; }
+.model-sidebar .installed-model-button {
+  height: 30px;
+  min-height: 30px;
+  padding: 0 10px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+.model-sidebar .installed-model-button.active { font-weight: 600; }
+:root[data-density='compact'] .model-sidebar .installed-model-button {
+  height: 26px;
+  min-height: 26px;
+}
