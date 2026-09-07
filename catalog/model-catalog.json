@@ -11,7 +11,7 @@
       "description": "FunASR 官方 GGUF 语音活动检测模型，输出毫秒级语音区间，可独立运行。",
       "adapter": "funasr-fsmn-vad-gguf",
       "capabilities": [
-        "speech.vad"
+        "speech.detect"
       ],
       "displayCapabilities": [
         "VAD",
@@ -40,7 +40,47 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "yellow"
+      "tone": "yellow",
+      "agent": {
+        "task": "FunASR 官方 GGUF 语音活动检测模型，输出毫秒级语音区间，可独立运行。",
+        "usage": {
+          "inputRequirements": [
+            "提供包含人声的音频。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "只检测语音区域，不识别文本或说话人身份。"
+          ],
+          "examples": [
+            "定位一段录音中的说话起止时间。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "funasr-fsmn-vad-gguf",
+          "capability": "speech.detect"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "speech-segments",
+          "label": "语音片段",
+          "type": "speech-segments",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -52,7 +92,7 @@
       "description": "Paraformer 官方 GGUF 本地识别模型，面向中英文音频与高吞吐离线转写。",
       "adapter": "funasr-paraformer-gguf",
       "capabilities": [
-        "speech.asr"
+        "speech.transcribe"
       ],
       "displayCapabilities": [
         "语音识别",
@@ -72,7 +112,8 @@
           "source": "",
           "sha256": "42bf76ea1575a336aaca4c1b7c01a82b79113e6d04d0d6b799561bfcf07ee011",
           "files": [
-            "paraformer-q8.gguf"
+            "paraformer-q8.gguf",
+            "fsmn-vad.gguf"
           ],
           "repositoryHosted": true,
           "estimatedSizeMb": 226
@@ -84,7 +125,8 @@
           "source": "",
           "sha256": "5d1fda4e132f003faeb3a0e34dd19601fb6d0a82b3fe8292326b86ac35eba803",
           "files": [
-            "paraformer-f16.gguf"
+            "paraformer-f16.gguf",
+            "fsmn-vad.gguf"
           ],
           "repositoryHosted": true,
           "estimatedSizeMb": 415
@@ -96,7 +138,8 @@
           "source": "",
           "sha256": "f81e32c3541fa274e456a8954b9e6d786b3fa8bcd532a8287bfeb04c4b4307ce",
           "files": [
-            "paraformer.gguf"
+            "paraformer.gguf",
+            "fsmn-vad.gguf"
           ],
           "repositoryHosted": true,
           "estimatedSizeMb": 824
@@ -105,7 +148,47 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "blue"
+      "tone": "blue",
+      "agent": {
+        "task": "Paraformer 官方 GGUF 本地识别模型，面向中英文音频与高吞吐离线转写。",
+        "usage": {
+          "inputRequirements": [
+            "上传清晰的语音，语言范围以本项目模型说明为准。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+          ],
+          "examples": [
+            "将录音转换为可编辑的文字。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "funasr-paraformer-gguf",
+          "capability": "speech.transcribe"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "transcript",
+          "label": "转写文本",
+          "type": "transcript",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -117,7 +200,7 @@
       "description": "SenseVoice Small 官方 GGUF 运行时，支持中英日韩粤识别以及语种、情感和音频事件标签。",
       "adapter": "funasr-sensevoice-gguf",
       "capabilities": [
-        "speech.asr"
+        "speech.transcribe"
       ],
       "displayCapabilities": [
         "语音识别",
@@ -137,7 +220,8 @@
           "source": "",
           "sha256": "4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5",
           "files": [
-            "sensevoice-small-q8.gguf"
+            "sensevoice-small-q8.gguf",
+            "fsmn-vad.gguf"
           ],
           "repositoryHosted": true,
           "estimatedSizeMb": 243
@@ -149,7 +233,8 @@
           "source": "",
           "sha256": "2389039651f4574dbd674f1f1e296b8b1147b2e19a5fd9c2cd69e82669c78d8e",
           "files": [
-            "sensevoice-small-f16.gguf"
+            "sensevoice-small-f16.gguf",
+            "fsmn-vad.gguf"
           ],
           "repositoryHosted": true,
           "estimatedSizeMb": 449
@@ -161,7 +246,8 @@
           "source": "",
           "sha256": "62bbbd6bc97bdb55a53957c768f9e7f38e6b818fb720ba46d6ff52d4cc200ff0",
           "files": [
-            "sensevoice-small.gguf"
+            "sensevoice-small.gguf",
+            "fsmn-vad.gguf"
           ],
           "repositoryHosted": true,
           "estimatedSizeMb": 893
@@ -170,7 +256,49 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "blue"
+      "tone": "blue",
+      "agent": {
+        "task": "将音频转换为文本，附带语言、情感和音频事件信息",
+        "usage": {
+          "inputRequirements": [
+            "上传可解码的音频文件。",
+            "首次运行前安装本项目所需的模型权重和运行时。"
+          ],
+          "limitations": [
+            "识别质量受噪声、方言和录音质量影响。",
+            "本项目不生成会议纪要，也不区分说话人。"
+          ],
+          "examples": [
+            "上传中文录音，生成转写文本。",
+            "识别中英混合音频并查看语言与情感标签。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "funasr-sensevoice-gguf",
+          "capability": "speech.transcribe"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "transcript",
+          "label": "识别结果",
+          "type": "transcript",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -182,7 +310,7 @@
       "description": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。使用模型包内置 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
       "adapter": "funasr-nano",
       "capabilities": [
-        "speech.asr"
+        "speech.transcribe"
       ],
       "displayCapabilities": [
         "语音识别",
@@ -238,7 +366,132 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "blue"
+      "tone": "blue",
+      "agent": {
+        "task": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。使用模型包内置 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
+        "usage": {
+          "inputRequirements": [
+            "上传清晰的语音，语言范围以本项目模型说明为准。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+          ],
+          "examples": [
+            "将录音转换为可编辑的文字。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "funasr-nano",
+          "capability": "speech.transcribe"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "transcript",
+          "label": "转写文本",
+          "type": "transcript",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
+    },
+    {
+      "schemaVersion": 2,
+      "id": "k2-fsa.speaker-embedding",
+      "name": "3D-Speaker 声纹",
+      "version": "1.0",
+      "publisher": "k2-fsa",
+      "description": "比较两段人声的声纹向量与余弦相似度，用于说话人验证。",
+      "adapter": "speaker-embedding",
+      "capabilities": [
+        "speaker.embed"
+      ],
+      "runtime": {
+        "kind": "onnx",
+        "entry": "sherpa-onnx"
+      },
+      "models": [
+        {
+          "id": "3dspeaker-campplus",
+          "name": "CAM++ 中英",
+          "precision": "FP32",
+          "source": "https://www.modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/k2-fsa.speaker-embedding/3dspeaker-campplus/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+          "files": [
+            "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+          ],
+          "estimatedSizeMb": 30,
+          "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"
+        }
+      ],
+      "acceleration": [
+        "CPU"
+      ],
+      "tone": "blue",
+      "agent": {
+        "task": "从音频提取声纹，或比较两段音频的声纹相似度",
+        "usage": {
+          "inputRequirements": [
+            "上传可解码的音频文件；建议使用清晰的单人语音。",
+            "对比声纹时，另提供一段参考音频。"
+          ],
+          "limitations": [
+            "相似度受录音环境、时长和语音质量影响，不能作为身份认证结论。",
+            "不负责多人录音的说话人分离。"
+          ],
+          "examples": [
+            "上传一段录音，提取声纹向量。",
+            "上传两段录音，查看声纹相似度。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "speaker-embedding",
+          "capability": "speaker.embed"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        },
+        {
+          "name": "reference",
+          "label": "对比音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ],
+          "optional": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "embedding",
+          "label": "声纹结果",
+          "type": "speaker-embedding",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "license": "Apache-2.0"
     },
     {
       "schemaVersion": 2,
@@ -250,22 +503,12 @@
       "description": "本地多语言零样本语音合成与音色克隆。使用 CosyVoice.cpp 和 GGUF 在 CPU 上运行，不需要 Python 或云端接口。",
       "adapter": "cosyvoice-local",
       "capabilities": [
-        "speech.tts"
+        "speech.synthesize"
       ],
       "displayCapabilities": [
         "音频生成",
         "音色克隆",
         "本地"
-      ],
-      "recommendedDependencies": [
-        {
-          "role": "reference-transcription",
-          "label": "参考文本识别",
-          "pluginId": "funaudiollm.sensevoice-small-gguf",
-          "capability": "speech.transcribe",
-          "default": true,
-          "optional": true
-        }
       ],
       "runtime": {
         "kind": "native",
@@ -307,7 +550,65 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "coral"
+      "tone": "coral",
+      "agent": {
+        "task": "本地多语言零样本语音合成与音色克隆。使用 CosyVoice.cpp 和 GGUF 在 CPU 上运行，不需要 Python 或云端接口。",
+        "usage": {
+          "inputRequirements": [
+            "输入需要朗读的文本并选择本项目支持的语言和音色。",
+            "安装本项目声明的资源后运行。",
+            "音色克隆需提供单人参考音频；CosyVoice 和 ZipVoice 还需填写对应文本，项目不借用其他 Agent 转写。"
+          ],
+          "limitations": [
+            "发音和语言覆盖受模型限制；不调用其他 Agent。"
+          ],
+          "examples": [
+            "将一段文本合成为可播放的音频。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "cosyvoice-local",
+          "capability": "speech.synthesize"
+        }
+      },
+      "inputs": [
+        {
+          "name": "text",
+          "label": "文本",
+          "type": "text",
+          "modes": [
+            "batch"
+          ]
+        },
+        {
+          "name": "referenceAudio",
+          "label": "参考音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        },
+        {
+          "name": "referenceText",
+          "label": "参考音频对应文本",
+          "type": "text",
+          "modes": [
+            "batch"
+          ],
+          "optional": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -347,7 +648,47 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "violet"
+      "tone": "violet",
+      "agent": {
+        "task": "将 8 kHz 单声道双人混音分离为说话人 1 与说话人 2，不用于人声与伴奏分离。",
+        "usage": {
+          "inputRequirements": [
+            "上传混合音频，分离目标以本项目说明为准。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "输出可能包含串音和伪影，不保证完全分离。"
+          ],
+          "examples": [
+            "将混合录音拆分成可单独播放的音轨。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "mossformer2-separation",
+          "capability": "audio.separate"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio-tracks",
+          "label": "分离音轨",
+          "type": "audio-tracks",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -387,7 +728,47 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "green"
+      "tone": "green",
+      "agent": {
+        "task": "面向单声道语音的本地深度降噪，保留原始时长并支持长音频分段处理。",
+        "usage": {
+          "inputRequirements": [
+            "上传含人声的录音或使用支持的麦克风输入。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "降噪可能改变音色，不能恢复已经丢失的语音。"
+          ],
+          "examples": [
+            "清理录音中的背景噪声并导出音频。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "zipenhancer",
+          "capability": "audio.enhance"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -423,7 +804,47 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "green"
+      "tone": "green",
+      "agent": {
+        "task": "面向全频带语音的本地深度降噪，安装时下载当前平台的官方运行时，适合录音清理和语音前处理。",
+        "usage": {
+          "inputRequirements": [
+            "上传含人声的录音或使用支持的麦克风输入。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "降噪可能改变音色，不能恢复已经丢失的语音。"
+          ],
+          "examples": [
+            "清理录音中的背景噪声并导出音频。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "deepfilternet",
+          "capability": "audio.enhance"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -435,7 +856,7 @@
       "description": "基于 WeNet U2++ Conformer 的中英粤本地识别模型。使用 sherpa-onnx 运行，适合粤语内容、离线转写和 VAD 分段后的准实时识别。",
       "adapter": "wenet-ctc",
       "capabilities": [
-        "speech.asr"
+        "speech.transcribe"
       ],
       "displayCapabilities": [
         "语音识别",
@@ -464,7 +885,47 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "blue"
+      "tone": "blue",
+      "agent": {
+        "task": "基于 WeNet U2++ Conformer 的中英粤本地识别模型。使用 sherpa-onnx 运行，适合粤语内容、离线转写和 VAD 分段后的准实时识别。",
+        "usage": {
+          "inputRequirements": [
+            "上传清晰的语音，语言范围以本项目模型说明为准。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+          ],
+          "examples": [
+            "将录音转换为可编辑的文字。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "wenet-ctc",
+          "capability": "speech.transcribe"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "transcript",
+          "label": "转写文本",
+          "type": "transcript",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -512,102 +973,102 @@
           ],
           "assets": [
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/itn/tagger.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/itn/tagger.fst",
               "path": "wetext/fsts/en/itn/tagger.fst",
               "sha256": "d33019ac11e5ce41f0bdec16d50696823105e0882da92c2c75c44c980eb9c2ae"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/itn/verbalizer.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/itn/verbalizer.fst",
               "path": "wetext/fsts/en/itn/verbalizer.fst",
               "sha256": "89db991f319cd1e5f27e3b33dc69642e97c83bc5df0333e6a53cafeae806e121"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/tn/tagger.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/tn/tagger.fst",
               "path": "wetext/fsts/en/tn/tagger.fst",
               "sha256": "245e2dc9174cdd007a8e9e50f3339773d1adbbc7535b71cf67478dc1683cc3ec"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/tn/verbalizer.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/tn/verbalizer.fst",
               "path": "wetext/fsts/en/tn/verbalizer.fst",
               "sha256": "03155c88f317b2795969e264c19f87faf98b9853d5ac631e419bacdc3b3ee15a"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/tagger.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/tagger.fst",
               "path": "wetext/fsts/ja/itn/tagger.fst",
               "sha256": "cb0ec2a70b5e9c61d6532b5146ea5676ed9cdd808c8c737be8e5b3abe7002b23"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/tagger_enable_0_to_9.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
               "path": "wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
               "sha256": "e6c63f48e7156ec99bd6080f682945ddb67bd4d89c69df354c6af86aa603abab"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/verbalizer.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/verbalizer.fst",
               "path": "wetext/fsts/ja/itn/verbalizer.fst",
               "sha256": "4f4deac5ce1c5af61ca359dfb13289aed506eba22979c4a9ceaae238d9c86acc"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/tn/tagger.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/tn/tagger.fst",
               "path": "wetext/fsts/ja/tn/tagger.fst",
               "sha256": "4e07b61a391df366ed8e2d249a36fa16fdbed9cbb505c186e12352429187aa88"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/tn/verbalizer.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/tn/verbalizer.fst",
               "path": "wetext/fsts/ja/tn/verbalizer.fst",
               "sha256": "34d9cc3a219f23052273e00e2f8810f6f24614f291794914d2ba52ecc39a6cfc"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/tagger.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/tagger.fst",
               "path": "wetext/fsts/zh/itn/tagger.fst",
               "sha256": "1b57d35fa33030b50f2699d77b3c2cf2c3d5961c45d450322f5cf9aa729b810c"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/tagger_enable_0_to_9.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
               "path": "wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
               "sha256": "a29dad112b1725e79f96f5a84e8b7f2ceb9dc3d88ffc785ebf994899701ccc9f"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/verbalizer.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/verbalizer.fst",
               "path": "wetext/fsts/zh/itn/verbalizer.fst",
               "sha256": "440ac75aaeda3dd81f91b42abec4c08e84b7b0186462cc536a3a74d3ad1f13c4"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/tagger.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/tagger.fst",
               "path": "wetext/fsts/zh/tn/tagger.fst",
               "sha256": "cf341314c51f7ce59049f3b2c42f0ce8fd71e6d08d4d6969613aad384a5e2ae8"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/verbalizer.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/verbalizer.fst",
               "path": "wetext/fsts/zh/tn/verbalizer.fst",
               "sha256": "5a13cd679dd54637d12d2bd1bd33ee2165d91c867e14468c93195af02256e5da"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/verbalizer_remove_erhua.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
               "path": "wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
               "sha256": "4ecdea636b97cb7dff2637499713815836ec703d29cf044f17106d428f258ee5"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/full_to_half.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/full_to_half.fst",
               "path": "wetext/fsts/full_to_half.fst",
               "sha256": "3ac164703b7e83133a8864c8d5dd3cd44ea398c74f49480258e6d986c73b21ad"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/remove_interjections.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/remove_interjections.fst",
               "path": "wetext/fsts/remove_interjections.fst",
               "sha256": "70f36aa8071968f72278fb8db9f17a060e8f8ac73a5e4161a009e33c688fedc1"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/remove_puncts.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/remove_puncts.fst",
               "path": "wetext/fsts/remove_puncts.fst",
               "sha256": "0d69853648848ddad69e0b7a6398e5bc15be39b5559aa0119938aa6e60632538"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/tag_oov.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/tag_oov.fst",
               "path": "wetext/fsts/tag_oov.fst",
               "sha256": "7d58b861760f691b24f095ca17dcac6ccb79de1871282847895380249f2b034b"
             },
             {
-              "source": "https://modelscope.cn/models/pengzhendong/wetext/resolve/master/traditional_to_simple.fst",
+              "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/traditional_to_simple.fst",
               "path": "wetext/fsts/traditional_to_simple.fst",
               "sha256": "01ff345b2416ac19b20bbc46236ed6a6923cf2a430a96411ae3b4f60ea9bf01d"
             }
@@ -618,7 +1079,47 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "violet"
+      "tone": "violet",
+      "agent": {
+        "task": "基于 WFST 的中英日文本归一化与逆文本归一化。本地运行，适合 TTS 前处理和 ASR 数字、日期、金额后处理。",
+        "usage": {
+          "inputRequirements": [
+            "输入文本并选择归一化方向与语言。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "采用项目内的 FST 规则，不进行开放式文本改写。"
+          ],
+          "examples": [
+            "将日期、金额或数字转换为适合朗读的文本。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "wetext",
+          "capability": "text.normalize"
+        }
+      },
+      "inputs": [
+        {
+          "name": "text",
+          "label": "文本",
+          "type": "text",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "label": "文本",
+          "type": "text",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     },
     {
       "schemaVersion": 2,
@@ -649,7 +1150,47 @@
       "acceleration": [
         "CPU"
       ],
-      "tone": "green"
+      "tone": "green",
+      "agent": {
+        "task": "轻量实时语音降噪，使用纯 Rust RNNoise 推理，适合通话、麦克风和低延迟语音前处理。",
+        "usage": {
+          "inputRequirements": [
+            "上传含人声的录音或使用支持的麦克风输入。",
+            "安装本项目声明的资源后运行。"
+          ],
+          "limitations": [
+            "降噪可能改变音色，不能恢复已经丢失的语音。"
+          ],
+          "examples": [
+            "清理录音中的背景噪声并导出音频。"
+          ]
+        },
+        "harness": {
+          "kind": "host-adapter",
+          "adapter": "rnnoise",
+          "capability": "audio.enhance"
+        }
+      },
+      "inputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ],
+      "outputs": [
+        {
+          "name": "audio",
+          "label": "音频",
+          "type": "audio",
+          "modes": [
+            "batch"
+          ]
+        }
+      ]
     }
   ],
   "apiModels": [

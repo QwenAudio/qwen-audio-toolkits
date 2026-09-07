@@ -476,3 +476,8 @@ export function getModelPluginFiles(
 ): Promise<ModelPluginFileEntry[]> {
   return invoke<ModelPluginFileEntry[]>('plugin_files', { pluginId })
 }
+
+/** Install a complete local Agent project, retaining its resources and README. */
+export function installAgentProject(path: string): Promise<ModelPlugin> {
+  return invoke<ModelPlugin>('plugin_install_package', { request: { path } })
+}

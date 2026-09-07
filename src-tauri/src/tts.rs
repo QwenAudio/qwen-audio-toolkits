@@ -432,13 +432,26 @@ pub(crate) async fn generate_speech_with_runtime(
             }),
             extra: (!extra.is_empty()).then_some(extra),
         };
+        // Project-owned rules run within this TTS invocation, without another Agent.
+        let normalized_text = if model_dir.join("wetext/fsts").is_dir() {
+            crate::wetext::normalize_text(
+                &model_dir,
+                &request.text,
+                &serde_json::json!({"operator": "tn", "language": "zh", "fullToHalf": true}),
+            )?["text"]
+                .as_str()
+                .ok_or("文本归一化未返回文本")?
+                .to_string()
+        } else {
+            request.text.trim().to_string()
+        };
         let started = Instant::now();
         let callback_app = progress_app.clone();
         let callback_cancel = cancel.clone();
         let generation_progress = progress_callback.clone();
         let generated_audio = engine
             .generate_with_config(
-                request.text.trim(),
+                &normalized_text,
                 &generation,
                 Some(move |_samples: &[f32], progress: f32| {
                     let value = 18 + (progress.clamp(0.0, 1.0) * 78.0).round() as u8;

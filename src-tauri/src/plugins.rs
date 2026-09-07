@@ -66,18 +66,69 @@ const GTCRN_MANIFEST: &str = r#"{
   "publisher": "Xiaobin Rong et al.",
   "description": "通过 sherpa-onnx 在本地执行语音降噪，支持文件处理并可扩展到实时流。",
   "adapter": "gtcrn",
-  "capabilities": ["audio.enhance"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "gtcrn-simple",
-    "name": "GTCRN Simple",
-    "precision": "FP32",
-    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx",
-    "files": ["gtcrn_simple.onnx"],
-    "estimatedSizeMb": 1
-  }],
-  "acceleration": ["CPU"],
-  "tone": "green"
+  "capabilities": [
+    "audio.enhance"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "gtcrn-simple",
+      "name": "GTCRN Simple",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speech-enhancement-models/gtcrn_simple.onnx",
+      "files": [
+        "gtcrn_simple.onnx"
+      ],
+      "estimatedSizeMb": 1
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "green",
+  "agent": {
+    "task": "通过 sherpa-onnx 在本地执行语音降噪，支持文件处理并可扩展到实时流。",
+    "usage": {
+      "inputRequirements": [
+        "上传含人声的录音或使用支持的麦克风输入。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "降噪可能改变音色，不能恢复已经丢失的语音。"
+      ],
+      "examples": [
+        "清理录音中的背景噪声并导出音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "gtcrn",
+      "capability": "audio.enhance"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const DEEPFILTERNET_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -88,20 +139,72 @@ const DEEPFILTERNET_MANIFEST: &str = r#"{
   "license": "MIT OR Apache-2.0",
   "description": "面向全频带语音的本地深度降噪，安装时下载当前平台的官方运行时，适合录音清理和语音前处理。",
   "adapter": "deepfilternet",
-  "capabilities": ["audio.enhance"],
-  "runtime": {"kind": "native", "entry": "deep-filter", "package": "deepfilter-0.5.6"},
-  "models": [{
-    "id": "deepfilternet3-onnx",
-    "name": "DeepFilterNet3",
-    "precision": "FP32",
-    "source": "",
-    "sha256": "c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616",
-    "files": ["DeepFilterNet3_onnx.tar.gz"],
-    "estimatedSizeMb": 36,
-    "repositoryHosted": true
-  }],
-  "acceleration": ["CPU"],
-  "tone": "green"
+  "capabilities": [
+    "audio.enhance"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "deep-filter",
+    "package": "deepfilter-0.5.6"
+  },
+  "models": [
+    {
+      "id": "deepfilternet3-onnx",
+      "name": "DeepFilterNet3",
+      "precision": "FP32",
+      "source": "",
+      "sha256": "c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616",
+      "files": [
+        "DeepFilterNet3_onnx.tar.gz"
+      ],
+      "estimatedSizeMb": 36,
+      "repositoryHosted": true
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "green",
+  "agent": {
+    "task": "面向全频带语音的本地深度降噪，安装时下载当前平台的官方运行时，适合录音清理和语音前处理。",
+    "usage": {
+      "inputRequirements": [
+        "上传含人声的录音或使用支持的麦克风输入。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "降噪可能改变音色，不能恢复已经丢失的语音。"
+      ],
+      "examples": [
+        "清理录音中的背景噪声并导出音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "deepfilternet",
+      "capability": "audio.enhance"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const RNNOISE_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -112,18 +215,67 @@ const RNNOISE_MANIFEST: &str = r#"{
   "license": "BSD-3-Clause",
   "description": "轻量实时语音降噪，使用纯 Rust RNNoise 推理，适合通话、麦克风和低延迟语音前处理。",
   "adapter": "rnnoise",
-  "capabilities": ["audio.enhance"],
-  "runtime": {"kind": "native", "entry": "nnnoiseless"},
-  "models": [{
-    "id": "rnnoise-default",
-    "name": "RNNoise Default",
-    "precision": "FP32",
-    "source": "",
-    "files": [],
-    "estimatedSizeMb": 1
-  }],
-  "acceleration": ["CPU"],
-  "tone": "green"
+  "capabilities": [
+    "audio.enhance"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "nnnoiseless"
+  },
+  "models": [
+    {
+      "id": "rnnoise-default",
+      "name": "RNNoise Default",
+      "precision": "FP32",
+      "source": "",
+      "files": [],
+      "estimatedSizeMb": 1
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "green",
+  "agent": {
+    "task": "轻量实时语音降噪，使用纯 Rust RNNoise 推理，适合通话、麦克风和低延迟语音前处理。",
+    "usage": {
+      "inputRequirements": [
+        "上传含人声的录音或使用支持的麦克风输入。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "降噪可能改变音色，不能恢复已经丢失的语音。"
+      ],
+      "examples": [
+        "清理录音中的背景噪声并导出音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "rnnoise",
+      "capability": "audio.enhance"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const AISHELL3_VITS_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -133,26 +285,194 @@ const AISHELL3_VITS_MANIFEST: &str = r#"{
   "publisher": "k2-fsa",
   "description": "本地中文多说话人语音合成，提供 174 个 AISHELL3 说话人。",
   "adapter": "vits",
-  "capabilities": ["speech.tts"],
-  "recommendedDependencies": [{
-    "role": "text-normalization",
-    "label": "文本归一化",
-    "pluginId": "wetext.text-normalization",
-    "capability": "text.normalize",
-    "default": true,
-    "optional": false
-  }],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "vits-icefall-zh-aishell3",
-    "name": "VITS AISHELL3",
-    "precision": "FP32",
-    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-icefall-zh-aishell3.tar.bz2",
-    "files": ["model.onnx", "lexicon.txt", "tokens.txt"],
-    "estimatedSizeMb": 35
-  }],
-  "acceleration": ["CPU"],
-  "tone": "coral"
+  "capabilities": [
+    "speech.synthesize"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "vits-icefall-zh-aishell3",
+      "name": "VITS AISHELL3",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-icefall-zh-aishell3.tar.bz2",
+      "files": [
+        "model.onnx",
+        "lexicon.txt",
+        "tokens.txt",
+        "wetext/fsts/en/itn/tagger.fst",
+        "wetext/fsts/en/itn/verbalizer.fst",
+        "wetext/fsts/en/tn/tagger.fst",
+        "wetext/fsts/en/tn/verbalizer.fst",
+        "wetext/fsts/ja/itn/tagger.fst",
+        "wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
+        "wetext/fsts/ja/itn/verbalizer.fst",
+        "wetext/fsts/ja/tn/tagger.fst",
+        "wetext/fsts/ja/tn/verbalizer.fst",
+        "wetext/fsts/zh/itn/tagger.fst",
+        "wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
+        "wetext/fsts/zh/itn/verbalizer.fst",
+        "wetext/fsts/zh/tn/tagger.fst",
+        "wetext/fsts/zh/tn/verbalizer.fst",
+        "wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
+        "wetext/fsts/full_to_half.fst",
+        "wetext/fsts/remove_interjections.fst",
+        "wetext/fsts/remove_puncts.fst",
+        "wetext/fsts/tag_oov.fst",
+        "wetext/fsts/traditional_to_simple.fst"
+      ],
+      "estimatedSizeMb": 35,
+      "assets": [
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/itn/tagger.fst",
+          "path": "wetext/fsts/en/itn/tagger.fst",
+          "sha256": "d33019ac11e5ce41f0bdec16d50696823105e0882da92c2c75c44c980eb9c2ae"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/itn/verbalizer.fst",
+          "path": "wetext/fsts/en/itn/verbalizer.fst",
+          "sha256": "89db991f319cd1e5f27e3b33dc69642e97c83bc5df0333e6a53cafeae806e121"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/tn/tagger.fst",
+          "path": "wetext/fsts/en/tn/tagger.fst",
+          "sha256": "245e2dc9174cdd007a8e9e50f3339773d1adbbc7535b71cf67478dc1683cc3ec"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/tn/verbalizer.fst",
+          "path": "wetext/fsts/en/tn/verbalizer.fst",
+          "sha256": "03155c88f317b2795969e264c19f87faf98b9853d5ac631e419bacdc3b3ee15a"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/tagger.fst",
+          "path": "wetext/fsts/ja/itn/tagger.fst",
+          "sha256": "cb0ec2a70b5e9c61d6532b5146ea5676ed9cdd808c8c737be8e5b3abe7002b23"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
+          "path": "wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
+          "sha256": "e6c63f48e7156ec99bd6080f682945ddb67bd4d89c69df354c6af86aa603abab"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/verbalizer.fst",
+          "path": "wetext/fsts/ja/itn/verbalizer.fst",
+          "sha256": "4f4deac5ce1c5af61ca359dfb13289aed506eba22979c4a9ceaae238d9c86acc"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/tn/tagger.fst",
+          "path": "wetext/fsts/ja/tn/tagger.fst",
+          "sha256": "4e07b61a391df366ed8e2d249a36fa16fdbed9cbb505c186e12352429187aa88"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/tn/verbalizer.fst",
+          "path": "wetext/fsts/ja/tn/verbalizer.fst",
+          "sha256": "34d9cc3a219f23052273e00e2f8810f6f24614f291794914d2ba52ecc39a6cfc"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/tagger.fst",
+          "path": "wetext/fsts/zh/itn/tagger.fst",
+          "sha256": "1b57d35fa33030b50f2699d77b3c2cf2c3d5961c45d450322f5cf9aa729b810c"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
+          "path": "wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
+          "sha256": "a29dad112b1725e79f96f5a84e8b7f2ceb9dc3d88ffc785ebf994899701ccc9f"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/verbalizer.fst",
+          "path": "wetext/fsts/zh/itn/verbalizer.fst",
+          "sha256": "440ac75aaeda3dd81f91b42abec4c08e84b7b0186462cc536a3a74d3ad1f13c4"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/tagger.fst",
+          "path": "wetext/fsts/zh/tn/tagger.fst",
+          "sha256": "cf341314c51f7ce59049f3b2c42f0ce8fd71e6d08d4d6969613aad384a5e2ae8"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/verbalizer.fst",
+          "path": "wetext/fsts/zh/tn/verbalizer.fst",
+          "sha256": "5a13cd679dd54637d12d2bd1bd33ee2165d91c867e14468c93195af02256e5da"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
+          "path": "wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
+          "sha256": "4ecdea636b97cb7dff2637499713815836ec703d29cf044f17106d428f258ee5"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/full_to_half.fst",
+          "path": "wetext/fsts/full_to_half.fst",
+          "sha256": "3ac164703b7e83133a8864c8d5dd3cd44ea398c74f49480258e6d986c73b21ad"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/remove_interjections.fst",
+          "path": "wetext/fsts/remove_interjections.fst",
+          "sha256": "70f36aa8071968f72278fb8db9f17a060e8f8ac73a5e4161a009e33c688fedc1"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/remove_puncts.fst",
+          "path": "wetext/fsts/remove_puncts.fst",
+          "sha256": "0d69853648848ddad69e0b7a6398e5bc15be39b5559aa0119938aa6e60632538"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/tag_oov.fst",
+          "path": "wetext/fsts/tag_oov.fst",
+          "sha256": "7d58b861760f691b24f095ca17dcac6ccb79de1871282847895380249f2b034b"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/traditional_to_simple.fst",
+          "path": "wetext/fsts/traditional_to_simple.fst",
+          "sha256": "01ff345b2416ac19b20bbc46236ed6a6923cf2a430a96411ae3b4f60ea9bf01d"
+        }
+      ]
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "coral",
+  "agent": {
+    "task": "本地中文多说话人语音合成，提供 174 个 AISHELL3 说话人。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要朗读的文本并选择本项目支持的语言和音色。",
+        "安装本项目声明的资源后运行。",
+        "中文数字与日期在项目内使用自带 WeText 规则归一化。"
+      ],
+      "limitations": [
+        "发音和语言覆盖受模型限制；不调用其他 Agent。"
+      ],
+      "examples": [
+        "将一段文本合成为可播放的音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "vits",
+      "capability": "speech.synthesize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const STREAMING_ZIPFORMER_ZH_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -162,29 +482,77 @@ const STREAMING_ZIPFORMER_ZH_MANIFEST: &str = r#"{
   "publisher": "k2-fsa",
   "description": "中文流式语音识别模型，支持麦克风连续输入、增量结果和时间戳。",
   "adapter": "streaming-zipformer",
-  "capabilities": ["speech.asr"],
-  "displayCapabilities": ["语音识别", "流式", "时间戳"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "流式",
+    "时间戳"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
   "models": [
     {
       "id": "streaming-zipformer-zh-int8-2025-06-30",
       "name": "Streaming Zipformer 中文",
       "precision": "INT8",
       "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30.tar.bz2",
-      "files": ["encoder.int8.onnx", "decoder.onnx", "joiner.int8.onnx", "tokens.txt"],
+      "files": [
+        "encoder.int8.onnx",
+        "decoder.onnx",
+        "joiner.int8.onnx",
+        "tokens.txt"
+      ],
       "estimatedSizeMb": 127
-    },
-    {
-      "id": "streaming-zipformer-zh-fp32-2025-06-30",
-      "name": "Streaming Zipformer 中文",
-      "precision": "FP32",
-      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-zh-2025-06-30.tar.bz2",
-      "files": ["encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"],
-      "estimatedSizeMb": 567
     }
   ],
-  "acceleration": ["CPU"],
-  "tone": "blue"
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "中文流式语音识别模型，支持麦克风连续输入、增量结果和时间戳。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "streaming-zipformer",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const SENSEVOICE_GGUF_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -195,16 +563,106 @@ const SENSEVOICE_GGUF_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "SenseVoice Small 官方 GGUF 运行时，支持中英日韩粤识别以及语种、情感和音频事件标签。",
   "adapter": "funasr-sensevoice-gguf",
-  "capabilities": ["speech.asr"],
-  "displayCapabilities": ["语音识别", "语种与情感", "GGUF"],
-  "runtime": {"kind": "native", "entry": "llama-funasr-sensevoice", "package": "funasr-llamacpp-0.1.10"},
-  "models": [
-    {"id":"sensevoice-small-gguf-q8","name":"SenseVoice Small","precision":"Q8","source":"","sha256":"4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5","files":["sensevoice-small-q8.gguf"],"repositoryHosted":true,"estimatedSizeMb":243},
-    {"id":"sensevoice-small-gguf-f16","name":"SenseVoice Small","precision":"F16","source":"","sha256":"2389039651f4574dbd674f1f1e296b8b1147b2e19a5fd9c2cd69e82669c78d8e","files":["sensevoice-small-f16.gguf"],"repositoryHosted":true,"estimatedSizeMb":449},
-    {"id":"sensevoice-small-gguf-f32","name":"SenseVoice Small","precision":"F32","source":"","sha256":"62bbbd6bc97bdb55a53957c768f9e7f38e6b818fb720ba46d6ff52d4cc200ff0","files":["sensevoice-small.gguf"],"repositoryHosted":true,"estimatedSizeMb":893}
+  "capabilities": [
+    "speech.transcribe"
   ],
-  "acceleration": ["CPU"],
-  "tone": "blue"
+  "displayCapabilities": [
+    "语音识别",
+    "语种与情感",
+    "GGUF"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "llama-funasr-sensevoice",
+    "package": "funasr-llamacpp-0.1.10"
+  },
+  "models": [
+    {
+      "id": "sensevoice-small-gguf-q8",
+      "name": "SenseVoice Small",
+      "precision": "Q8",
+      "source": "",
+      "sha256": "4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5",
+      "files": [
+        "sensevoice-small-q8.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 243
+    },
+    {
+      "id": "sensevoice-small-gguf-f16",
+      "name": "SenseVoice Small",
+      "precision": "F16",
+      "source": "",
+      "sha256": "2389039651f4574dbd674f1f1e296b8b1147b2e19a5fd9c2cd69e82669c78d8e",
+      "files": [
+        "sensevoice-small-f16.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 449
+    },
+    {
+      "id": "sensevoice-small-gguf-f32",
+      "name": "SenseVoice Small",
+      "precision": "F32",
+      "source": "",
+      "sha256": "62bbbd6bc97bdb55a53957c768f9e7f38e6b818fb720ba46d6ff52d4cc200ff0",
+      "files": [
+        "sensevoice-small.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 893
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "将音频转换为文本，附带语言、情感和音频事件信息",
+    "usage": {
+      "inputRequirements": [
+        "上传可解码的音频文件。",
+        "首次运行前安装本项目所需的模型权重和运行时。"
+      ],
+      "limitations": [
+        "识别质量受噪声、方言和录音质量影响。",
+        "本项目不生成会议纪要，也不区分说话人。"
+      ],
+      "examples": [
+        "上传中文录音，生成转写文本。",
+        "识别中英混合音频并查看语言与情感标签。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "funasr-sensevoice-gguf",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "识别结果",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const PARAFORMER_GGUF_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -215,16 +673,104 @@ const PARAFORMER_GGUF_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "Paraformer 官方 GGUF 本地识别模型，面向中英文音频与高吞吐离线转写。",
   "adapter": "funasr-paraformer-gguf",
-  "capabilities": ["speech.asr"],
-  "displayCapabilities": ["语音识别", "中英文", "GGUF"],
-  "runtime": {"kind": "native", "entry": "llama-funasr-paraformer", "package": "funasr-llamacpp-0.1.10"},
-  "models": [
-    {"id":"paraformer-gguf-q8","name":"Paraformer","precision":"Q8","source":"","sha256":"42bf76ea1575a336aaca4c1b7c01a82b79113e6d04d0d6b799561bfcf07ee011","files":["paraformer-q8.gguf"],"repositoryHosted":true,"estimatedSizeMb":226},
-    {"id":"paraformer-gguf-f16","name":"Paraformer","precision":"F16","source":"","sha256":"5d1fda4e132f003faeb3a0e34dd19601fb6d0a82b3fe8292326b86ac35eba803","files":["paraformer-f16.gguf"],"repositoryHosted":true,"estimatedSizeMb":415},
-    {"id":"paraformer-gguf-f32","name":"Paraformer","precision":"F32","source":"","sha256":"f81e32c3541fa274e456a8954b9e6d786b3fa8bcd532a8287bfeb04c4b4307ce","files":["paraformer.gguf"],"repositoryHosted":true,"estimatedSizeMb":824}
+  "capabilities": [
+    "speech.transcribe"
   ],
-  "acceleration": ["CPU"],
-  "tone": "blue"
+  "displayCapabilities": [
+    "语音识别",
+    "中英文",
+    "GGUF"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "llama-funasr-paraformer",
+    "package": "funasr-llamacpp-0.1.10"
+  },
+  "models": [
+    {
+      "id": "paraformer-gguf-q8",
+      "name": "Paraformer",
+      "precision": "Q8",
+      "source": "",
+      "sha256": "42bf76ea1575a336aaca4c1b7c01a82b79113e6d04d0d6b799561bfcf07ee011",
+      "files": [
+        "paraformer-q8.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 226
+    },
+    {
+      "id": "paraformer-gguf-f16",
+      "name": "Paraformer",
+      "precision": "F16",
+      "source": "",
+      "sha256": "5d1fda4e132f003faeb3a0e34dd19601fb6d0a82b3fe8292326b86ac35eba803",
+      "files": [
+        "paraformer-f16.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 415
+    },
+    {
+      "id": "paraformer-gguf-f32",
+      "name": "Paraformer",
+      "precision": "F32",
+      "source": "",
+      "sha256": "f81e32c3541fa274e456a8954b9e6d786b3fa8bcd532a8287bfeb04c4b4307ce",
+      "files": [
+        "paraformer.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 824
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "Paraformer 官方 GGUF 本地识别模型，面向中英文音频与高吞吐离线转写。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "funasr-paraformer-gguf",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const FSMN_VAD_GGUF_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -235,12 +781,77 @@ const FSMN_VAD_GGUF_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "FunASR 官方 GGUF 语音活动检测模型，输出毫秒级语音区间，可独立运行。",
   "adapter": "funasr-fsmn-vad-gguf",
-  "capabilities": ["speech.vad"],
-  "displayCapabilities": ["VAD", "长音频", "GGUF"],
-  "runtime": {"kind": "native", "entry": "llama-funasr-vad", "package": "funasr-llamacpp-0.1.10"},
-  "models": [{"id":"fsmn-vad-gguf","name":"FSMN-VAD","precision":"F32","source":"","sha256":"1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479","files":["fsmn-vad.gguf"],"repositoryHosted":true,"estimatedSizeMb":2}],
-  "acceleration": ["CPU"],
-  "tone": "yellow"
+  "capabilities": [
+    "speech.detect"
+  ],
+  "displayCapabilities": [
+    "VAD",
+    "长音频",
+    "GGUF"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "llama-funasr-vad",
+    "package": "funasr-llamacpp-0.1.10"
+  },
+  "models": [
+    {
+      "id": "fsmn-vad-gguf",
+      "name": "FSMN-VAD",
+      "precision": "F32",
+      "source": "",
+      "sha256": "1270f2559c495f4e7b6e739541151027d360761a3fda43fc147034f5719f5479",
+      "files": [
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 2
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "yellow",
+  "agent": {
+    "task": "FunASR 官方 GGUF 语音活动检测模型，输出毫秒级语音区间，可独立运行。",
+    "usage": {
+      "inputRequirements": [
+        "提供包含人声的音频。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "只检测语音区域，不识别文本或说话人身份。"
+      ],
+      "examples": [
+        "定位一段录音中的说话起止时间。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "funasr-fsmn-vad-gguf",
+      "capability": "speech.detect"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "speech-segments",
+      "label": "语音片段",
+      "type": "speech-segments",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const STREAMING_PARAFORMER_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -250,29 +861,76 @@ const STREAMING_PARAFORMER_MANIFEST: &str = r#"{
   "publisher": "k2-fsa",
   "description": "中英及粤语流式识别，适合实时字幕、会议和语音对话。",
   "adapter": "streaming-paraformer",
-  "capabilities": ["speech.asr"],
-  "displayCapabilities": ["语音识别", "流式", "时间戳"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "流式",
+    "时间戳"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
   "models": [
     {
       "id": "streaming-paraformer-trilingual-int8",
       "name": "中英粤三语",
       "precision": "INT8",
       "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-trilingual-zh-cantonese-en.tar.bz2",
-      "files": ["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt"],
-      "estimatedSizeMb": 230
-    },
-    {
-      "id": "streaming-paraformer-bilingual-int8",
-      "name": "中英双语",
-      "precision": "INT8",
-      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-paraformer-bilingual-zh-en.tar.bz2",
-      "files": ["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt"],
+      "files": [
+        "encoder.int8.onnx",
+        "decoder.int8.onnx",
+        "tokens.txt"
+      ],
       "estimatedSizeMb": 230
     }
   ],
-  "acceleration": ["CPU"],
-  "tone": "blue"
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "中英及粤语流式识别，适合实时字幕、会议和语音对话。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "streaming-paraformer",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const WENET_CTC_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -283,21 +941,77 @@ const WENET_CTC_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "基于 WeNet U2++ Conformer 的中英粤本地识别模型。使用 sherpa-onnx 运行，适合粤语内容、离线转写和 VAD 分段后的准实时识别。",
   "adapter": "wenet-ctc",
-  "capabilities": ["speech.asr"],
-  "displayCapabilities": ["语音识别", "中英粤", "时间戳"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "wenetspeech-yue-u2pp-conformer-ctc-int8-2025-09-10",
-    "name": "WeNetSpeech Yue U2++ CTC",
-    "precision": "INT8",
-    "source": "",
-    "sha256": "8636295785a43538a1b4620f167bcb89c10ce5ebdcee61c72a388738b783f992",
-    "files": ["model.int8.onnx", "tokens.txt"],
-    "estimatedSizeMb": 112,
-    "repositoryHosted": true
-  }],
-  "acceleration": ["CPU"],
-  "tone": "blue"
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "中英粤",
+    "时间戳"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "wenetspeech-yue-u2pp-conformer-ctc-int8-2025-09-10",
+      "name": "WeNetSpeech Yue U2++ CTC",
+      "precision": "INT8",
+      "source": "",
+      "sha256": "8636295785a43538a1b4620f167bcb89c10ce5ebdcee61c72a388738b783f992",
+      "files": [
+        "model.int8.onnx",
+        "tokens.txt"
+      ],
+      "estimatedSizeMb": 112,
+      "repositoryHosted": true
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "基于 WeNet U2++ Conformer 的中英粤本地识别模型。使用 sherpa-onnx 运行，适合粤语内容、离线转写和 VAD 分段后的准实时识别。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "wenet-ctc",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const FUNASR_NANO_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -308,36 +1022,104 @@ const FUNASR_NANO_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。使用模型包内置 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
   "adapter": "funasr-nano",
-  "capabilities": ["speech.asr"],
-  "displayCapabilities": ["语音识别", "中英日方言", "内置 VAD"],
-  "runtime": {"kind": "native", "entry": "llama-funasr-cli", "package": "funasr-llamacpp-0.1.10"},
-  "models": [{
-    "id": "funasr-nano-2512-official-q4km",
-    "name": "Fun-ASR-Nano-2512",
-    "precision": "Q4_K_M",
-    "source": "",
-    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q4km.gguf", "fsmn-vad.gguf"],
-    "repositoryHosted": true,
-    "estimatedSizeMb": 928
-  }, {
-    "id": "funasr-nano-2512-official-q5km",
-    "name": "Fun-ASR-Nano-2512",
-    "precision": "Q5_K_M",
-    "source": "",
-    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q5km.gguf", "fsmn-vad.gguf"],
-    "repositoryHosted": true,
-    "estimatedSizeMb": 993
-  }, {
-    "id": "funasr-nano-2512-official-q8",
-    "name": "Fun-ASR-Nano-2512",
-    "precision": "Q8",
-    "source": "",
-    "files": ["funasr-encoder-f16.gguf", "qwen3-0.6b-q8_0.gguf", "fsmn-vad.gguf"],
-    "repositoryHosted": true,
-    "estimatedSizeMb": 1218
-  }],
-  "acceleration": ["CPU"],
-  "tone": "blue"
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "中英日方言",
+    "内置 VAD"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "llama-funasr-cli",
+    "package": "funasr-llamacpp-0.1.10"
+  },
+  "models": [
+    {
+      "id": "funasr-nano-2512-official-q4km",
+      "name": "Fun-ASR-Nano-2512",
+      "precision": "Q4_K_M",
+      "source": "",
+      "files": [
+        "funasr-encoder-f16.gguf",
+        "qwen3-0.6b-q4km.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 928
+    },
+    {
+      "id": "funasr-nano-2512-official-q5km",
+      "name": "Fun-ASR-Nano-2512",
+      "precision": "Q5_K_M",
+      "source": "",
+      "files": [
+        "funasr-encoder-f16.gguf",
+        "qwen3-0.6b-q5km.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 993
+    },
+    {
+      "id": "funasr-nano-2512-official-q8",
+      "name": "Fun-ASR-Nano-2512",
+      "precision": "Q8",
+      "source": "",
+      "files": [
+        "funasr-encoder-f16.gguf",
+        "qwen3-0.6b-q8_0.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 1218
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "QwenAudio/Fun-ASR 官方本地运行时，面向中文、英文、日文及中文方言识别。使用模型包内置 FSMN-VAD 分段，以官方 GGUF 推理链路获得稳定的长音频识别效果。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "funasr-nano",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const COSYVOICE_LOCAL_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -348,17 +1130,19 @@ const COSYVOICE_LOCAL_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "本地多语言零样本语音合成与音色克隆。使用 CosyVoice.cpp 和 GGUF 在 CPU 上运行，不需要 Python 或云端接口。",
   "adapter": "cosyvoice-local",
-  "capabilities": ["speech.tts"],
-  "displayCapabilities": ["音频生成", "音色克隆", "本地"],
-  "recommendedDependencies": [{
-    "role": "reference-transcription",
-    "label": "参考文本识别",
-    "pluginId": "funaudiollm.sensevoice-small-gguf",
-    "capability": "speech.transcribe",
-    "default": true,
-    "optional": true
-  }],
-  "runtime": {"kind": "native", "entry": "cosyvoice.cpp", "package": "cosyvoice-cpp-0aaa9ef-b9837"},
+  "capabilities": [
+    "speech.synthesize"
+  ],
+  "displayCapabilities": [
+    "音频生成",
+    "音色克隆",
+    "本地"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "cosyvoice.cpp",
+    "package": "cosyvoice-cpp-0aaa9ef-b9837"
+  },
   "models": [
     {
       "id": "fun-cosyvoice3-q5-k-m",
@@ -366,7 +1150,11 @@ const COSYVOICE_LOCAL_MANIFEST: &str = r#"{
       "precision": "Q5_K_M",
       "source": "",
       "sha256": "702b54d4e5d2d6c8d855081a5a2dc1acf046544291899f674295dc17a4f89f16",
-      "files": ["CosyVoice3-2512_Q5_K_M.gguf", "frontend-onnx/speech_tokenizer_v3.int8.onnx", "frontend-onnx/campplus.int8.onnx"],
+      "files": [
+        "CosyVoice3-2512_Q5_K_M.gguf",
+        "frontend-onnx/speech_tokenizer_v3.int8.onnx",
+        "frontend-onnx/campplus.int8.onnx"
+      ],
       "assets": [],
       "estimatedSizeMb": 970,
       "repositoryHosted": true
@@ -377,14 +1165,78 @@ const COSYVOICE_LOCAL_MANIFEST: &str = r#"{
       "precision": "Q8_0",
       "source": "",
       "sha256": "be133cb6154ca73cd1d213b1c9496def99ba9c1f7c14cd99f6b350af2eb7963d",
-      "files": ["CosyVoice3-2512_Q8_0.gguf", "frontend-onnx/speech_tokenizer_v3.int8.onnx", "frontend-onnx/campplus.int8.onnx"],
+      "files": [
+        "CosyVoice3-2512_Q8_0.gguf",
+        "frontend-onnx/speech_tokenizer_v3.int8.onnx",
+        "frontend-onnx/campplus.int8.onnx"
+      ],
       "assets": [],
       "estimatedSizeMb": 1230,
       "repositoryHosted": true
     }
   ],
-  "acceleration": ["CPU"],
-  "tone": "coral"
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "coral",
+  "agent": {
+    "task": "本地多语言零样本语音合成与音色克隆。使用 CosyVoice.cpp 和 GGUF 在 CPU 上运行，不需要 Python 或云端接口。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要朗读的文本并选择本项目支持的语言和音色。",
+        "安装本项目声明的资源后运行。",
+        "音色克隆需提供单人参考音频；CosyVoice 和 ZipVoice 还需填写对应文本，项目不借用其他 Agent 转写。"
+      ],
+      "limitations": [
+        "发音和语言覆盖受模型限制；不调用其他 Agent。"
+      ],
+      "examples": [
+        "将一段文本合成为可播放的音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "cosyvoice-local",
+      "capability": "speech.synthesize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    },
+    {
+      "name": "referenceAudio",
+      "label": "参考音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    },
+    {
+      "name": "referenceText",
+      "label": "参考音频对应文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ],
+      "optional": false
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const MELO_TTS_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -394,18 +1246,71 @@ const MELO_TTS_MANIFEST: &str = r#"{
   "publisher": "MyShell.ai",
   "description": "本地中英文语音合成模型，适合旁白、播客和对话回复。",
   "adapter": "vits",
-  "capabilities": ["speech.tts"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "vits-melo-tts-zh-en",
-    "name": "MeloTTS 中英双语",
-    "precision": "FP32",
-    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-melo-tts-zh_en.tar.bz2",
-    "files": ["model.onnx", "lexicon.txt", "tokens.txt"],
-    "estimatedSizeMb": 160
-  }],
-  "acceleration": ["CPU"],
-  "tone": "coral"
+  "capabilities": [
+    "speech.synthesize"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "vits-melo-tts-zh-en",
+      "name": "MeloTTS 中英双语",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-melo-tts-zh_en.tar.bz2",
+      "files": [
+        "model.onnx",
+        "lexicon.txt",
+        "tokens.txt"
+      ],
+      "estimatedSizeMb": 160
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "coral",
+  "agent": {
+    "task": "本地中英文语音合成模型，适合旁白、播客和对话回复。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要朗读的文本并选择本项目支持的语言和音色。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "发音和语言覆盖受模型限制；不调用其他 Agent。"
+      ],
+      "examples": [
+        "将一段文本合成为可播放的音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "vits",
+      "capability": "speech.synthesize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const ZIPVOICE_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -415,22 +1320,98 @@ const ZIPVOICE_MANIFEST: &str = r#"{
   "publisher": "k2-fsa",
   "description": "本地零样本音色克隆。上传参考音频及其准确文本，即可合成相同音色的中英文语音。",
   "adapter": "zipvoice",
-  "capabilities": ["speech.tts"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "zipvoice-distill-int8-zh-en-emilia",
-    "name": "ZipVoice Distill 中英",
-    "precision": "INT8",
-    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2",
-    "files": ["encoder.int8.onnx", "decoder.int8.onnx", "tokens.txt", "lexicon.txt", "espeak-ng-data", "vocos_24khz.onnx"],
-    "assets": [{
-      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx",
-      "path": "vocos_24khz.onnx"
-    }],
-    "estimatedSizeMb": 450
-  }],
-  "acceleration": ["CPU"],
-  "tone": "coral"
+  "capabilities": [
+    "speech.synthesize"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "zipvoice-distill-int8-zh-en-emilia",
+      "name": "ZipVoice Distill 中英",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-zipvoice-distill-int8-zh-en-emilia.tar.bz2",
+      "files": [
+        "encoder.int8.onnx",
+        "decoder.int8.onnx",
+        "tokens.txt",
+        "lexicon.txt",
+        "espeak-ng-data",
+        "vocos_24khz.onnx"
+      ],
+      "assets": [
+        {
+          "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos_24khz.onnx",
+          "path": "vocos_24khz.onnx"
+        }
+      ],
+      "estimatedSizeMb": 450
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "coral",
+  "agent": {
+    "task": "本地零样本音色克隆。上传参考音频及其准确文本，即可合成相同音色的中英文语音。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要朗读的文本并选择本项目支持的语言和音色。",
+        "安装本项目声明的资源后运行。",
+        "音色克隆需提供单人参考音频；CosyVoice 和 ZipVoice 还需填写对应文本，项目不借用其他 Agent 转写。"
+      ],
+      "limitations": [
+        "发音和语言覆盖受模型限制；不调用其他 Agent。"
+      ],
+      "examples": [
+        "将一段文本合成为可播放的音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "zipvoice",
+      "capability": "speech.synthesize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    },
+    {
+      "name": "referenceAudio",
+      "label": "参考音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    },
+    {
+      "name": "referenceText",
+      "label": "参考音频对应文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ],
+      "optional": false
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const POCKET_TTS_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -440,18 +1421,93 @@ const POCKET_TTS_MANIFEST: &str = r#"{
   "publisher": "Kyutai",
   "description": "轻量本地零样本英文语音合成，只需一段参考音频，无需填写参考文本。",
   "adapter": "pocket-tts",
-  "capabilities": ["speech.tts"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "pocket-tts-int8-2026-01-26",
-    "name": "PocketTTS INT8",
-    "precision": "INT8",
-    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2",
-    "files": ["lm_flow.int8.onnx", "lm_main.int8.onnx", "encoder.onnx", "decoder.int8.onnx", "text_conditioner.onnx", "vocab.json", "token_scores.json"],
-    "estimatedSizeMb": 400
-  }],
-  "acceleration": ["CPU"],
-  "tone": "coral"
+  "capabilities": [
+    "speech.synthesize"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "pocket-tts-int8-2026-01-26",
+      "name": "PocketTTS INT8",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-pocket-tts-int8-2026-01-26.tar.bz2",
+      "files": [
+        "lm_flow.int8.onnx",
+        "lm_main.int8.onnx",
+        "encoder.onnx",
+        "decoder.int8.onnx",
+        "text_conditioner.onnx",
+        "vocab.json",
+        "token_scores.json"
+      ],
+      "estimatedSizeMb": 400
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "coral",
+  "agent": {
+    "task": "轻量本地零样本英文语音合成，只需一段参考音频，无需填写参考文本。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要朗读的文本并选择本项目支持的语言和音色。",
+        "安装本项目声明的资源后运行。",
+        "音色克隆需提供单人参考音频；CosyVoice 和 ZipVoice 还需填写对应文本，项目不借用其他 Agent 转写。"
+      ],
+      "limitations": [
+        "发音和语言覆盖受模型限制；不调用其他 Agent。"
+      ],
+      "examples": [
+        "将一段文本合成为可播放的音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "pocket-tts",
+      "capability": "speech.synthesize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    },
+    {
+      "name": "referenceAudio",
+      "label": "参考音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    },
+    {
+      "name": "referenceText",
+      "label": "参考音频对应文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ],
+      "optional": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const SUPERTONIC_TTS_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -461,18 +1517,75 @@ const SUPERTONIC_TTS_MANIFEST: &str = r#"{
   "publisher": "Supertone",
   "description": "本地多说话人、多语言语音合成，支持英文、日文、韩文、法文等 31 种语言。",
   "adapter": "supertonic",
-  "capabilities": ["speech.tts"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "supertonic-3-tts-int8-2026-05-11",
-    "name": "SupertonicTTS 3",
-    "precision": "INT8",
-    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
-    "files": ["duration_predictor.int8.onnx", "text_encoder.int8.onnx", "vector_estimator.int8.onnx", "vocoder.int8.onnx", "tts.json", "unicode_indexer.bin", "voice.bin"],
-    "estimatedSizeMb": 250
-  }],
-  "acceleration": ["CPU"],
-  "tone": "coral"
+  "capabilities": [
+    "speech.synthesize"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "supertonic-3-tts-int8-2026-05-11",
+      "name": "SupertonicTTS 3",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-supertonic-3-tts-int8-2026-05-11.tar.bz2",
+      "files": [
+        "duration_predictor.int8.onnx",
+        "text_encoder.int8.onnx",
+        "vector_estimator.int8.onnx",
+        "vocoder.int8.onnx",
+        "tts.json",
+        "unicode_indexer.bin",
+        "voice.bin"
+      ],
+      "estimatedSizeMb": 250
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "coral",
+  "agent": {
+    "task": "本地多说话人、多语言语音合成，支持英文、日文、韩文、法文等 31 种语言。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要朗读的文本并选择本项目支持的语言和音色。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "发音和语言覆盖受模型限制；不调用其他 Agent。"
+      ],
+      "examples": [
+        "将一段文本合成为可播放的音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "supertonic",
+      "capability": "speech.synthesize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const KITTEN_TTS_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -482,18 +1595,72 @@ const KITTEN_TTS_MANIFEST: &str = r#"{
   "publisher": "KittenML",
   "description": "紧凑的本地英文多音色语音合成模型，无需参考音频。",
   "adapter": "kitten",
-  "capabilities": ["speech.tts"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "kitten-nano-en-v0_8-int8",
-    "name": "Kitten Nano v0.8",
-    "precision": "INT8",
-    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kitten-nano-en-v0_8-int8.tar.bz2",
-    "files": ["model.int8.onnx", "voices.bin", "tokens.txt", "espeak-ng-data"],
-    "estimatedSizeMb": 30
-  }],
-  "acceleration": ["CPU"],
-  "tone": "coral"
+  "capabilities": [
+    "speech.synthesize"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "kitten-nano-en-v0_8-int8",
+      "name": "Kitten Nano v0.8",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kitten-nano-en-v0_8-int8.tar.bz2",
+      "files": [
+        "model.int8.onnx",
+        "voices.bin",
+        "tokens.txt",
+        "espeak-ng-data"
+      ],
+      "estimatedSizeMb": 30
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "coral",
+  "agent": {
+    "task": "紧凑的本地英文多音色语音合成模型，无需参考音频。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要朗读的文本并选择本项目支持的语言和音色。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "发音和语言覆盖受模型限制；不调用其他 Agent。"
+      ],
+      "examples": [
+        "将一段文本合成为可播放的音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "kitten",
+      "capability": "speech.synthesize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const MATCHA_TTS_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -503,27 +1670,384 @@ const MATCHA_TTS_MANIFEST: &str = r#"{
   "publisher": "k2-fsa",
   "description": "本地中英文流匹配语音合成，使用独立 Vocos 声码器生成 16 kHz 音频。",
   "adapter": "matcha",
-  "capabilities": ["speech.tts"],
-  "runtime": {"kind": "onnx", "entry": "sherpa-onnx"},
-  "models": [{
-    "id": "matcha-icefall-zh-en",
-    "name": "MatchaTTS 中英双语",
-    "precision": "FP32",
-    "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
-    "files": ["model-steps-3.onnx", "tokens.txt", "lexicon.txt", "espeak-ng-data", "vocos-16khz-univ.onnx"],
-    "assets": [{
-      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-16khz-univ.onnx",
-      "path": "vocos-16khz-univ.onnx"
-    }],
-    "estimatedSizeMb": 160
-  }],
-  "acceleration": ["CPU"],
-  "tone": "coral"
+  "capabilities": [
+    "speech.synthesize"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "matcha-icefall-zh-en",
+      "name": "MatchaTTS 中英双语",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/matcha-icefall-zh-en.tar.bz2",
+      "files": [
+        "model-steps-3.onnx",
+        "tokens.txt",
+        "lexicon.txt",
+        "espeak-ng-data",
+        "vocos-16khz-univ.onnx"
+      ],
+      "assets": [
+        {
+          "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/vocoder-models/vocos-16khz-univ.onnx",
+          "path": "vocos-16khz-univ.onnx"
+        }
+      ],
+      "estimatedSizeMb": 160
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "coral",
+  "agent": {
+    "task": "本地中英文流匹配语音合成，使用独立 Vocos 声码器生成 16 kHz 音频。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要朗读的文本并选择本项目支持的语言和音色。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "发音和语言覆盖受模型限制；不调用其他 Agent。"
+      ],
+      "examples": [
+        "将一段文本合成为可播放的音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "matcha",
+      "capability": "speech.synthesize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
-const AUDIO_TAGGING_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.audio-tagging","name":"CED Audio Tagging","version":"2024.04","publisher":"k2-fsa","description":"识别音频中的环境声、事件与场景标签。","adapter":"audio-tagging","capabilities":["audio.classify"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"ced-tiny-int8","name":"CED Tiny","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-ced-tiny-audio-tagging-2024-04-19.tar.bz2","files":[],"estimatedSizeMb":27},{"id":"ced-small","name":"CED Small","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-ced-small-audio-tagging-2024-04-19.tar.bz2","files":[],"estimatedSizeMb":96}],"acceleration":["CPU"],"tone":"green"}"#;
-const KEYWORD_SPOTTING_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.keyword-spotting","name":"Zipformer Keyword Spotting","version":"2025.12","publisher":"k2-fsa","description":"本地流式关键词和唤醒词检测。","adapter":"keyword-spotting","capabilities":["speech.keyword"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"kws-zh-en-int8","name":"中英关键词","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2","files":[],"estimatedSizeMb":31}],"acceleration":["CPU"],"tone":"yellow"}"#;
-const LANGUAGE_ID_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.whisper-language-id","name":"Whisper Tiny 语言识别","version":"1.0","publisher":"k2-fsa","description":"离线判断音频所使用的语言。","adapter":"language-id","capabilities":["speech.language"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"whisper-tiny","name":"Whisper Tiny","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2","files":[],"estimatedSizeMb":150}],"acceleration":["CPU"],"tone":"blue"}"#;
-const SOURCE_SEPARATION_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.spleeter-2stems","name":"Spleeter 2 Stems","version":"1.0","publisher":"k2-fsa","description":"将混合音频分离为人声与伴奏。","adapter":"source-separation","capabilities":["audio.separate"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"spleeter-int8","name":"Spleeter 2 Stems","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-int8.tar.bz2","files":[],"estimatedSizeMb":50},{"id":"spleeter-fp16","name":"Spleeter 2 Stems","precision":"FP16","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2","files":[],"estimatedSizeMb":90},{"id":"spleeter-fp32","name":"Spleeter 2 Stems","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems.tar.bz2","files":[],"estimatedSizeMb":180}],"acceleration":["CPU"],"tone":"violet"}"#;
+const AUDIO_TAGGING_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "k2-fsa.audio-tagging",
+  "name": "CED Audio Tagging",
+  "version": "2024.04",
+  "publisher": "k2-fsa",
+  "description": "识别音频中的环境声、事件与场景标签。",
+  "adapter": "audio-tagging",
+  "capabilities": [
+    "audio.classify"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "ced-tiny-int8",
+      "name": "CED Tiny",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-ced-tiny-audio-tagging-2024-04-19.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 27
+    },
+    {
+      "id": "ced-small",
+      "name": "CED Small",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/audio-tagging-models/sherpa-onnx-ced-small-audio-tagging-2024-04-19.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 96
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "green",
+  "agent": {
+    "task": "识别音频中的环境声、事件与场景标签。",
+    "usage": {
+      "inputRequirements": [
+        "上传需要分析声音事件的音频。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "标签和置信分数是模型预测，不等于确定事实。"
+      ],
+      "examples": [
+        "识别录音中的环境声和事件标签。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "audio-tagging",
+      "capability": "audio.classify"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio-tags",
+      "label": "声音标签",
+      "type": "audio-tags",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const KEYWORD_SPOTTING_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "k2-fsa.keyword-spotting",
+  "name": "Zipformer Keyword Spotting",
+  "version": "2025.12",
+  "publisher": "k2-fsa",
+  "description": "本地流式关键词和唤醒词检测。",
+  "adapter": "keyword-spotting",
+  "capabilities": [
+    "speech.keyword"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "kws-zh-en-int8",
+      "name": "中英关键词",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/kws-models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 31
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "yellow",
+  "agent": {
+    "task": "本地流式关键词和唤醒词检测。",
+    "usage": {
+      "inputRequirements": [
+        "输入音频并使用本项目提供的关键词词表。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "仅匹配配置的关键词，不执行通用语音转写。"
+      ],
+      "examples": [
+        "检测录音中出现关键词的时刻。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "keyword-spotting",
+      "capability": "speech.keyword"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "keyword-events",
+      "label": "关键词事件",
+      "type": "keyword-events",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const LANGUAGE_ID_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "k2-fsa.whisper-language-id",
+  "name": "Whisper Tiny 语言识别",
+  "version": "1.0",
+  "publisher": "k2-fsa",
+  "description": "离线判断音频所使用的语言。",
+  "adapter": "language-id",
+  "capabilities": [
+    "speech.language"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "whisper-tiny",
+      "name": "Whisper Tiny",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-tiny.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 150
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "离线判断音频所使用的语言。",
+    "usage": {
+      "inputRequirements": [
+        "提供一段清晰且语言相对单一的语音。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "短音频、噪声和混合语言可能导致误判。"
+      ],
+      "examples": [
+        "判断一段录音所使用的语言。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "language-id",
+      "capability": "speech.language"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "language",
+      "label": "语言",
+      "type": "language",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const SOURCE_SEPARATION_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "k2-fsa.spleeter-2stems",
+  "name": "Spleeter 2 Stems",
+  "version": "1.0",
+  "publisher": "k2-fsa",
+  "description": "将混合音频分离为人声与伴奏。",
+  "adapter": "source-separation",
+  "capabilities": [
+    "audio.separate"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "spleeter-int8",
+      "name": "Spleeter 2 Stems",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-int8.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 50
+    },
+    {
+      "id": "spleeter-fp16",
+      "name": "Spleeter 2 Stems",
+      "precision": "FP16",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems-fp16.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 90
+    },
+    {
+      "id": "spleeter-fp32",
+      "name": "Spleeter 2 Stems",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/source-separation-models/sherpa-onnx-spleeter-2stems.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 180
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "violet",
+  "agent": {
+    "task": "将混合音频分离为人声与伴奏。",
+    "usage": {
+      "inputRequirements": [
+        "上传混合音频，分离目标以本项目说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "输出可能包含串音和伪影，不保证完全分离。"
+      ],
+      "examples": [
+        "将混合录音拆分成可单独播放的音轨。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "source-separation",
+      "capability": "audio.separate"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio-tracks",
+      "label": "分离音轨",
+      "type": "audio-tracks",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
 const ZIPENHANCER_MANIFEST: &str = r#"{
   "schemaVersion": 2,
   "id": "modelscope.zipenhancer-16k",
@@ -533,20 +2057,76 @@ const ZIPENHANCER_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "面向单声道语音的本地深度降噪，保留原始时长并支持长音频分段处理。",
   "adapter": "zipenhancer",
-  "capabilities": ["audio.enhance"],
-  "displayCapabilities": ["语音降噪", "16 kHz", "本地推理"],
-  "runtime": {"kind": "native", "entry": "onnxruntime", "package": "onnxruntime-1.27.0"},
-  "models": [{
-    "id": "zipenhancer-16k",
-    "name": "ZipEnhancer 16 kHz",
-    "precision": "FP32",
-    "source": "",
-    "files": ["zipenhancer.onnx"],
-    "estimatedSizeMb": 10,
-    "repositoryHosted": true
-  }],
-  "acceleration": ["CPU"],
-  "tone": "green"
+  "capabilities": [
+    "audio.enhance"
+  ],
+  "displayCapabilities": [
+    "语音降噪",
+    "16 kHz",
+    "本地推理"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "onnxruntime",
+    "package": "onnxruntime-1.27.0"
+  },
+  "models": [
+    {
+      "id": "zipenhancer-16k",
+      "name": "ZipEnhancer 16 kHz",
+      "precision": "FP32",
+      "source": "",
+      "files": [
+        "zipenhancer.onnx"
+      ],
+      "estimatedSizeMb": 10,
+      "repositoryHosted": true
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "green",
+  "agent": {
+    "task": "面向单声道语音的本地深度降噪，保留原始时长并支持长音频分段处理。",
+    "usage": {
+      "inputRequirements": [
+        "上传含人声的录音或使用支持的麦克风输入。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "降噪可能改变音色，不能恢复已经丢失的语音。"
+      ],
+      "examples": [
+        "清理录音中的背景噪声并导出音频。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "zipenhancer",
+      "capability": "audio.enhance"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
 const MOSSFORMER2_MANIFEST: &str = r#"{
   "schemaVersion": 2,
@@ -557,22 +2137,155 @@ const MOSSFORMER2_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "将 8 kHz 单声道双人混音分离为说话人 1 与说话人 2，不用于人声与伴奏分离。",
   "adapter": "mossformer2-separation",
-  "capabilities": ["audio.separate"],
-  "displayCapabilities": ["双人声分离", "8 kHz", "本地推理"],
-  "runtime": {"kind": "native", "entry": "onnxruntime", "package": "onnxruntime-1.27.0"},
-  "models": [{
-    "id": "mossformer2-separation-8k",
-    "name": "MossFormer2 2 Speakers",
-    "precision": "FP32",
-    "source": "",
-    "files": ["mossformer2.onnx"],
-    "estimatedSizeMb": 219,
-    "repositoryHosted": true
-  }],
-  "acceleration": ["CPU"],
-  "tone": "violet"
+  "capabilities": [
+    "audio.separate"
+  ],
+  "displayCapabilities": [
+    "双人声分离",
+    "8 kHz",
+    "本地推理"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "onnxruntime",
+    "package": "onnxruntime-1.27.0"
+  },
+  "models": [
+    {
+      "id": "mossformer2-separation-8k",
+      "name": "MossFormer2 2 Speakers",
+      "precision": "FP32",
+      "source": "",
+      "files": [
+        "mossformer2.onnx"
+      ],
+      "estimatedSizeMb": 219,
+      "repositoryHosted": true
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "violet",
+  "agent": {
+    "task": "将 8 kHz 单声道双人混音分离为说话人 1 与说话人 2，不用于人声与伴奏分离。",
+    "usage": {
+      "inputRequirements": [
+        "上传混合音频，分离目标以本项目说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "输出可能包含串音和伪影，不保证完全分离。"
+      ],
+      "examples": [
+        "将混合录音拆分成可单独播放的音轨。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "mossformer2-separation",
+      "capability": "audio.separate"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "audio-tracks",
+      "label": "分离音轨",
+      "type": "audio-tracks",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
-const PUNCTUATION_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.punctuation-zh-en","name":"中英文标点恢复","version":"2024.04","publisher":"k2-fsa","description":"为识别文本离线补充中英文标点。","adapter":"punctuation","capabilities":["text.punctuate"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"punctuation-int8","name":"CT Transformer","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2","files":[],"estimatedSizeMb":100},{"id":"punctuation-fp32","name":"CT Transformer","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12.tar.bz2","files":[],"estimatedSizeMb":400}],"acceleration":["CPU"],"tone":"violet"}"#;
+const PUNCTUATION_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "k2-fsa.punctuation-zh-en",
+  "name": "中英文标点恢复",
+  "version": "2024.04",
+  "publisher": "k2-fsa",
+  "description": "为识别文本离线补充中英文标点。",
+  "adapter": "punctuation",
+  "capabilities": [
+    "text.punctuate"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "punctuation-int8",
+      "name": "CT Transformer",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 100
+    },
+    {
+      "id": "punctuation-fp32",
+      "name": "CT Transformer",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12.tar.bz2",
+      "files": [],
+      "estimatedSizeMb": 400
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "violet",
+  "agent": {
+    "task": "为识别文本离线补充中英文标点。",
+    "usage": {
+      "inputRequirements": [
+        "输入需要补全标点的文本。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "标点根据上下文预测，需要人工复核。"
+      ],
+      "examples": [
+        "为一段无标点转写结果补全标点。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "punctuation",
+      "capability": "text.punctuate"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
 const WETEXT_REQUIRED_FILES: &[&str] = &[
     "wetext/fsts/zh/tn/tagger.fst",
     "wetext/fsts/zh/tn/verbalizer.fst",
@@ -605,49 +2318,832 @@ const WETEXT_MANIFEST: &str = r#"{
   "license": "Apache-2.0",
   "description": "基于 WFST 的中英日文本归一化与逆文本归一化。本地运行，适合 TTS 前处理和 ASR 数字、日期、金额后处理。",
   "adapter": "wetext",
-  "capabilities": ["text.normalize"],
-  "runtime": {"kind": "native", "entry": "kaldifst"},
-  "models": [{
-    "id": "wetext-fsts-0.1.6",
-    "name": "WeText 中英日规则",
-    "precision": "WFST",
-    "source": "",
-    "files": ["wetext/fsts/zh/tn/tagger.fst", "wetext/fsts/zh/tn/verbalizer.fst", "wetext/fsts/zh/itn/tagger.fst", "wetext/fsts/zh/itn/tagger_enable_0_to_9.fst", "wetext/fsts/zh/itn/verbalizer.fst", "wetext/fsts/zh/tn/verbalizer_remove_erhua.fst", "wetext/fsts/en/tn/tagger.fst", "wetext/fsts/en/tn/verbalizer.fst", "wetext/fsts/en/itn/tagger.fst", "wetext/fsts/en/itn/verbalizer.fst", "wetext/fsts/ja/tn/tagger.fst", "wetext/fsts/ja/tn/verbalizer.fst", "wetext/fsts/ja/itn/tagger.fst", "wetext/fsts/ja/itn/tagger_enable_0_to_9.fst", "wetext/fsts/ja/itn/verbalizer.fst", "wetext/fsts/full_to_half.fst", "wetext/fsts/remove_interjections.fst", "wetext/fsts/remove_puncts.fst", "wetext/fsts/tag_oov.fst", "wetext/fsts/traditional_to_simple.fst"],
-    "assets": [
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/itn/tagger.fst","path":"wetext/fsts/en/itn/tagger.fst","sha256":"d33019ac11e5ce41f0bdec16d50696823105e0882da92c2c75c44c980eb9c2ae"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/itn/verbalizer.fst","path":"wetext/fsts/en/itn/verbalizer.fst","sha256":"89db991f319cd1e5f27e3b33dc69642e97c83bc5df0333e6a53cafeae806e121"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/tn/tagger.fst","path":"wetext/fsts/en/tn/tagger.fst","sha256":"245e2dc9174cdd007a8e9e50f3339773d1adbbc7535b71cf67478dc1683cc3ec"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/en/tn/verbalizer.fst","path":"wetext/fsts/en/tn/verbalizer.fst","sha256":"03155c88f317b2795969e264c19f87faf98b9853d5ac631e419bacdc3b3ee15a"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/tagger.fst","path":"wetext/fsts/ja/itn/tagger.fst","sha256":"cb0ec2a70b5e9c61d6532b5146ea5676ed9cdd808c8c737be8e5b3abe7002b23"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/tagger_enable_0_to_9.fst","path":"wetext/fsts/ja/itn/tagger_enable_0_to_9.fst","sha256":"e6c63f48e7156ec99bd6080f682945ddb67bd4d89c69df354c6af86aa603abab"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/itn/verbalizer.fst","path":"wetext/fsts/ja/itn/verbalizer.fst","sha256":"4f4deac5ce1c5af61ca359dfb13289aed506eba22979c4a9ceaae238d9c86acc"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/tn/tagger.fst","path":"wetext/fsts/ja/tn/tagger.fst","sha256":"4e07b61a391df366ed8e2d249a36fa16fdbed9cbb505c186e12352429187aa88"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/ja/tn/verbalizer.fst","path":"wetext/fsts/ja/tn/verbalizer.fst","sha256":"34d9cc3a219f23052273e00e2f8810f6f24614f291794914d2ba52ecc39a6cfc"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/tagger.fst","path":"wetext/fsts/zh/itn/tagger.fst","sha256":"1b57d35fa33030b50f2699d77b3c2cf2c3d5961c45d450322f5cf9aa729b810c"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/tagger_enable_0_to_9.fst","path":"wetext/fsts/zh/itn/tagger_enable_0_to_9.fst","sha256":"a29dad112b1725e79f96f5a84e8b7f2ceb9dc3d88ffc785ebf994899701ccc9f"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/itn/verbalizer.fst","path":"wetext/fsts/zh/itn/verbalizer.fst","sha256":"440ac75aaeda3dd81f91b42abec4c08e84b7b0186462cc536a3a74d3ad1f13c4"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/tagger.fst","path":"wetext/fsts/zh/tn/tagger.fst","sha256":"cf341314c51f7ce59049f3b2c42f0ce8fd71e6d08d4d6969613aad384a5e2ae8"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/verbalizer.fst","path":"wetext/fsts/zh/tn/verbalizer.fst","sha256":"5a13cd679dd54637d12d2bd1bd33ee2165d91c867e14468c93195af02256e5da"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/zh/tn/verbalizer_remove_erhua.fst","path":"wetext/fsts/zh/tn/verbalizer_remove_erhua.fst","sha256":"4ecdea636b97cb7dff2637499713815836ec703d29cf044f17106d428f258ee5"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/full_to_half.fst","path":"wetext/fsts/full_to_half.fst","sha256":"3ac164703b7e83133a8864c8d5dd3cd44ea398c74f49480258e6d986c73b21ad"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/remove_interjections.fst","path":"wetext/fsts/remove_interjections.fst","sha256":"70f36aa8071968f72278fb8db9f17a060e8f8ac73a5e4161a009e33c688fedc1"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/remove_puncts.fst","path":"wetext/fsts/remove_puncts.fst","sha256":"0d69853648848ddad69e0b7a6398e5bc15be39b5559aa0119938aa6e60632538"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/tag_oov.fst","path":"wetext/fsts/tag_oov.fst","sha256":"7d58b861760f691b24f095ca17dcac6ccb79de1871282847895380249f2b034b"},
-      {"source":"https://modelscope.cn/models/pengzhendong/wetext/resolve/master/traditional_to_simple.fst","path":"wetext/fsts/traditional_to_simple.fst","sha256":"01ff345b2416ac19b20bbc46236ed6a6923cf2a430a96411ae3b4f60ea9bf01d"}
-    ],
-    "estimatedSizeMb": 3
-  }],
-  "acceleration": ["CPU"],
-  "tone": "violet"
+  "capabilities": [
+    "text.normalize"
+  ],
+  "runtime": {
+    "kind": "native",
+    "entry": "kaldifst"
+  },
+  "models": [
+    {
+      "id": "wetext-fsts-0.1.6",
+      "name": "WeText 中英日规则",
+      "precision": "WFST",
+      "source": "",
+      "files": [
+        "wetext/fsts/zh/tn/tagger.fst",
+        "wetext/fsts/zh/tn/verbalizer.fst",
+        "wetext/fsts/zh/itn/tagger.fst",
+        "wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
+        "wetext/fsts/zh/itn/verbalizer.fst",
+        "wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
+        "wetext/fsts/en/tn/tagger.fst",
+        "wetext/fsts/en/tn/verbalizer.fst",
+        "wetext/fsts/en/itn/tagger.fst",
+        "wetext/fsts/en/itn/verbalizer.fst",
+        "wetext/fsts/ja/tn/tagger.fst",
+        "wetext/fsts/ja/tn/verbalizer.fst",
+        "wetext/fsts/ja/itn/tagger.fst",
+        "wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
+        "wetext/fsts/ja/itn/verbalizer.fst",
+        "wetext/fsts/full_to_half.fst",
+        "wetext/fsts/remove_interjections.fst",
+        "wetext/fsts/remove_puncts.fst",
+        "wetext/fsts/tag_oov.fst",
+        "wetext/fsts/traditional_to_simple.fst"
+      ],
+      "assets": [
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/itn/tagger.fst",
+          "path": "wetext/fsts/en/itn/tagger.fst",
+          "sha256": "d33019ac11e5ce41f0bdec16d50696823105e0882da92c2c75c44c980eb9c2ae"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/itn/verbalizer.fst",
+          "path": "wetext/fsts/en/itn/verbalizer.fst",
+          "sha256": "89db991f319cd1e5f27e3b33dc69642e97c83bc5df0333e6a53cafeae806e121"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/tn/tagger.fst",
+          "path": "wetext/fsts/en/tn/tagger.fst",
+          "sha256": "245e2dc9174cdd007a8e9e50f3339773d1adbbc7535b71cf67478dc1683cc3ec"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/en/tn/verbalizer.fst",
+          "path": "wetext/fsts/en/tn/verbalizer.fst",
+          "sha256": "03155c88f317b2795969e264c19f87faf98b9853d5ac631e419bacdc3b3ee15a"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/tagger.fst",
+          "path": "wetext/fsts/ja/itn/tagger.fst",
+          "sha256": "cb0ec2a70b5e9c61d6532b5146ea5676ed9cdd808c8c737be8e5b3abe7002b23"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
+          "path": "wetext/fsts/ja/itn/tagger_enable_0_to_9.fst",
+          "sha256": "e6c63f48e7156ec99bd6080f682945ddb67bd4d89c69df354c6af86aa603abab"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/itn/verbalizer.fst",
+          "path": "wetext/fsts/ja/itn/verbalizer.fst",
+          "sha256": "4f4deac5ce1c5af61ca359dfb13289aed506eba22979c4a9ceaae238d9c86acc"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/tn/tagger.fst",
+          "path": "wetext/fsts/ja/tn/tagger.fst",
+          "sha256": "4e07b61a391df366ed8e2d249a36fa16fdbed9cbb505c186e12352429187aa88"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/ja/tn/verbalizer.fst",
+          "path": "wetext/fsts/ja/tn/verbalizer.fst",
+          "sha256": "34d9cc3a219f23052273e00e2f8810f6f24614f291794914d2ba52ecc39a6cfc"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/tagger.fst",
+          "path": "wetext/fsts/zh/itn/tagger.fst",
+          "sha256": "1b57d35fa33030b50f2699d77b3c2cf2c3d5961c45d450322f5cf9aa729b810c"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
+          "path": "wetext/fsts/zh/itn/tagger_enable_0_to_9.fst",
+          "sha256": "a29dad112b1725e79f96f5a84e8b7f2ceb9dc3d88ffc785ebf994899701ccc9f"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/itn/verbalizer.fst",
+          "path": "wetext/fsts/zh/itn/verbalizer.fst",
+          "sha256": "440ac75aaeda3dd81f91b42abec4c08e84b7b0186462cc536a3a74d3ad1f13c4"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/tagger.fst",
+          "path": "wetext/fsts/zh/tn/tagger.fst",
+          "sha256": "cf341314c51f7ce59049f3b2c42f0ce8fd71e6d08d4d6969613aad384a5e2ae8"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/verbalizer.fst",
+          "path": "wetext/fsts/zh/tn/verbalizer.fst",
+          "sha256": "5a13cd679dd54637d12d2bd1bd33ee2165d91c867e14468c93195af02256e5da"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
+          "path": "wetext/fsts/zh/tn/verbalizer_remove_erhua.fst",
+          "sha256": "4ecdea636b97cb7dff2637499713815836ec703d29cf044f17106d428f258ee5"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/full_to_half.fst",
+          "path": "wetext/fsts/full_to_half.fst",
+          "sha256": "3ac164703b7e83133a8864c8d5dd3cd44ea398c74f49480258e6d986c73b21ad"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/remove_interjections.fst",
+          "path": "wetext/fsts/remove_interjections.fst",
+          "sha256": "70f36aa8071968f72278fb8db9f17a060e8f8ac73a5e4161a009e33c688fedc1"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/remove_puncts.fst",
+          "path": "wetext/fsts/remove_puncts.fst",
+          "sha256": "0d69853648848ddad69e0b7a6398e5bc15be39b5559aa0119938aa6e60632538"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/tag_oov.fst",
+          "path": "wetext/fsts/tag_oov.fst",
+          "sha256": "7d58b861760f691b24f095ca17dcac6ccb79de1871282847895380249f2b034b"
+        },
+        {
+          "source": "https://modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/wetext.text-normalization/wetext-fsts-0.1.6/wetext/fsts/traditional_to_simple.fst",
+          "path": "wetext/fsts/traditional_to_simple.fst",
+          "sha256": "01ff345b2416ac19b20bbc46236ed6a6923cf2a430a96411ae3b4f60ea9bf01d"
+        }
+      ],
+      "estimatedSizeMb": 3
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "violet",
+  "agent": {
+    "task": "基于 WFST 的中英日文本归一化与逆文本归一化。本地运行，适合 TTS 前处理和 ASR 数字、日期、金额后处理。",
+    "usage": {
+      "inputRequirements": [
+        "输入文本并选择归一化方向与语言。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "采用项目内的 FST 规则，不进行开放式文本改写。"
+      ],
+      "examples": [
+        "将日期、金额或数字转换为适合朗读的文本。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "wetext",
+      "capability": "text.normalize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "text",
+      "label": "文本",
+      "type": "text",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
 }"#;
-const SPEAKER_ID_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.speaker-embedding","name":"3D-Speaker 声纹","version":"1.0","publisher":"k2-fsa","description":"比较两段人声的声纹向量与余弦相似度，用于说话人验证。","adapter":"speaker-embedding","capabilities":["speaker.embed"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"3dspeaker-campplus","name":"CAM++ 中英","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx","files":[],"estimatedSizeMb":30}],"acceleration":["CPU"],"tone":"blue"}"#;
-const DIARIZATION_MANIFEST: &str = r#"{"schemaVersion":2,"id":"k2-fsa.speaker-diarization","name":"Pyannote Speaker Diarization","version":"3.0","publisher":"k2-fsa","description":"检测多人音频中的说话人切换与时间区间。","adapter":"speaker-diarization","capabilities":["speaker.diarize"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"pyannote-segmentation-3","name":"Pyannote Segmentation 3.0","precision":"FP32","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2","files":[],"estimatedSizeMb":7}],"acceleration":["CPU"],"tone":"yellow"}"#;
-const QWEN3_ASR_MANIFEST: &str = r#"{"schemaVersion":2,"id":"qwen.qwen3-asr-0.6b","name":"Qwen3-ASR 0.6B","version":"2026.03.25","publisher":"Qwen","description":"高质量多语言离线识别，支持通过热词增强专有名词识别。","adapter":"qwen3-asr","capabilities":["speech.asr"],"displayCapabilities":["语音识别","多语言","热词"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"qwen3-asr-0.6b-int8","name":"Qwen3-ASR 0.6B","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2","files":["conv_frontend.onnx","encoder.int8.onnx","decoder.int8.onnx","tokenizer"],"estimatedSizeMb":950}],"acceleration":["CPU"],"tone":"blue"}"#;
-const FIRE_RED_ASR2_CTC_MANIFEST: &str = r#"{"schemaVersion":2,"id":"firered.fire-red-asr2-ctc","name":"FireRedASR2 CTC","version":"2026.02.25","publisher":"FireRedTeam","description":"中英文及二十多种中文方言识别，CTC 解码速度快，适合长音频和字幕。","adapter":"fire-red-asr-ctc","capabilities":["speech.asr"],"displayCapabilities":["语音识别","中英方言","长音频"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"fire-red-asr2-ctc-int8","name":"FireRedASR2 CTC","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25.tar.bz2","files":["model.int8.onnx","tokens.txt"],"estimatedSizeMb":741}],"acceleration":["CPU"],"tone":"blue"}"#;
-const FIRE_RED_ASR_V1_MANIFEST: &str = r#"{"schemaVersion":2,"id":"firered.fire-red-asr-v1","name":"FireRedASR AED","version":"2025.02.16","publisher":"FireRedTeam","description":"FireRedASR 第一代中英文 AED 模型，支持普通话、英语及部分中文方言。模型较大，CPU 推理较慢。","adapter":"fire-red-asr","capabilities":["speech.asr"],"displayCapabilities":["语音识别","中英方言","AED"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"fire-red-asr-large-int8","name":"FireRedASR AED Large","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2","files":["encoder.int8.onnx","decoder.int8.onnx","tokens.txt"],"estimatedSizeMb":1750}],"acceleration":["CPU"],"tone":"blue"}"#;
-const MOONSHINE_V2_MANIFEST: &str = r#"{"schemaVersion":2,"id":"usefulsensors.moonshine-v2-tiny-en","name":"Moonshine v2 Tiny English","version":"2026.02.27","publisher":"Useful Sensors","description":"轻量英文离线识别模型，适合低资源设备、短语音和快速本地转写。","adapter":"moonshine-v2","capabilities":["speech.asr"],"displayCapabilities":["语音识别","英文","轻量"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"moonshine-v2-tiny-en-quantized","name":"Moonshine v2 Tiny English","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2","files":["encoder_model.ort","decoder_model_merged.ort","tokens.txt"],"estimatedSizeMb":120}],"acceleration":["CPU"],"tone":"blue"}"#;
-const PARAKEET_TDT_MANIFEST: &str = r#"{"schemaVersion":2,"id":"nvidia.parakeet-tdt-0.6b-v3","name":"Parakeet TDT 0.6B v3","version":"3","publisher":"NVIDIA","description":"高质量多语言离线识别模型，覆盖 25 种欧洲语言并提供词级时间信息。","adapter":"nemo-parakeet","capabilities":["speech.asr"],"displayCapabilities":["语音识别","25 种语言","时间戳"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"parakeet-tdt-0.6b-v3-int8","name":"Parakeet TDT 0.6B v3","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2","files":["encoder.int8.onnx","decoder.int8.onnx","joiner.int8.onnx","tokens.txt"],"estimatedSizeMb":650}],"acceleration":["CPU"],"tone":"blue"}"#;
-const CANARY_FLASH_MANIFEST: &str = r#"{"schemaVersion":2,"id":"nvidia.canary-180m-flash","name":"Canary 180M Flash","version":"180M","publisher":"NVIDIA","description":"英语、西班牙语、德语和法语离线识别与双向语音翻译。","adapter":"nemo-canary","capabilities":["speech.asr"],"displayCapabilities":["语音识别","四语","语音翻译"],"runtime":{"kind":"onnx","entry":"sherpa-onnx"},"models":[{"id":"canary-180m-flash-int8","name":"Canary 180M Flash","precision":"INT8","source":"https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2","files":["encoder.int8.onnx","decoder.int8.onnx","tokens.txt"],"estimatedSizeMb":210}],"acceleration":["CPU"],"tone":"blue"}"#;
+const SPEAKER_ID_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "k2-fsa.speaker-embedding",
+  "name": "3D-Speaker 声纹",
+  "version": "1.0",
+  "publisher": "k2-fsa",
+  "description": "比较两段人声的声纹向量与余弦相似度，用于说话人验证。",
+  "adapter": "speaker-embedding",
+  "capabilities": [
+    "speaker.embed"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "3dspeaker-campplus",
+      "name": "CAM++ 中英",
+      "precision": "FP32",
+      "source": "https://www.modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/k2-fsa.speaker-embedding/3dspeaker-campplus/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      "files": [
+        "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+      ],
+      "estimatedSizeMb": 30,
+      "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "从音频提取声纹，或比较两段音频的声纹相似度",
+    "usage": {
+      "inputRequirements": [
+        "上传可解码的音频文件；建议使用清晰的单人语音。",
+        "对比声纹时，另提供一段参考音频。"
+      ],
+      "limitations": [
+        "相似度受录音环境、时长和语音质量影响，不能作为身份认证结论。",
+        "不负责多人录音的说话人分离。"
+      ],
+      "examples": [
+        "上传一段录音，提取声纹向量。",
+        "上传两段录音，查看声纹相似度。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "speaker-embedding",
+      "capability": "speaker.embed"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    },
+    {
+      "name": "reference",
+      "label": "对比音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ],
+      "optional": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "embedding",
+      "label": "声纹结果",
+      "type": "speaker-embedding",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "license": "Apache-2.0"
+}"#;
+const DIARIZATION_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "k2-fsa.speaker-diarization",
+  "name": "Pyannote Speaker Diarization",
+  "version": "3.0",
+  "publisher": "k2-fsa",
+  "description": "检测多人音频中的说话人切换与时间区间。",
+  "adapter": "speaker-diarization",
+  "capabilities": [
+    "speaker.diarize"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "pyannote-segmentation-3",
+      "name": "Pyannote Segmentation 3.0",
+      "precision": "FP32",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2",
+      "files": [
+        "model.onnx",
+        "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+      ],
+      "estimatedSizeMb": 7,
+      "assets": [
+        {
+          "source": "https://www.modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/k2-fsa.speaker-embedding/3dspeaker-campplus/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+          "path": "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+          "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"
+        }
+      ]
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "yellow",
+  "agent": {
+    "task": "检测多人音频中的说话人切换与时间区间。",
+    "usage": {
+      "inputRequirements": [
+        "上传包含多人发言的录音。",
+        "安装本项目声明的资源后运行。",
+        "分段模型与 CAM++ 声纹模型均安装到本项目目录。"
+      ],
+      "limitations": [
+        "输出匿名说话人编号，不推断真实身份；重叠语音可能分错。"
+      ],
+      "examples": [
+        "标注每位说话人在录音中的发言时间。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "speaker-diarization",
+      "capability": "speaker.diarize"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "speaker-segments",
+      "label": "说话人片段",
+      "type": "speaker-segments",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const QWEN3_ASR_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "qwen.qwen3-asr-0.6b",
+  "name": "Qwen3-ASR 0.6B",
+  "version": "2026.03.25",
+  "publisher": "Qwen",
+  "description": "高质量多语言离线识别，支持通过热词增强专有名词识别。",
+  "adapter": "qwen3-asr",
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "多语言",
+    "热词"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "qwen3-asr-0.6b-int8",
+      "name": "Qwen3-ASR 0.6B",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2",
+      "files": [
+        "conv_frontend.onnx",
+        "encoder.int8.onnx",
+        "decoder.int8.onnx",
+        "tokenizer"
+      ],
+      "estimatedSizeMb": 950
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "高质量多语言离线识别，支持通过热词增强专有名词识别。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "qwen3-asr",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const FIRE_RED_ASR2_CTC_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "firered.fire-red-asr2-ctc",
+  "name": "FireRedASR2 CTC",
+  "version": "2026.02.25",
+  "publisher": "FireRedTeam",
+  "description": "中英文及二十多种中文方言识别，CTC 解码速度快，适合长音频和字幕。",
+  "adapter": "fire-red-asr-ctc",
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "中英方言",
+    "长音频"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "fire-red-asr2-ctc-int8",
+      "name": "FireRedASR2 CTC",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr2-ctc-zh_en-int8-2026-02-25.tar.bz2",
+      "files": [
+        "model.int8.onnx",
+        "tokens.txt"
+      ],
+      "estimatedSizeMb": 741
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "中英文及二十多种中文方言识别，CTC 解码速度快，适合长音频和字幕。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "fire-red-asr-ctc",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const FIRE_RED_ASR_V1_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "firered.fire-red-asr-v1",
+  "name": "FireRedASR AED",
+  "version": "2025.02.16",
+  "publisher": "FireRedTeam",
+  "description": "FireRedASR 第一代中英文 AED 模型，支持普通话、英语及部分中文方言。模型较大，CPU 推理较慢。",
+  "adapter": "fire-red-asr",
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "中英方言",
+    "AED"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "fire-red-asr-large-int8",
+      "name": "FireRedASR AED Large",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-fire-red-asr-large-zh_en-2025-02-16.tar.bz2",
+      "files": [
+        "encoder.int8.onnx",
+        "decoder.int8.onnx",
+        "tokens.txt"
+      ],
+      "estimatedSizeMb": 1750
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "FireRedASR 第一代中英文 AED 模型，支持普通话、英语及部分中文方言。模型较大，CPU 推理较慢。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "fire-red-asr",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const MOONSHINE_V2_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "usefulsensors.moonshine-v2-tiny-en",
+  "name": "Moonshine v2 Tiny English",
+  "version": "2026.02.27",
+  "publisher": "Useful Sensors",
+  "description": "轻量英文离线识别模型，适合低资源设备、短语音和快速本地转写。",
+  "adapter": "moonshine-v2",
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "英文",
+    "轻量"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "moonshine-v2-tiny-en-quantized",
+      "name": "Moonshine v2 Tiny English",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-quantized-2026-02-27.tar.bz2",
+      "files": [
+        "encoder_model.ort",
+        "decoder_model_merged.ort",
+        "tokens.txt"
+      ],
+      "estimatedSizeMb": 120
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "轻量英文离线识别模型，适合低资源设备、短语音和快速本地转写。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "moonshine-v2",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const PARAKEET_TDT_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "nvidia.parakeet-tdt-0.6b-v3",
+  "name": "Parakeet TDT 0.6B v3",
+  "version": "3",
+  "publisher": "NVIDIA",
+  "description": "高质量多语言离线识别模型，覆盖 25 种欧洲语言并提供词级时间信息。",
+  "adapter": "nemo-parakeet",
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "25 种语言",
+    "时间戳"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "parakeet-tdt-0.6b-v3-int8",
+      "name": "Parakeet TDT 0.6B v3",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2",
+      "files": [
+        "encoder.int8.onnx",
+        "decoder.int8.onnx",
+        "joiner.int8.onnx",
+        "tokens.txt"
+      ],
+      "estimatedSizeMb": 650
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "高质量多语言离线识别模型，覆盖 25 种欧洲语言并提供词级时间信息。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "nemo-parakeet",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
+const CANARY_FLASH_MANIFEST: &str = r#"{
+  "schemaVersion": 2,
+  "id": "nvidia.canary-180m-flash",
+  "name": "Canary 180M Flash",
+  "version": "180M",
+  "publisher": "NVIDIA",
+  "description": "英语、西班牙语、德语和法语离线识别与双向语音翻译。",
+  "adapter": "nemo-canary",
+  "capabilities": [
+    "speech.transcribe"
+  ],
+  "displayCapabilities": [
+    "语音识别",
+    "四语",
+    "语音翻译"
+  ],
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "canary-180m-flash-int8",
+      "name": "Canary 180M Flash",
+      "precision": "INT8",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8.tar.bz2",
+      "files": [
+        "encoder.int8.onnx",
+        "decoder.int8.onnx",
+        "tokens.txt"
+      ],
+      "estimatedSizeMb": 210
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "agent": {
+    "task": "英语、西班牙语、德语和法语离线识别与双向语音翻译。",
+    "usage": {
+      "inputRequirements": [
+        "上传清晰的语音，语言范围以本项目模型说明为准。",
+        "安装本项目声明的资源后运行。"
+      ],
+      "limitations": [
+        "转写需要人工复核；不自动调用其他 Agent 做分段或说话人识别。"
+      ],
+      "examples": [
+        "将录音转换为可编辑的文字。"
+      ]
+    },
+    "harness": {
+      "kind": "host-adapter",
+      "adapter": "nemo-canary",
+      "capability": "speech.transcribe"
+    }
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "转写文本",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ]
+}"#;
 const CATALOG_MANIFESTS: &[&str] = &[
     GTCRN_MANIFEST,
     DEEPFILTERNET_MANIFEST,
@@ -698,6 +3194,10 @@ fn builtin_catalog_values() -> Result<Vec<serde_json::Value>, String> {
 }
 
 fn mark_catalog_payloads_modelscope_hosted(value: &mut serde_json::Value) {
+    let project_owned_assets = matches!(
+        value["id"].as_str(),
+        Some("k2-fsa.vits-aishell3" | "k2-fsa.speaker-diarization")
+    );
     let Some(models) = value
         .get_mut("models")
         .and_then(serde_json::Value::as_array_mut)
@@ -722,7 +3222,9 @@ fn mark_catalog_payloads_modelscope_hosted(value: &mut serde_json::Value) {
         }
         model["repositoryHosted"] = serde_json::Value::Bool(true);
         model["source"] = serde_json::Value::String(String::new());
-        model["assets"] = serde_json::Value::Array(Vec::new());
+        if !project_owned_assets {
+            model["assets"] = serde_json::Value::Array(Vec::new());
+        }
     }
 }
 
@@ -752,6 +3254,14 @@ fn merge_catalog_entry_payload(
     builtin: &serde_json::Value,
     mut remote: serde_json::Value,
 ) -> serde_json::Value {
+    if builtin.get("agent").is_some() {
+        for key in ["agent", "inputs", "outputs", "capabilities"] {
+            remote[key] = builtin[key].clone();
+        }
+        remote
+            .as_object_mut()
+            .map(|object| object.remove("recommendedDependencies"));
+    }
     if builtin.get("id").and_then(serde_json::Value::as_str) == Some("k2-fsa.speaker-embedding") {
         if let Some(description) = builtin
             .get("description")
@@ -771,6 +3281,13 @@ fn merge_catalog_entry_payload(
         return remote;
     };
 
+    // These historical options have no published payload in the model repository.
+    remote_models.retain(|model| {
+        !matches!(
+            model["id"].as_str(),
+            Some("streaming-zipformer-zh-fp32-2025-06-30" | "streaming-paraformer-bilingual-int8")
+        )
+    });
     for builtin_model in builtin_models {
         let Some(model_id) = builtin_model.get("id").and_then(serde_json::Value::as_str) else {
             continue;
@@ -1125,10 +3642,9 @@ fn validate_remote_catalog_entry(manifest: &V2PluginManifest) -> Result<(), Stri
                 manifest.id, model.id
             ));
         }
-        if model.repository_hosted && (!model.source.trim().is_empty() || !model.assets.is_empty())
-        {
+        if model.repository_hosted && !model.source.trim().is_empty() {
             return Err(format!(
-                "在线模型 {} 标记为 ModelScope 托管时不能声明外部 source 或 assets",
+                "在线模型 {} 标记为 ModelScope 托管时不能声明外部 source",
                 model.id
             ));
         }
@@ -1323,6 +3839,8 @@ fn default_true() -> bool {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginManifest {
+    #[serde(default)]
+    agent: Option<crate::agents::AgentProject>,
     schema_version: u32,
     id: String,
     name: String,
@@ -1403,6 +3921,8 @@ struct V2AssetManifest {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct V2PluginManifest {
+    #[serde(default)]
+    agent: Option<crate::agents::AgentProject>,
     schema_version: u32,
     id: String,
     name: String,
@@ -1437,6 +3957,8 @@ struct V2PluginManifest {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginDescriptor {
+    #[serde(default)]
+    agent: Option<crate::agents::AgentProject>,
     pub(crate) id: String,
     pub(crate) name: String,
     author: String,
@@ -1669,6 +4191,7 @@ pub fn plugin_replace_dependency_bindings(
     bindings: DependencyBindings,
 ) -> Result<DependencyBindings, String> {
     validate_dependency_bindings(&bindings)?;
+    validate_agent_bindings(&app, &bindings)?;
     let mut state = read_state(&app)?;
     state.dependency_bindings = bindings;
     sanitize_plugin_state(&mut state);
@@ -1691,6 +4214,12 @@ pub fn plugin_set_dependency_binding(
     if is_deprecated_plugin_id(&plugin_id) || is_deprecated_plugin_id(&dependency_id) {
         return Err("该模型已下架，请刷新模型目录".to_string());
     }
+    let mut candidate = DependencyBindings::new();
+    candidate.insert(
+        plugin_id.clone(),
+        [(role.clone(), dependency_id.clone())].into(),
+    );
+    validate_agent_bindings(&app, &candidate)?;
     let mut state = read_state(&app)?;
     state
         .dependency_bindings
@@ -1747,6 +4276,14 @@ fn install_catalog_model_blocking(
     plugin_id: &str,
     variant_id: Option<&str>,
 ) -> Result<PluginDescriptor, String> {
+    if plugin_id == "silero-vad" {
+        install_recommended_dependency(app, plugin_id)?;
+        set_sidebar_visible(app, plugin_id, true)?;
+        return builtin_plugins(app, &read_state(app)?)?
+            .into_iter()
+            .find(|plugin| plugin.id == plugin_id)
+            .ok_or("无法读取 Silero Agent".into());
+    }
     let mut value = catalog_manifest_value(app, plugin_id)?
         .ok_or_else(|| format!("模型商店中不存在 {plugin_id}"))?;
     let models = value
@@ -1805,7 +4342,7 @@ fn backup_incomplete_catalog_install(
     if !destination.is_dir() {
         return Ok(None);
     }
-    let manifest_path = destination.join("plugin.json");
+    let manifest_path = project_manifest_path(&destination);
     let complete = read_manifest(&manifest_path)
         .and_then(|manifest| validate_manifest(&destination, &manifest))
         .is_ok();
@@ -2010,6 +4547,12 @@ pub(crate) fn catalog(app: &AppHandle) -> Result<Vec<PluginDescriptor>, String> 
             .iter_mut()
             .find(|plugin| plugin.id == catalog_entry.id)
         {
+            if installed.agent.is_some() {
+                installed.catalog_managed = true;
+                installed.variants = catalog_entry.variants;
+                installed.default_variant_id = catalog_entry.default_variant_id;
+                continue;
+            }
             installed.name = catalog_entry.name;
             installed.author = catalog_entry.author;
             installed.description = catalog_entry.description;
@@ -2023,16 +4566,20 @@ pub(crate) fn catalog(app: &AppHandle) -> Result<Vec<PluginDescriptor>, String> 
             installed.streaming_mode = catalog_entry.streaming_mode;
             installed.variants = catalog_entry.variants;
             installed.default_variant_id = catalog_entry.default_variant_id;
-            installed.inputs = catalog_entry.inputs;
-            installed.outputs = catalog_entry.outputs;
-            installed.parameter_schema = catalog_entry.parameter_schema;
-            installed.recommended_dependencies = catalog_entry.recommended_dependencies;
+            // Known bundles are migrated while reading their installed manifest.
+            // An unmatched legacy bundle must retain its own execution contract.
+            if catalog_entry.agent.is_none() {
+                installed.inputs = catalog_entry.inputs;
+                installed.outputs = catalog_entry.outputs;
+                installed.parameter_schema = catalog_entry.parameter_schema;
+                installed.recommended_dependencies = catalog_entry.recommended_dependencies;
+            }
         } else {
             plugins.push(catalog_entry);
         }
     }
     for plugin in &mut plugins {
-        if plugin.recommended_dependencies.is_empty() {
+        if plugin.agent.is_none() && plugin.recommended_dependencies.is_empty() {
             plugin.recommended_dependencies = inferred_dependencies(
                 &plugin.harness_capabilities,
                 &plugin.adapter,
@@ -2129,6 +4676,12 @@ fn set_sidebar_visible(app: &AppHandle, plugin_id: &str, visible: bool) -> Resul
 fn dependency_references(app: &AppHandle, dependency_id: &str) -> Result<Vec<String>, String> {
     let state = read_state(app)?;
     let plugins = catalog(app)?;
+    if plugins
+        .iter()
+        .any(|plugin| plugin.id == dependency_id && plugin.agent.is_some())
+    {
+        return Ok(Vec::new());
+    }
     let installed_ids = plugins
         .iter()
         .filter(|plugin| plugin.installed)
@@ -2136,7 +4689,10 @@ fn dependency_references(app: &AppHandle, dependency_id: &str) -> Result<Vec<Str
         .collect::<HashSet<_>>();
     let mut references = Vec::new();
 
-    for plugin in plugins.iter().filter(|plugin| plugin.installed) {
+    for plugin in plugins
+        .iter()
+        .filter(|plugin| plugin.installed && plugin.agent.is_none())
+    {
         for dependency in &plugin.recommended_dependencies {
             let selected = state
                 .dependency_bindings
@@ -2178,6 +4734,22 @@ fn validate_binding_key(value: &str, label: &str) -> Result<(), String> {
         })
     {
         return Err(format!("{label} 格式无效"));
+    }
+    Ok(())
+}
+
+fn validate_agent_bindings(app: &AppHandle, bindings: &DependencyBindings) -> Result<(), String> {
+    let projects = catalog(app)?
+        .into_iter()
+        .filter(|plugin| plugin.agent.is_some())
+        .map(|plugin| plugin.id)
+        .collect::<HashSet<_>>();
+    for (owner, roles) in bindings {
+        if roles.values().any(|dependency| {
+            !dependency.is_empty() && (projects.contains(owner) || projects.contains(dependency))
+        }) {
+            return Err("独立 Agent 不能建立跨 Agent 依赖".into());
+        }
     }
     Ok(())
 }
@@ -2292,10 +4864,22 @@ fn install_from_path_blocking(
                 .extension()
                 .and_then(|value| value.to_str())
                 .unwrap_or_default();
-            if extension.eq_ignore_ascii_case("json") {
+            if source.file_name().and_then(|name| name.to_str()) == Some("agent.json") {
+                emit_install(app, "copying", 12, "正在复制 Agent 项目与资源");
+                copy_directory(source.parent().ok_or("Agent 项目缺少目录")?, &staging)?;
+            } else if extension.eq_ignore_ascii_case("json") {
                 emit_install(app, "copying", 12, "正在读取模型清单");
-                fs::copy(source, staging.join("plugin.json"))
-                    .map_err(|error| format!("无法复制模型清单: {error}"))?;
+                fs::copy(
+                    source,
+                    staging.join(
+                        if source.file_name().and_then(|name| name.to_str()) == Some("agent.json") {
+                            "agent.json"
+                        } else {
+                            "plugin.json"
+                        },
+                    ),
+                )
+                .map_err(|error| format!("无法复制模型清单: {error}"))?;
             } else if matches!(extension.to_ascii_lowercase().as_str(), "cspkg" | "zip") {
                 emit_install(app, "extracting", 18, "正在安全解压 .cspkg");
                 extract_archive(source, &staging)?;
@@ -2309,17 +4893,26 @@ fn install_from_path_blocking(
             .parent()
             .ok_or_else(|| "plugin.json 缺少父目录".to_string())?;
         let manifest = read_manifest(&manifest_path)?;
-        install_remote_model(app, package_root, &manifest, prefer_modelscope)?;
-        validate_manifest(package_root, &manifest)?;
+        validate_manifest_metadata(&manifest)?;
         if builtin_plugin_id(&manifest.id) {
             return Err("插件 ID 与内置适配器冲突，请使用独立 ID".to_string());
         }
-
         let destination = plugins_dir.join(&manifest.id);
         if destination.exists() {
             return Err(format!("{} 已安装，请先卸载旧版本", manifest.name));
         }
-
+        let hosted_agent = manifest.agent.is_some()
+            && manifest
+                .model
+                .as_ref()
+                .is_some_and(|model| model.repository_hosted);
+        install_remote_model(
+            app,
+            package_root,
+            &manifest,
+            prefer_modelscope || hosted_agent,
+        )?;
+        validate_manifest(package_root, &manifest)?;
         emit_install(
             app,
             "installing",
@@ -2422,16 +5015,41 @@ fn builtin_descriptor(
         },
         adapter: adapter.to_string(),
         install_path: path.to_string_lossy().into_owned(),
-        catalog_managed: false,
+        catalog_managed: true,
         streaming_mode: adapter_streaming_mode(adapter).to_string(),
         variants: Vec::new(),
         selected_variant_id: None,
         default_variant_id: None,
         installable: true,
-        inputs: Vec::new(),
-        outputs: Vec::new(),
+        inputs: vec![PluginPortManifest {
+            name: "audio".into(),
+            label: "音频".into(),
+            port_type: "audio".into(),
+            modes: vec!["batch".into()],
+            optional: false,
+        }],
+        outputs: vec![PluginPortManifest {
+            name: "segments".into(),
+            label: "语音片段".into(),
+            port_type: "speech-segments".into(),
+            modes: vec!["batch".into()],
+            optional: false,
+        }],
         parameter_schema: Vec::new(),
         recommended_dependencies: Vec::new(),
+        agent: Some(crate::agents::AgentProject {
+            task: description.into(),
+            harness: crate::agents::AgentHarness {
+                kind: "host-adapter".into(),
+                adapter: adapter.into(),
+                capability: CAPABILITY_VAD.into(),
+            },
+            usage: crate::agents::AgentUsage {
+                input_requirements: vec!["提供包含人声的音频，使用本项目的 Silero 权重。".into()],
+                limitations: vec!["只检测语音片段，不转写文字或识别身份。".into()],
+                examples: vec!["定位录音中的发言与静音区间。".into()],
+            },
+        }),
     }
 }
 
@@ -2514,6 +5132,7 @@ fn descriptor_from_manifest(
         outputs: manifest.outputs,
         parameter_schema: manifest.parameter_schema,
         recommended_dependencies: manifest.recommended_dependencies,
+        agent: manifest.agent,
     })
 }
 
@@ -2528,16 +5147,25 @@ fn read_installed_manifests(app: &AppHandle) -> Result<Vec<(PathBuf, PluginManif
     for entry in entries {
         let entry = entry.map_err(|error| format!("无法读取插件目录项: {error}"))?;
         let root = entry.path();
-        if !root.is_dir() || entry.file_name().to_string_lossy().starts_with(".install-") {
+        if !root.is_dir() || entry.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
-        let path = root.join("plugin.json");
+        let path = project_manifest_path(&root);
         match read_manifest(&path) {
             Ok(manifest) => manifests.push((root, manifest)),
             Err(error) => log::warn!("ignoring invalid plugin at {}: {error}", path.display()),
         }
     }
     Ok(manifests)
+}
+
+fn project_manifest_path(root: &Path) -> PathBuf {
+    let agent = root.join("agent.json");
+    if agent.is_file() {
+        agent
+    } else {
+        root.join("plugin.json")
+    }
 }
 
 fn read_manifest(path: &Path) -> Result<PluginManifest, String> {
@@ -2548,11 +5176,16 @@ fn read_manifest(path: &Path) -> Result<PluginManifest, String> {
 }
 
 fn parse_manifest_value(value: serde_json::Value) -> Result<PluginManifest, String> {
+    let value = if value.get("kind").is_some() {
+        crate::agents::normalize_project(value)?
+    } else {
+        value
+    };
     let schema_version = value
         .get("schemaVersion")
         .and_then(serde_json::Value::as_u64)
         .unwrap_or_default() as u32;
-    if schema_version == PLUGIN_SCHEMA_VERSION {
+    let manifest = if schema_version == PLUGIN_SCHEMA_VERSION {
         let manifest: V2PluginManifest = serde_json::from_value(value)
             .map_err(|error| format!("plugin.json v2 格式无效: {error}"))?;
         normalize_v2_manifest(manifest)
@@ -2560,7 +5193,48 @@ fn parse_manifest_value(value: serde_json::Value) -> Result<PluginManifest, Stri
         serde_json::from_value(value).map_err(|error| format!("旧版 plugin.json 格式无效: {error}"))
     } else {
         Err(format!("不支持 plugin.json schemaVersion {schema_version}"))
+    }?;
+    migrate_known_agent(manifest)
+}
+
+fn migrate_known_agent(mut manifest: PluginManifest) -> Result<PluginManifest, String> {
+    if manifest.agent.is_some() {
+        return Ok(manifest);
     }
+    for raw in CATALOG_MANIFESTS {
+        let definition: V2PluginManifest =
+            serde_json::from_str(raw).map_err(|error| format!("内置 Agent 定义无效: {error}"))?;
+        if definition.id != manifest.id || definition.adapter != manifest.adapter {
+            continue;
+        }
+        if let Some(model) = manifest.model.as_mut() {
+            let Some(bundle) = definition.models.iter().find(|item| item.id == model.id) else {
+                // Unknown variants retain their original contract rather than guessing resources.
+                return Ok(manifest);
+            };
+            for file in &bundle.files {
+                if !model.files.contains(file) {
+                    model.files.push(file.clone());
+                }
+            }
+            for asset in &bundle.assets {
+                if !model.assets.iter().any(|item| item.path == asset.path) {
+                    model.assets.push(PluginAssetManifest {
+                        source: asset.source.clone(),
+                        path: asset.path.clone(),
+                        sha256: asset.sha256.clone(),
+                    });
+                }
+            }
+        }
+        manifest.capabilities = definition.capabilities.clone();
+        manifest.agent = definition.agent;
+        manifest.inputs = definition.inputs;
+        manifest.outputs = definition.outputs;
+        manifest.recommended_dependencies.clear();
+        break;
+    }
+    Ok(manifest)
 }
 
 fn catalog_descriptor(manifest: PluginManifest, value: &serde_json::Value) -> PluginDescriptor {
@@ -2634,6 +5308,7 @@ fn catalog_descriptor(manifest: PluginManifest, value: &serde_json::Value) -> Pl
         outputs: manifest.outputs,
         parameter_schema: manifest.parameter_schema,
         recommended_dependencies: manifest.recommended_dependencies,
+        agent: manifest.agent,
     }
 }
 
@@ -2701,7 +5376,7 @@ fn select_variant_index(
         .unwrap_or(0))
 }
 
-fn validate_manifest(root: &Path, manifest: &PluginManifest) -> Result<(), String> {
+fn validate_manifest_metadata(manifest: &PluginManifest) -> Result<(), String> {
     if !matches!(manifest.schema_version, 1 | PLUGIN_SCHEMA_VERSION) {
         return Err(format!(
             "不支持 plugin.json schemaVersion {}",
@@ -2709,6 +5384,12 @@ fn validate_manifest(root: &Path, manifest: &PluginManifest) -> Result<(), Strin
         ));
     }
     validate_plugin_id(&manifest.id)?;
+    if let Some(agent) = &manifest.agent {
+        agent.validate(&manifest.adapter, &manifest.capabilities)?;
+        if !manifest.recommended_dependencies.is_empty() {
+            return Err("Agent 不能依赖其他 Agent".into());
+        }
+    }
     if manifest.name.trim().is_empty()
         || manifest.version.trim().is_empty()
         || manifest.author.trim().is_empty()
@@ -2739,6 +5420,22 @@ fn validate_manifest(root: &Path, manifest: &PluginManifest) -> Result<(), Strin
         ));
     }
     validate_declared_contract(manifest)?;
+    if let Some(model) = &manifest.model {
+        let model_root = safe_join(Path::new("."), &model.path)?;
+        for file in &model.files {
+            safe_join(&model_root, file)?;
+        }
+        for asset in &model.assets {
+            safe_join(&model_root, &asset.path)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_manifest(root: &Path, manifest: &PluginManifest) -> Result<(), String> {
+    validate_manifest_metadata(manifest)?;
+    let adapter = adapter_spec(&manifest.adapter)
+        .ok_or_else(|| format!("当前版本不支持 adapter {}", manifest.adapter))?;
     if let Some(model) = &manifest.model {
         let model_root = safe_join(root, &model.path)?;
         for relative in &model.files {
@@ -3023,6 +5720,17 @@ fn validate_manifest(root: &Path, manifest: &PluginManifest) -> Result<(), Strin
 }
 
 fn validate_declared_contract(manifest: &PluginManifest) -> Result<(), String> {
+    if manifest.agent.is_some() {
+        for (label, ports) in [("inputs", &manifest.inputs), ("outputs", &manifest.outputs)] {
+            if ports.is_empty() {
+                return Err(format!("Agent 必须声明 {label}"));
+            }
+            let mut names = HashSet::new();
+            if ports.iter().any(|port| !names.insert(&port.name)) {
+                return Err(format!("Agent {label} 端口名称不能重复"));
+            }
+        }
+    }
     let valid_port_type = |port_type: &str| {
         matches!(
             port_type,
@@ -3084,6 +5792,12 @@ fn validate_declared_contract(manifest: &PluginManifest) -> Result<(), String> {
 }
 
 fn normalize_v2_manifest(manifest: V2PluginManifest) -> Result<PluginManifest, String> {
+    if let Some(agent) = &manifest.agent {
+        agent.validate(&manifest.adapter, &manifest.capabilities)?;
+        if !manifest.recommended_dependencies.is_empty() {
+            return Err("Agent 不能依赖其他 Agent；请将资源打包到项目中".into());
+        }
+    }
     let engine_author = runtime_author(&manifest.runtime);
     let model_author = canonical_model_author(&manifest.id, &manifest.publisher);
     let runtime_package = if manifest.runtime.package.is_empty() {
@@ -3118,7 +5832,9 @@ fn normalize_v2_manifest(manifest: V2PluginManifest) -> Result<PluginManifest, S
         .iter()
         .map(|capability| normalize_capability_id(capability).to_string())
         .collect::<Vec<_>>();
-    let recommended_dependencies = if manifest.recommended_dependencies.is_empty() {
+    let recommended_dependencies = if manifest.agent.is_some() {
+        Vec::new()
+    } else if manifest.recommended_dependencies.is_empty() {
         inferred_dependencies(&capabilities, &manifest.adapter, &manifest.inputs)
     } else {
         manifest.recommended_dependencies.clone()
@@ -3172,6 +5888,7 @@ fn normalize_v2_manifest(manifest: V2PluginManifest) -> Result<PluginManifest, S
         outputs: manifest.outputs,
         parameter_schema: manifest.parameter_schema,
         recommended_dependencies,
+        agent: manifest.agent,
         model,
     })
 }
@@ -3825,7 +6542,7 @@ fn install_remote_model(
             return Err(format!("模型缺少必需文件或目录 {}", required.display()));
         }
     }
-    if manifest.adapter == "speaker-diarization" {
+    if manifest.adapter == "speaker-diarization" && manifest.agent.is_none() {
         let mut dependency = manifest.clone();
         dependency.adapter = "speaker-embedding".to_string();
         dependency.model = Some(PluginModelManifest {
@@ -4819,7 +7536,7 @@ fn find_single_manifest(root: &Path) -> Result<PathBuf, String> {
         {
             let entry = entry.map_err(|error| format!("无法检查插件目录项: {error}"))?;
             let path = entry.path();
-            if entry.file_name() == "plugin.json" {
+            if entry.file_name() == "plugin.json" || entry.file_name() == "agent.json" {
                 found.push(path);
             } else if depth < 2
                 && entry
@@ -4832,9 +7549,9 @@ fn find_single_manifest(root: &Path) -> Result<PathBuf, String> {
         }
     }
     match found.len() {
-        0 => Err("插件包中没有 plugin.json".to_string()),
+        0 => Err("项目包中没有 agent.json 或 plugin.json".to_string()),
         1 => Ok(found.remove(0)),
-        _ => Err("插件包中只能包含一个 plugin.json".to_string()),
+        _ => Err("项目包只能包含一个 agent.json 或 plugin.json".to_string()),
     }
 }
 
@@ -5171,6 +7888,65 @@ mod tests {
     }
 
     #[test]
+    fn agent_examples_register_isolated_harness_contracts() {
+        for raw in [
+            include_str!("../../examples/agents/3d-speaker/agent.json"),
+            include_str!("../../examples/agents/audio-to-text/agent.json"),
+        ] {
+            let manifest = parse_manifest_value(serde_json::from_str(raw).unwrap()).unwrap();
+            let project = manifest.agent.as_ref().unwrap();
+            assert_eq!(manifest.adapter, project.harness.adapter);
+            assert_eq!(
+                manifest.capabilities,
+                vec![project.harness.capability.clone()]
+            );
+            assert!(manifest.recommended_dependencies.is_empty());
+            validate_declared_contract(&manifest).unwrap();
+            let serialized = serde_json::to_value(&manifest).unwrap();
+            let restored: PluginManifest = serde_json::from_value(serialized).unwrap();
+            assert!(restored.agent.is_some());
+        }
+    }
+
+    #[test]
+    fn agent_manifest_discovery_preserves_project_root_and_rejects_ambiguity() {
+        let root = env::temp_dir().join(format!("agent-discovery-{}", uuid::Uuid::new_v4()));
+        let project = root.join("speaker");
+        fs::create_dir_all(&project).unwrap();
+        fs::write(
+            project.join("agent.json"),
+            include_str!("../../examples/agents/3d-speaker/agent.json"),
+        )
+        .unwrap();
+        fs::write(project.join("README.md"), "Project-owned usage").unwrap();
+        assert_eq!(
+            find_single_manifest(&root).unwrap(),
+            project.join("agent.json")
+        );
+        let copy = root.join("copied");
+        fs::create_dir_all(&copy).unwrap();
+        copy_directory(&project, &copy).unwrap();
+        assert_eq!(
+            fs::read_to_string(copy.join("README.md")).unwrap(),
+            "Project-owned usage"
+        );
+        assert!(find_single_manifest(&root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_catalog_refresh_keeps_migrated_agent_identity() {
+        let builtin: serde_json::Value = serde_json::from_str(SENSEVOICE_GGUF_MANIFEST).unwrap();
+        let mut legacy = builtin.clone();
+        legacy.as_object_mut().unwrap().remove("agent");
+        legacy["recommendedDependencies"] = serde_json::json!([{"pluginId": "other.agent"}]);
+        let merged = merge_catalog_entry_payload(&builtin, legacy);
+        assert_eq!(merged["agent"], builtin["agent"]);
+        assert!(merged.get("recommendedDependencies").is_none());
+        assert!(parse_manifest_value(merged).is_ok());
+    }
+
+    #[test]
     fn manifest_v2_normalizes_to_harness_contract() {
         let raw: V2PluginManifest = serde_json::from_str(include_str!(
             "../../examples/plugins/web-audio-recorder/plugin.json"
@@ -5430,6 +8206,91 @@ mod tests {
     }
 
     #[test]
+    fn all_builtin_projects_have_independent_executable_contracts() {
+        for raw in CATALOG_MANIFESTS {
+            let value: serde_json::Value = serde_json::from_str(raw).unwrap();
+            let manifest = parse_manifest_value(value.clone()).unwrap();
+            let agent = manifest
+                .agent
+                .as_ref()
+                .expect("every catalog entry is an Agent");
+            agent
+                .validate(&manifest.adapter, &manifest.capabilities)
+                .unwrap();
+            validate_declared_contract(&manifest).unwrap();
+            assert!(
+                !manifest.inputs.is_empty() && !manifest.outputs.is_empty(),
+                "{}",
+                manifest.id
+            );
+            assert!(!agent.usage.examples.is_empty() && !agent.usage.limitations.is_empty());
+            assert!(manifest.recommended_dependencies.is_empty());
+            for bundle in value["models"].as_array().unwrap() {
+                if manifest.adapter == "funasr-paraformer-gguf" {
+                    assert!(bundle["files"]
+                        .as_array()
+                        .unwrap()
+                        .contains(&serde_json::json!("fsmn-vad.gguf")));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn agent_preflight_rejects_invalid_contracts_before_resource_installation() {
+        let manifest =
+            parse_manifest_value(serde_json::from_str(RNNOISE_MANIFEST).unwrap()).unwrap();
+        assert!(validate_manifest_metadata(&manifest).is_ok());
+        let mut duplicate = manifest.clone();
+        duplicate.inputs.push(duplicate.inputs[0].clone());
+        assert!(validate_manifest_metadata(&duplicate)
+            .unwrap_err()
+            .contains("重复"));
+        let mut empty = manifest.clone();
+        empty.outputs.clear();
+        assert!(validate_manifest_metadata(&empty)
+            .unwrap_err()
+            .contains("outputs"));
+        let mut unsafe_path = manifest.clone();
+        unsafe_path.model.as_mut().unwrap().files = vec!["../outside.onnx".into()];
+        assert!(validate_manifest_metadata(&unsafe_path).is_err());
+        let mut invalid_id = manifest;
+        invalid_id.id = "../other-project".into();
+        assert!(validate_manifest_metadata(&invalid_id).is_err());
+    }
+
+    #[test]
+    fn legacy_tts_migration_owns_rules_and_rejects_incomplete_install() {
+        let mut value: serde_json::Value = serde_json::from_str(AISHELL3_VITS_MANIFEST).unwrap();
+        value.as_object_mut().unwrap().remove("agent");
+        value["models"][0]["assets"] = serde_json::json!([]);
+        value["models"][0]["files"] =
+            serde_json::json!(["model.onnx", "tokens.txt", "lexicon.txt"]);
+        let manifest = parse_manifest_value(value).unwrap();
+        assert!(manifest.agent.is_some());
+        assert!(manifest.recommended_dependencies.is_empty());
+        let model = manifest.model.as_ref().unwrap();
+        assert!(model
+            .assets
+            .iter()
+            .any(|asset| asset.path == "wetext/fsts/zh/tn/tagger.fst"));
+        let root = env::temp_dir().join(format!("agent-tts-migration-{}", timestamp_millis()));
+        let directory = root.join(&model.path);
+        fs::create_dir_all(&directory).unwrap();
+        for name in ["model.onnx", "tokens.txt", "lexicon.txt"] {
+            fs::write(directory.join(name), b"fixture").unwrap();
+        }
+        assert!(validate_manifest(&root, &manifest).is_err());
+        for file in &model.files {
+            let path = directory.join(file);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"fixture").unwrap();
+        }
+        assert!(validate_manifest(&root, &manifest).is_ok());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn embedded_catalog_payloads_only_use_modelscope_repository() {
         for plugin in builtin_catalog_values().expect("parse embedded catalog") {
             for model in plugin["models"]
@@ -5445,9 +8306,14 @@ mod tests {
                 }
                 assert_eq!(model["repositoryHosted"], true);
                 assert_eq!(model["source"], "");
-                assert!(model["assets"]
-                    .as_array()
-                    .is_some_and(|assets| assets.is_empty()));
+                for asset in model["assets"].as_array().expect("assets array") {
+                    let url = asset["source"].as_str().unwrap();
+                    assert!(
+                        url.starts_with("https://modelscope.cn/")
+                            || url.starts_with("https://www.modelscope.cn/")
+                    );
+                    validate_remote_asset(url, asset["sha256"].as_str().unwrap()).unwrap();
+                }
             }
         }
     }

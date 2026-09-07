@@ -9893,3 +9893,27 @@ body.detail-resizing .model-workspace {
   height: 26px;
   min-height: 26px;
 }
+/* Agent projects share the extension catalog's layout and theme. */
+.agent-catalog-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 20px 8px;
+}
+.agent-catalog-heading h1 { margin: 0 0 6px; font-size: 22px; }
+.agent-catalog-heading p { margin: 0; font-size: 12px; opacity: .65; line-height: 1.6; }
+.agent-catalog-heading button { flex-shrink: 0; }
+.agent-project-card { margin: 16px 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.agent-project-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-project-card header span { font-size: 11px; opacity: .6; }
+.agent-project-card p { font-size: 12px; line-height: 1.7; }
+.agent-project-card dl { margin: 14px 0; font-size: 12px; }
+.agent-project-card dl > div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; padding: 5px 0; }
+.agent-project-card dt { opacity: .6; }
+.agent-project-card dd { margin: 0; overflow-wrap: anywhere; }
+.agent-project-boundary { opacity: .65; }
+.agent-usage h3 { margin: 14px 0 6px; font-size: 12px; }
+.agent-usage ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.8; }
+
+.agent-import-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }

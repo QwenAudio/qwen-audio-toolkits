@@ -422,8 +422,20 @@ pub(crate) async fn process_audio_with_runtime(
         return Err("任务已取消".to_string());
     }
 
+    let project_model = model_path_override.is_some();
     let model_path = model_path_override.unwrap_or(denoiser_model_path(&app)?);
-    let vad_path = vad_path_override.unwrap_or(vad_model_path(&app)?);
+    // A project may use its own optional VAD, never another installed Agent's weights.
+    let vad_path = match vad_path_override {
+        Some(path) => path,
+        None if project_model => {
+            if model_path.is_dir() {
+                model_path.join("silero_vad.onnx")
+            } else {
+                model_path.with_file_name("silero_vad.onnx")
+            }
+        }
+        None => vad_model_path(&app)?,
+    };
     let denoiser_ready = match denoiser_adapter.as_deref() {
         Some("rnnoise") => true,
         Some("zipenhancer") => validate_onnx_audio_model(&model_path, "zipenhancer.onnx").is_ok(),

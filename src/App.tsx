@@ -768,6 +768,7 @@ function App() {
           model.id,
           dependency.role,
           dependency.default ? dependency.pluginId : '',
+          plugins,
         )
         next[model.id][dependency.role] =
           dependency.role === 'speech-segmentation' &&
@@ -942,6 +943,7 @@ function App() {
           selectedPlugin.id,
           dependency.role,
           dependency.default ? dependency.pluginId : '',
+          plugins,
         )
         return (
           dependencyId &&
@@ -966,6 +968,7 @@ function App() {
             selectedPlugin.id,
             dependency.role,
             dependency.default ? dependency.pluginId : '',
+            plugins,
           )
           if (dependencyId) await installRecommendedModelDependency(dependencyId)
         }
@@ -2254,7 +2257,7 @@ function App() {
               ) : (
                 <Settings size={15} />
               )}
-              <span>{shellPage === 'extensions' ? '扩展' : '设置'}</span>
+              <span>{shellPage === 'extensions' ? 'Agents' : '设置'}</span>
             </div>
             {shellPage === 'extensions' ? (
               <div
@@ -2285,7 +2288,7 @@ function App() {
 
 
         {shellPage === 'workspace' && (
-        <nav className="installed-models" aria-label="已安装模型">
+        <nav className="installed-models" aria-label="已安装 Agents">
           {sidebarModelGroups.map((group) => {
             const models = group.models
             if (!models.length) return null
@@ -2339,9 +2342,9 @@ function App() {
             ref={extensionsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'extensions' ? ' active' : ''}`}
             type="button"
-            aria-label="扩展"
+            aria-label="Agents"
             aria-pressed={shellPage === 'extensions'}
-            data-tooltip="扩展"
+            data-tooltip="Agents"
             onClick={shellPage === 'extensions' ? leaveShellPage : openExtensions}
           >
             <ShoppingBag size={18} />
@@ -2457,7 +2460,7 @@ function App() {
           <div className="topbar-title">
             <span>
               {shellPage === 'extensions'
-                ? '扩展'
+                ? 'Agents'
                 : shellPage === 'settings'
                   ? `设置 · ${activeSettingsSection.label}`
                   : view === 'workspace'

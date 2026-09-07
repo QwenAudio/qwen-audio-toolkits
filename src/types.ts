@@ -16,7 +16,23 @@ export interface AudioClip {
   transcriptionAudioUrl?: string
 }
 
-export interface ModelPlugin {
+export interface AgentProject {
+  task: string
+  usage: {
+    inputRequirements: string[]
+    limitations: string[]
+    examples: string[]
+  }
+  harness: {
+    kind: 'host-adapter'
+    adapter: string
+    capability: HarnessCapabilityId
+  }
+}
+
+/** An extension is an Agent project; model fields remain compatible with v1/v2 packages. */
+export interface AgentExtension {
+  agent?: AgentProject | null
   id: string
   name: string
   author: string
@@ -52,6 +68,9 @@ export interface ModelPlugin {
   parameterSchema?: PluginParameterDefinition[]
   recommendedDependencies?: ModelDependencyDefinition[]
 }
+
+/** Compatibility alias for existing model execution components. */
+export type ModelPlugin = AgentExtension
 
 interface ModelDependencyDefinition {
   role: 'speech-segmentation' | 'reference-transcription' | string
@@ -115,7 +134,7 @@ type PluginPortType =
   | 'speaker-segments'
   | 'audio-tracks'
 
-interface PluginPortDefinition {
+export interface PluginPortDefinition {
   name: string
   label?: string
   type: PluginPortType

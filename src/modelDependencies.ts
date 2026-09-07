@@ -21,6 +21,7 @@ const IGNORES_SPEECH_SEGMENTATION_DEPENDENCY = [
 ]
 
 export function recommendedDependencies(plugin: ModelPlugin): ModelDependency[] {
+  if (plugin.agent) return []
   if (plugin.recommendedDependencies?.length) {
     return plugin.recommendedDependencies.map((dependency) => ({
       role: dependency.role,
@@ -69,8 +70,11 @@ export function getModelBinding(
   pluginId: string,
   role: ModelDependencyRole,
   fallback: string,
+  models: readonly ModelPlugin[] = [],
 ): string {
-  return bindings[pluginId]?.[role] ?? fallback
+  const selected = bindings[pluginId]?.[role] ?? fallback
+  if (models.some((model) => model.agent && (model.id === pluginId || model.id === selected))) return ''
+  return selected
 }
 
 export function referencingModels(
@@ -78,8 +82,10 @@ export function referencingModels(
   models: ModelPlugin[],
   bindings: ModelDependencyBindings,
 ): ModelPlugin[] {
+  if (models.some((model) => model.id === dependencyId && model.agent)) return []
   return models.filter(
     (model) =>
+      !model.agent &&
       model.installed &&
       model.id !== dependencyId &&
       recommendedDependencies(model).some((dependency) => {

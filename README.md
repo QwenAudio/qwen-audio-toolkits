@@ -128,6 +128,15 @@ processed audio, recordings, run history, and provider configuration. Removing
 the app does not remove this directory automatically. See [PRIVACY.md](PRIVACY.md)
 for the complete storage and network boundaries.
 
+## Agent projects
+
+The extensions page now presents Agents: data-processing projects combining a
+model, usage information, resources and a Harness contract. Import a local
+Agent project folder or ZIP from the desktop Agents page. 3D-Speaker and
+SenseVoice are the first migrated entries; legacy model packages remain
+compatible. See [Agent projects](docs/agent-projects.md) for examples and the
+current host-adapter execution boundary.
+
 ## Architecture
 
 ```text
