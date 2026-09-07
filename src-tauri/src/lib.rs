@@ -5,6 +5,8 @@ mod audio_io;
 mod audio_processing;
 mod downloads;
 mod harness;
+#[cfg(all(target_os = "macos", debug_assertions))]
+mod macos_window_smoke;
 mod onnx_audio;
 mod plugins;
 mod system_audio;
@@ -80,16 +82,37 @@ fn api_address(identifier: &str) -> &'static str {
 
 #[cfg(target_os = "macos")]
 fn restore_main_window(app: &tauri::AppHandle) {
-    let Some(window) = app.get_webview_window("main") else {
-        log::warn!("could not restore main window: window is unavailable");
-        return;
+    let window = match app.get_webview_window("main") {
+        Some(window) => window,
+        None => {
+            // A process can outlive its main window while the caption window exists.
+            let Some(config) = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|config| config.label == "main")
+            else {
+                log::error!("could not restore main window: configuration is unavailable");
+                return;
+            };
+            match tauri::WebviewWindowBuilder::from_config(app, config)
+                .and_then(|builder| builder.build())
+            {
+                Ok(window) => window,
+                Err(error) => {
+                    log::error!("could not recreate main window: {error}");
+                    return;
+                }
+            }
+        }
     };
 
-    if let Err(error) = window.unminimize() {
-        log::warn!("could not unminimize main window: {error}");
-    }
     if let Err(error) = window.show() {
         log::warn!("could not show main window: {error}");
+    }
+    if let Err(error) = window.unminimize() {
+        log::warn!("could not unminimize main window: {error}");
     }
     if let Err(error) = window.set_focus() {
         log::warn!("could not focus main window: {error}");
@@ -730,16 +753,22 @@ pub fn run() {
                 asr: app.state::<Arc<AsrRuntime>>().inner().clone(),
                 audio: app.state::<Arc<AudioProcessingRuntime>>().inner().clone(),
             });
+            #[cfg(all(target_os = "macos", debug_assertions))]
+            if std::env::var_os("QWEN_AUDIO_WINDOW_SMOKE_TEST").is_some() {
+                macos_window_smoke::start(app.handle().clone());
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
                     if window.state::<CloseBehavior>().0.load(Ordering::Relaxed) {
+                        // Closing only `main` leaves the hidden caption window alive.
+                        window.app_handle().exit(0);
                         return;
                     }
-                    api.prevent_close();
                     if let Err(error) = window.hide() {
                         log::warn!("could not hide main window: {error}");
                     }
