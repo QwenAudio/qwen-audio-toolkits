@@ -15,6 +15,7 @@ use std::{
     env, fs,
     io::{self, Read},
     path::{Component, Path, PathBuf},
+    process::Command,
     sync::{Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -37,6 +38,8 @@ const DEFAULT_MODEL_REPOSITORY_FILES_API: &str =
     "https://www.modelscope.cn/api/v1/models/funaudio_public/QwenAudio-Toolkits/repo/files?Revision=master&Recursive=true";
 const RUNTIME_POINTER_FILE: &str = ".runtime-path";
 const RUNTIME_COMPLETE_FILE: &str = ".complete";
+const FUNASR_RUNTIME_PACKAGE_0_1_9: &str = "funasr-llamacpp-0.1.9";
+const FUNASR_STREAMING_RUNTIME_PACKAGE: &str = "funasr-llamacpp-0.1.12";
 const SHARED_RUNTIME_PROGRESS_BASE: u8 = 18;
 const SHARED_RUNTIME_PROGRESS_SPAN: u8 = 20;
 const MODEL_PROGRESS_BASE: u8 = 38;
@@ -6311,6 +6314,18 @@ fn runtime_platform_id() -> Result<&'static str, String> {
     }
 }
 
+fn funasr_runtime_package() -> &'static str {
+    if funasr_streaming_supported_on_platform() {
+        FUNASR_STREAMING_RUNTIME_PACKAGE
+    } else {
+        FUNASR_RUNTIME_PACKAGE_0_1_9
+    }
+}
+
+fn funasr_streaming_supported_on_platform() -> bool {
+    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+}
+
 fn shared_runtime_directory(app: &AppHandle, package: &str) -> Result<PathBuf, String> {
     if !modelscope_component(package) {
         return Err("模型运行时包 ID 无效".to_string());
@@ -6786,6 +6801,86 @@ fn install_funasr_runtime(
 
 pub(crate) fn funasr_runtime_executable(model_dir: &Path) -> Result<PathBuf, String> {
     funasr_runtime_binary(model_dir, "llama-funasr-cli")
+}
+
+fn funasr_help_supports_streaming(help: &str) -> bool {
+    help.contains("--stream")
+}
+
+fn funasr_executable_supports_streaming(executable: &Path) -> bool {
+    Command::new(executable)
+        .arg("--help")
+        .output()
+        .ok()
+        .is_some_and(|output| {
+            let mut help = String::from_utf8_lossy(&output.stdout).into_owned();
+            help.push_str(&String::from_utf8_lossy(&output.stderr));
+            funasr_help_supports_streaming(&help)
+        })
+}
+
+pub(crate) fn funasr_streaming_runtime_executable(
+    app: &AppHandle,
+    model_dir: &Path,
+) -> Result<PathBuf, String> {
+    if !funasr_streaming_supported_on_platform() {
+        return Err("FunASR Nano 本地实时识别目前仅支持 Apple Silicon macOS".to_string());
+    }
+
+    let package = funasr_runtime_package();
+    let runtime_dir = shared_runtime_directory(app, package)?;
+    let executable_name = if cfg!(target_os = "windows") {
+        "llama-funasr-cli.exe"
+    } else {
+        "llama-funasr-cli"
+    };
+    let existing = find_file_named(&runtime_dir, executable_name)?;
+    if let Some(executable) = existing {
+        ensure_executable_permission(&executable, "FunASR")?;
+        if funasr_executable_supports_streaming(&executable) {
+            write_runtime_pointer(model_dir, &runtime_dir)?;
+            fs::write(runtime_dir.join(RUNTIME_COMPLETE_FILE), b"ready\n")
+                .map_err(|error| format!("无法记录 FunASR 运行时状态: {error}"))?;
+            return Ok(executable);
+        }
+    }
+
+    if runtime_dir.exists() {
+        fs::remove_dir_all(&runtime_dir)
+            .map_err(|error| format!("无法清理旧 FunASR 实时运行时: {error}"))?;
+    }
+    fs::create_dir_all(&runtime_dir)
+        .map_err(|error| format!("无法创建 FunASR 实时运行时目录: {error}"))?;
+    let prefix = format!("runtimes/{package}/{}/", runtime_platform_id()?);
+    let installed = match download_modelscope_directory(
+        app,
+        &prefix,
+        &runtime_dir,
+        "FunASR 实时运行时",
+        SHARED_RUNTIME_PROGRESS,
+    ) {
+        Ok(installed) => installed,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&runtime_dir);
+            return Err(error);
+        }
+    };
+    if !installed {
+        let _ = fs::remove_dir_all(&runtime_dir);
+        return Err(format!("ModelScope 中没有当前平台的 {package} 运行时"));
+    }
+
+    let executable = find_file_named(&runtime_dir, executable_name)?
+        .ok_or_else(|| "FunASR 实时运行时缺少 llama-funasr-cli".to_string())?;
+    ensure_executable_permission(&executable, "FunASR")?;
+    if !funasr_executable_supports_streaming(&executable) {
+        let _ = fs::remove_dir_all(&runtime_dir);
+        return Err("FunASR 运行时版本过旧，不支持本地实时识别".to_string());
+    }
+    fs::write(runtime_dir.join(RUNTIME_COMPLETE_FILE), b"ready\n")
+        .map_err(|error| format!("无法记录 FunASR 运行时状态: {error}"))?;
+    write_runtime_pointer(model_dir, &runtime_dir)?;
+    Ok(executable)
 }
 
 fn is_funasr_llamacpp_adapter(adapter: &str) -> bool {
@@ -7314,6 +7409,9 @@ pub(crate) fn adapter_capability(adapter: &str) -> Option<&'static str> {
 }
 
 fn adapter_streaming_mode(adapter: &str) -> &'static str {
+    if adapter == "funasr-nano" && !funasr_streaming_supported_on_platform() {
+        return "batch";
+    }
     if adapter_spec(adapter).is_some_and(|spec| spec.supports_streaming) {
         "streaming"
     } else {
@@ -8168,8 +8266,25 @@ mod tests {
         );
         assert_eq!(adapter_capability("unknown"), None);
         assert_eq!(adapter_streaming_mode("silero-vad"), "streaming");
-        assert_eq!(adapter_streaming_mode("funasr-nano"), "streaming");
+        assert_eq!(
+            adapter_streaming_mode("funasr-nano"),
+            if funasr_streaming_supported_on_platform() {
+                "streaming"
+            } else {
+                "batch"
+            }
+        );
         assert_eq!(adapter_streaming_mode("wenet-ctc"), "batch");
+    }
+
+    #[test]
+    fn funasr_streaming_runtime_is_detected_from_help_output() {
+        assert!(funasr_help_supports_streaming(
+            "usage: llama-funasr-cli --enc enc.gguf -m llm.gguf --stream"
+        ));
+        assert!(!funasr_help_supports_streaming(
+            "usage: llama-funasr-cli --enc enc.gguf -m llm.gguf -a audio.wav"
+        ));
     }
 
     #[test]

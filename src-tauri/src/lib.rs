@@ -320,7 +320,11 @@ fn plugin_runtime_catalog() -> Vec<PluginRuntimeDescriptor> {
             extensions: vec![".onnx", ".bin", ".txt"],
         },
         PluginRuntimeDescriptor {
-            id: "funasr-llamacpp-0.1.9",
+            id: if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+                "funasr-llamacpp-0.1.12"
+            } else {
+                "funasr-llamacpp-0.1.9"
+            },
             label: "FunASR / llama.cpp",
             isolation: "process",
             extensions: vec![".gguf"],
