@@ -43,7 +43,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
@@ -1995,7 +1995,7 @@ pub async fn harness_delete_bailian_voice(app: AppHandle, voice_id: String) -> R
 }
 
 #[tauri::command]
-pub fn harness_start_funasr_stream(
+pub async fn harness_start_funasr_stream(
     app: AppHandle,
     runtime: State<'_, Arc<HarnessRuntime>>,
     request: FunAsrStreamStartRequest,
@@ -2008,7 +2008,7 @@ pub fn harness_start_funasr_stream(
         .clone()
         .filter(|provider_id| provider_id.starts_with("plugin."))
     {
-        return start_local_asr_stream(&app, runtime.inner(), request, &provider_id);
+        return start_local_asr_stream(&app, runtime.inner(), request, &provider_id).await;
     }
 
     let config = configured_bailian_provider(&app)?;
@@ -2093,6 +2093,7 @@ pub fn harness_start_funasr_stream(
             run.completed_at = Some(completed_at);
             run.duration_ms = Some(duration_ms);
             run.progress = 100;
+            run.activity = None;
             match (&result, artifact) {
                 (Ok(_), Some(artifact)) => {
                     run.status = "completed".to_string();
@@ -2134,7 +2135,7 @@ pub fn harness_start_funasr_stream(
     Ok(FunAsrStreamStartResponse { session_id, run })
 }
 
-fn start_local_asr_stream(
+async fn start_local_asr_stream(
     app: &AppHandle,
     runtime: &Arc<HarnessRuntime>,
     request: FunAsrStreamStartRequest,
@@ -2173,7 +2174,7 @@ fn start_local_asr_stream(
         model_id: provider.model_id,
         status: "running".to_string(),
         progress: 12,
-        activity: Some("正在接收实时识别结果".to_string()),
+        activity: Some("正在加载本地识别引擎".to_string()),
         created_at: now,
         started_at: Some(now),
         completed_at: None,
@@ -2184,6 +2185,8 @@ fn start_local_asr_stream(
     };
     runtime.insert(app, run.clone())?;
     let (sender, receiver) = mpsc::channel(64);
+    let abort_sender = sender.clone();
+    let (ready_sender, ready_receiver) = oneshot::channel();
     runtime
         .funasr_streams
         .lock()
@@ -2199,13 +2202,16 @@ fn start_local_asr_stream(
     tauri::async_runtime::spawn(async move {
         let started = Instant::now();
         let result = run_local_asr_stream(
-            task_app.clone(),
-            task_session_id.clone(),
-            task_run_id.clone(),
-            model_path,
-            adapter,
-            request,
+            LocalAsrStreamContext {
+                app: task_app.clone(),
+                session_id: task_session_id.clone(),
+                run_id: task_run_id.clone(),
+                model_path,
+                adapter,
+                request,
+            },
             receiver,
+            ready_sender,
         )
         .await;
         finish_streaming_asr_run(
@@ -2218,6 +2224,28 @@ fn start_local_asr_stream(
         );
     });
 
+    let readiness = tokio::time::timeout(Duration::from_secs(120), ready_receiver).await;
+    let readiness_error = match readiness {
+        Ok(Ok(())) => None,
+        Ok(Err(_)) => Some("本地流式 ASR 在引擎就绪前异常退出".to_string()),
+        Err(_) => Some("本地流式 ASR 引擎加载超时".to_string()),
+    };
+    if let Some(error) = readiness_error {
+        let _ = abort_sender.send(FunAsrStreamCommand::Finish).await;
+        return Err(error);
+    }
+
+    let run = match runtime.update(app, &run_id, |run| {
+        run.progress = 18;
+        run.activity = Some("正在接收实时识别结果".to_string());
+    }) {
+        Ok(run) => run,
+        Err(error) => {
+            let _ = abort_sender.send(FunAsrStreamCommand::Finish).await;
+            return Err(error);
+        }
+    };
+    emit_run(app, &run);
     Ok(FunAsrStreamStartResponse { session_id, run })
 }
 
@@ -2270,7 +2298,8 @@ pub async fn harness_finish_funasr_stream(
         .send(FunAsrStreamCommand::Finish)
         .await
         .map_err(|_| "流式 ASR 会话已经关闭".to_string())?;
-    for _ in 0..200 {
+    let deadline = Instant::now() + Duration::from_secs(90);
+    while Instant::now() < deadline {
         let completed = !runtime
             .funasr_streams
             .lock()
@@ -2281,7 +2310,7 @@ pub async fn harness_finish_funasr_stream(
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    Err("等待流式 ASR 完成事件超时".to_string())
+    Err("等待流式 ASR 完成事件超时（90 秒）".to_string())
 }
 
 #[tauri::command]
@@ -3036,22 +3065,44 @@ async fn run_funasr_stream(
     }))
 }
 
-async fn run_local_asr_stream(
+struct LocalAsrStreamContext {
     app: AppHandle,
     session_id: String,
     run_id: String,
     model_path: PathBuf,
     adapter: String,
     request: FunAsrStreamStartRequest,
+}
+
+async fn run_local_asr_stream(
+    context: LocalAsrStreamContext,
     receiver: mpsc::Receiver<FunAsrStreamCommand>,
+    ready_sender: oneshot::Sender<()>,
 ) -> Result<Value, String> {
+    let LocalAsrStreamContext {
+        app,
+        session_id,
+        run_id,
+        model_path,
+        adapter,
+        request,
+    } = context;
     if adapter == "funasr-nano" {
-        return run_funasr_nano_stream(app, session_id, run_id, model_path, request, receiver)
-            .await;
+        return run_funasr_nano_stream(
+            app,
+            session_id,
+            run_id,
+            model_path,
+            request,
+            receiver,
+            ready_sender,
+        )
+        .await;
     }
     tauri::async_runtime::spawn_blocking(move || {
         let mut receiver = receiver;
         let mut recognizer = create_streaming_asr_recognizer(&model_path, &adapter)?;
+        let _ = ready_sender.send(());
         let started = Instant::now();
         let mut captured_samples = Vec::new();
         let mut latest = None;
@@ -3171,7 +3222,7 @@ async fn run_local_asr_stream(
 // Streaming FunASR Nano: spawn `llama-funasr-cli --stream` once for the whole session and
 // keep it alive for as long as the frontend keeps pushing audio. PCM pushed via
 // harness_push_funasr_stream is resampled to 16 kHz mono and written straight to the child's
-// stdin; a dedicated reader thread parses its "LOCKED "/"PARTIAL "/"DONE" stdout protocol
+// stdin; a dedicated reader thread parses its "READY"/"LOCKED "/"PARTIAL "/"DONE" stdout protocol
 // (see funasr-cli.cpp's run_streaming()) and emits the same funasr-stream-event the cloud
 // FunASR Realtime and sherpa-onnx streaming adapters already use, so the frontend does not
 // need to know which adapter produced a given session.
@@ -3182,10 +3233,11 @@ async fn run_funasr_nano_stream(
     model_path: PathBuf,
     request: FunAsrStreamStartRequest,
     mut receiver: mpsc::Receiver<FunAsrStreamCommand>,
+    ready_sender: oneshot::Sender<()>,
 ) -> Result<Value, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let started = Instant::now();
-        let runtime_bin = plugins::funasr_runtime_executable(&model_path)?;
+        let runtime_bin = plugins::funasr_streaming_runtime_executable(&app, &model_path)?;
         let decoder = find_model_file(&model_path, |name| name.starts_with("qwen3-0.6b-"))?;
         let vad = resolve_funasr_vad_path(&model_path)
             .ok_or_else(|| "FunASR Nano 模型包缺少内置 FSMN-VAD".to_string())?;
@@ -3196,6 +3248,10 @@ async fn run_funasr_nano_stream(
             .arg(&decoder)
             .arg("--vad")
             .arg(&vad)
+            .arg("--rep")
+            .arg("1.1")
+            .arg("-n")
+            .arg("256")
             .arg("--stream")
             .current_dir(runtime_bin.parent().unwrap_or(&model_path))
             .stdin(Stdio::piped())
@@ -3217,10 +3273,20 @@ async fn run_funasr_nano_stream(
         let reader_run_id = run_id.clone();
         let (done_tx, done_rx) = std_mpsc::channel::<String>();
         let reader_handle = thread::spawn(move || {
+            let mut ready_sender = Some(ready_sender);
             let mut locked_text = String::new();
+            let mut latest_partial = String::new();
             for line in BufReader::new(child_stdout).lines().map_while(Result::ok) {
-                if let Some(text) = line.strip_prefix("LOCKED ") {
+                if line == "READY" {
+                    if let Some(sender) = ready_sender.take() {
+                        let _ = sender.send(());
+                    }
+                } else if let Some(text) = line.strip_prefix("LOCKED ") {
+                    if !locked_text.is_empty() && !text.is_empty() {
+                        locked_text.push('\n');
+                    }
                     locked_text.push_str(text);
+                    latest_partial.clear();
                     let _ = reader_app.emit(
                         "funasr-stream-event",
                         FunAsrStreamEvent {
@@ -3232,19 +3298,31 @@ async fn run_funasr_nano_stream(
                         },
                     );
                 } else if let Some(text) = line.strip_prefix("PARTIAL ") {
+                    latest_partial = text.to_string();
+                    let combined_text = if locked_text.is_empty() || text.is_empty() {
+                        format!("{locked_text}{text}")
+                    } else {
+                        format!("{locked_text}\n{text}")
+                    };
                     let _ = reader_app.emit(
                         "funasr-stream-event",
                         FunAsrStreamEvent {
                             session_id: reader_session_id.clone(),
                             run_id: reader_run_id.clone(),
                             kind: "partial",
-                            text: format!("{locked_text}{text}"),
+                            text: combined_text,
                             error: None,
                         },
                     );
                 } else if line == "DONE" {
                     break;
                 }
+            }
+            if !latest_partial.is_empty() {
+                if !locked_text.is_empty() {
+                    locked_text.push('\n');
+                }
+                locked_text.push_str(&latest_partial);
             }
             let _ = done_tx.send(locked_text);
         });
@@ -3287,11 +3365,29 @@ async fn run_funasr_nano_stream(
             }
         }
         drop(child_stdin); // EOF -> child force-closes the trailing segment and prints DONE
-        let locked_text = done_rx
-            .recv_timeout(Duration::from_secs(30))
-            .unwrap_or_default();
-        let _ = child.wait();
+        let locked_text = match done_rx.recv_timeout(Duration::from_secs(30)) {
+            Ok(text) => text,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = reader_handle.join();
+                return Err("等待 FunASR 实时运行时结束超时，已终止异常进程".to_string());
+            }
+        };
+        let status = child
+            .wait()
+            .map_err(|error| format!("无法等待 FunASR 实时运行时结束: {error}"))?;
         let _ = reader_handle.join();
+
+        if !status.success() {
+            return Err(format!(
+                "FunASR 实时运行时异常退出{}",
+                status
+                    .code()
+                    .map(|code| format!("（退出码 {code}）"))
+                    .unwrap_or_default()
+            ));
+        }
 
         if locked_text.trim().is_empty() {
             return Err("本地流式 ASR 没有识别出有效文本".to_string());
@@ -3360,6 +3456,7 @@ fn finish_streaming_asr_run(
         run.completed_at = Some(timestamp_millis());
         run.duration_ms = Some(started.elapsed().as_millis() as u64);
         run.progress = 100;
+        run.activity = None;
         match (&result, artifact) {
             (Ok(_), Some(artifact)) => {
                 run.status = "completed".to_string();
