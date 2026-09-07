@@ -32,6 +32,9 @@ export function createWaveSamples(
 export const initialPlugins: ModelPlugin[] = [
   {
     id: 'funaudiollm.sensevoice-small-gguf',
+    agent: {"task": "将音频转换为文本，附带语言、情感和音频事件信息", "usage": {"inputRequirements": ["上传可解码的音频文件。", "首次运行前安装本项目所需的模型权重和运行时。"], "limitations": ["识别质量受噪声、方言和录音质量影响。", "本项目不生成会议纪要，也不区分说话人。"], "examples": ["上传中文录音，生成转写文本。", "识别中英混合音频并查看语言与情感标签。"]}, "harness": {"kind": "host-adapter", "adapter": "funasr-sensevoice-gguf", "capability": "speech.transcribe"}},
+    inputs: [{"name": "audio", "label": "音频", "type": "audio", "modes": ["batch"]}],
+    outputs: [{"name": "transcript", "label": "识别结果", "type": "transcript", "modes": ["batch"]}],
     name: 'SenseVoice Small GGUF',
     author: 'FunAudioLLM',
     engineAuthor: 'k2-fsa',
@@ -62,6 +65,17 @@ export const initialPlugins: ModelPlugin[] = [
   },
   {
     id: 'silero-vad',
+    agent: {
+      task: '独立检测录音中的人声与静音区间。',
+      harness: { kind: 'host-adapter', adapter: 'silero-vad', capability: 'speech.detect' },
+      usage: {
+        inputRequirements: ['提供包含人声的音频。'],
+        limitations: ['只检测语音片段，不识别文本或说话人身份。'],
+        examples: ['定位录音中的发言起止时间。'],
+      },
+    },
+    inputs: [{ name: 'audio', label: '音频', type: 'audio', modes: ['batch'] }],
+    outputs: [{ name: 'segments', label: '语音片段', type: 'speech-segments', modes: ['batch'] }],
     name: 'Silero VAD',
     author: 'Silero',
     engineAuthor: 'k2-fsa',

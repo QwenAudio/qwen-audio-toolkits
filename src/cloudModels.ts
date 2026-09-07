@@ -1,3 +1,4 @@
+import { apiAgentContract } from './agentProjects'
 import builtinApiModels from '../catalog/api-models.json'
 import type {
   ApiModelCatalogEntry,
@@ -49,6 +50,7 @@ export function cloudModelsFromCatalog(
       if (!provider) return []
       return [
         {
+          ...apiAgentContract(entry.description, entry.adapter, entry.harnessCapability, entry.modelId),
           id: entry.id,
           name: entry.name,
           author: entry.author,
@@ -103,6 +105,7 @@ export function cloudModelsFromCatalog(
               adapter: 'compatible-llm',
             }
     models.push({
+      ...apiAgentContract(presentation.description, presentation.adapter, definition.capability, definition.modelId),
       id: definition.id,
       name: definition.name.trim() || definition.modelId,
       author: customProvider.name || 'Custom Provider',

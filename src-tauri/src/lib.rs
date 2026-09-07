@@ -1,4 +1,5 @@
 mod advanced_models;
+mod agents;
 mod asr;
 mod audio_io;
 mod audio_processing;
@@ -68,6 +69,14 @@ use tauri::{
 use tts::{generate_speech, tts_model_status, TtsRuntime};
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
+
+fn api_address(identifier: &str) -> &'static str {
+    if identifier == "org.qwenaudio.toolkits.agentpreview" {
+        "127.0.0.1:3848"
+    } else {
+        API_ADDRESS
+    }
+}
 
 #[cfg(target_os = "macos")]
 fn restore_main_window(app: &tauri::AppHandle) {
@@ -189,9 +198,9 @@ struct CatalogPluginInstallRequest {
 type ApiResult<T> = Result<Json<T>, (StatusCode, Json<ApiError>)>;
 
 #[tauri::command]
-fn runtime_status() -> RuntimeStatus {
+fn runtime_status(app: tauri::AppHandle) -> RuntimeStatus {
     RuntimeStatus {
-        api_url: "127.0.0.1:3847",
+        api_url: api_address(&app.config().identifier),
         backend: "Rust + sherpa-onnx",
         device: accelerator_name(),
         platform: std::env::consts::OS,
@@ -593,7 +602,8 @@ fn api_internal_error(error: String) -> (StatusCode, Json<ApiError>) {
 }
 
 fn start_local_api(state: LocalApiState) {
-    tauri::async_runtime::spawn(async {
+    let address = api_address(&state.app.config().identifier);
+    tauri::async_runtime::spawn(async move {
         let routes = Router::new()
             .route("/", get(api_health))
             .route("/v1/health", get(api_health))
@@ -628,15 +638,15 @@ fn start_local_api(state: LocalApiState) {
             .layer(DefaultBodyLimit::max(700 * 1024 * 1024))
             .with_state(state);
 
-        match tokio::net::TcpListener::bind(API_ADDRESS).await {
+        match tokio::net::TcpListener::bind(address).await {
             Ok(listener) => {
-                log::info!("local API listening on http://{API_ADDRESS}");
+                log::info!("local API listening on http://{address}");
                 if let Err(error) = axum::serve(listener, routes).await {
                     log::error!("local API stopped: {error}");
                 }
             }
             Err(error) => {
-                log::warn!("local API could not bind to {API_ADDRESS}: {error}");
+                log::warn!("local API could not bind to {address}: {error}");
             }
         }
     });
@@ -683,8 +693,10 @@ pub fn run() {
                 log::warn!("could not clear completed model downloads: {error}");
             }
             #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            if app.config().identifier == "org.qwenaudio.toolkits" {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
             #[cfg(target_os = "macos")]
             configure_macos_application_menu(app)?;
             if cfg!(debug_assertions) {

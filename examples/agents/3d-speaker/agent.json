@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "id": "k2-fsa.speaker-embedding",
+  "name": "3D-Speaker 声纹",
+  "version": "1.0",
+  "publisher": "k2-fsa",
+  "description": "比较两段人声的声纹向量与余弦相似度，用于说话人验证。",
+  "runtime": {
+    "kind": "onnx",
+    "entry": "sherpa-onnx"
+  },
+  "models": [
+    {
+      "id": "3dspeaker-campplus",
+      "name": "CAM++ 中英",
+      "precision": "FP32",
+      "source": "https://www.modelscope.cn/models/funaudio_public/QwenAudio-Toolkits/resolve/master/models/k2-fsa.speaker-embedding/3dspeaker-campplus/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx",
+      "files": [
+        "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+      ],
+      "estimatedSizeMb": 30,
+      "sha256": "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2"
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "kind": "data-processing-agent",
+  "task": "从音频提取声纹，或比较两段音频的声纹相似度",
+  "harness": {
+    "kind": "host-adapter",
+    "adapter": "speaker-embedding",
+    "capability": "speaker.embed"
+  },
+  "usage": {
+    "inputRequirements": [
+      "上传可解码的音频文件；建议使用清晰的单人语音。",
+      "对比声纹时，另提供一段参考音频。"
+    ],
+    "limitations": [
+      "相似度受录音环境、时长和语音质量影响，不能作为身份认证结论。",
+      "不负责多人录音的说话人分离。"
+    ],
+    "examples": [
+      "上传一段录音，提取声纹向量。",
+      "上传两段录音，查看声纹相似度。"
+    ]
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    },
+    {
+      "name": "reference",
+      "label": "对比音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ],
+      "optional": true
+    }
+  ],
+  "outputs": [
+    {
+      "name": "embedding",
+      "label": "声纹结果",
+      "type": "speaker-embedding",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "license": "Apache-2.0"
+}

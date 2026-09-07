@@ -52,6 +52,14 @@ to the parent result detail. Model bindings are persisted by the Rust backend,
 so sidebar removal, store removal, and the local API share the same reference
 graph. Referenced weights are retained; unreferenced weights are deleted.
 
+## Agent projects
+
+Independent data-processing projects bundle usage knowledge, model resources and
+a Harness contract. `agents.rs` validates `agent.json`; `plugins.rs` installs the
+project and registers its selected host adapter. New projects do not depend on
+other Agents. Legacy model packages remain compatible during migration. See
+[Agent projects](agent-projects.md) for implemented boundaries and examples.
+
 ## Model plugins
 
 A plugin manifest describes presentation metadata, a reviewed adapter, model

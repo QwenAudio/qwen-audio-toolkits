@@ -1,3 +1,4 @@
+import { getIdentifier } from '@tauri-apps/api/app'
 import { relaunch } from '@tauri-apps/plugin-process'
 import {
   check,
@@ -27,6 +28,9 @@ export async function checkForAppUpdate(): Promise<AppUpdateCheck> {
   }
   if (import.meta.env.DEV) {
     return { status: 'unavailable', message: '开发版本不检查软件更新' }
+  }
+  if ((await getIdentifier()) !== 'org.qwenaudio.toolkits') {
+    return { status: 'unavailable', message: '预览版本不接收正式版更新' }
   }
 
   await pendingUpdate?.close()

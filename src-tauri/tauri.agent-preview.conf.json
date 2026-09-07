@@ -1,0 +1,12 @@
+{
+  "productName": "QwenAudio Agent Preview",
+  "identifier": "org.qwenaudio.toolkits.agentpreview",
+  "bundle": {
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": []
+    }
+  }
+}

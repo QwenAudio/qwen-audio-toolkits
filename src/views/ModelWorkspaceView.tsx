@@ -863,6 +863,7 @@ export function ModelWorkspaceView({
   ])
   const automaticVadModel = useMemo(
     () => {
+      if (plugin.agent) return undefined
       const dependency = recommendedDependencies(plugin).find(
         (item) => item.role === 'speech-segmentation',
       )
@@ -871,10 +872,12 @@ export function ModelWorkspaceView({
         plugin.id,
         'speech-segmentation',
         dependency?.default ? dependency.pluginId : '',
+        plugins,
       )
       return plugins.find(
         (candidate) =>
           candidate.id === binding &&
+          !candidate.agent &&
           candidate.installed &&
           candidate.providerId &&
           candidate.harnessCapabilities.includes('speech.detect'),
@@ -883,6 +886,7 @@ export function ModelWorkspaceView({
     [modelBindings, plugin, plugins],
   )
   const automaticTextNormalizer = useMemo(() => {
+    if (plugin.agent) return undefined
     const dependency = recommendedDependencies(plugin).find(
       (item) => item.role === 'text-normalization',
     )
@@ -891,6 +895,7 @@ export function ModelWorkspaceView({
       plugin.id,
       'text-normalization',
       dependency?.default ? dependency.pluginId : '',
+      plugins,
     )
     return plugins.find(
       (candidate) =>
@@ -902,14 +907,15 @@ export function ModelWorkspaceView({
   }, [modelBindings, plugin, plugins])
   const referenceAsrModels = useMemo(
     () =>
-      plugins.filter(
+      plugin.agent ? [] : plugins.filter(
         (candidate) =>
+          !candidate.agent &&
           candidate.installed &&
           candidate.providerId &&
           candidate.streamingMode !== 'streaming' &&
           candidate.harnessCapabilities.includes('speech.transcribe'),
       ),
-    [plugins],
+    [plugins, plugin.agent],
   )
   const [automaticSegmentationByRunId, setAutomaticSegmentationByRunId] =
     useState<Record<string, { engine: string; segmentCount: number }>>({})
@@ -941,6 +947,7 @@ export function ModelWorkspaceView({
       plugin.id,
       'reference-transcription',
       dependency?.default ? dependency.pluginId : '',
+      plugins,
     )
     if (!preferredModelId) {
       setReferenceAsrModelId('')
@@ -961,7 +968,7 @@ export function ModelWorkspaceView({
       return
     }
     setReferenceAsrModelId(referenceAsrModels[0]?.id ?? '')
-  }, [modelBindings, plugin, referenceAsrModelId, referenceAsrModels])
+  }, [modelBindings, plugin, plugins, referenceAsrModelId, referenceAsrModels])
   useEffect(() => {
     const stored = window.localStorage.getItem(voiceStorageKey)
     setVoice(
@@ -1979,13 +1986,12 @@ export function ModelWorkspaceView({
       !plugin.providerId ||
       !providerReady ||
       !speakerAudioA ||
-      !speakerAudioB ||
       busy
     ) {
       return
     }
     setBusy(true)
-    onAction('正在提取两段声纹并计算余弦相似度…')
+    onAction(speakerAudioB ? '正在提取两段声纹并计算余弦相似度…' : '正在提取声纹…')
     try {
       const result = await onRunAudio(
         speakerAudioA,
@@ -1995,21 +2001,23 @@ export function ModelWorkspaceView({
         {},
         true,
         [],
-        speakerAudioB,
+        speakerAudioB ?? undefined,
       )
       setAttachments((current) =>
         withBoundedAttachment(current, result.run.id, speakerAudioA),
       )
-      setComparisonAttachments((current) =>
-        withBoundedAttachment(current, result.run.id, speakerAudioB),
-      )
+      if (speakerAudioB) {
+        setComparisonAttachments((current) =>
+          withBoundedAttachment(current, result.run.id, speakerAudioB),
+        )
+      }
       setInlineOutputs((current) =>
         withBoundedEntry(current, result.run.id, result.output),
       )
-      onAction('声纹比对完成')
+      onAction(speakerAudioB ? '声纹比对完成' : '声纹提取完成')
     } catch (error) {
       onAction(
-        `声纹比对失败：${error instanceof Error ? error.message : String(error)}`,
+        `声纹处理失败：${error instanceof Error ? error.message : String(error)}`,
       )
     } finally {
       setBusy(false)
@@ -3149,7 +3157,7 @@ export function ModelWorkspaceView({
                       <span>参考文本</span>
                       <input
                         value={ttsReferenceText}
-                        placeholder="识别后可继续修改"
+                        placeholder={plugin.agent ? "填写参考音频中实际说出的文字" : "识别后可继续修改"}
                         onChange={(event) =>
                           {
                             ttsReferenceTextEditedRef.current = true
@@ -3348,14 +3356,14 @@ export function ModelWorkspaceView({
                   <div>
                     <Fingerprint size={18} />
                     <span>
-                      <strong>比较两段人声</strong>
+                      <strong>提取声纹或比较两段人声</strong>
                       <small>建议每段 5–15 秒，尽量只包含一位说话人</small>
                     </span>
                   </div>
                   <button
                     className="primary-action"
                     type="button"
-                    disabled={busy || !speakerAudioA || !speakerAudioB}
+                    disabled={busy || !providerReady || !speakerAudioA}
                     onClick={() => void submitSpeakerComparison()}
                   >
                     {busy ? (
@@ -3363,7 +3371,7 @@ export function ModelWorkspaceView({
                     ) : (
                       <Fingerprint size={16} />
                     )}
-                    {busy ? '比对中' : '开始比对'}
+                    {busy ? '处理中' : speakerAudioB ? '开始比对' : '提取声纹'}
                   </button>
                 </header>
                 <div className="speaker-comparison-inputs">
@@ -3412,7 +3420,7 @@ export function ModelWorkspaceView({
                     <div>
                       <span className="speaker-slot-label">B</span>
                       <span>
-                        <strong>待验证音频</strong>
+                        <strong>对比音频（可选）</strong>
                         <small>{speakerAudioB?.name ?? '拖入或上传第二段人声'}</small>
                       </span>
                     </div>

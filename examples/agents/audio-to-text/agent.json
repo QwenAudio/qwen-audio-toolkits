@@ -1,0 +1,74 @@
+{
+  "schemaVersion": 1,
+  "id": "funaudiollm.sensevoice-small-gguf",
+  "name": "SenseVoice Small GGUF",
+  "version": "official-0.1.9",
+  "publisher": "FunAudioLLM",
+  "license": "Apache-2.0",
+  "description": "SenseVoice Small 官方 GGUF 运行时，支持中英日韩粤识别以及语种、情感和音频事件标签。",
+  "runtime": {
+    "kind": "native",
+    "entry": "llama-funasr-sensevoice",
+    "package": "funasr-llamacpp-0.1.10"
+  },
+  "models": [
+    {
+      "id": "sensevoice-small-gguf-q8",
+      "name": "SenseVoice Small",
+      "precision": "Q8",
+      "source": "",
+      "sha256": "4ae45c94422de949b387e2e0fb10d7e14e4c42c69db30c3444ecc7d4b844b7c5",
+      "files": [
+        "sensevoice-small-q8.gguf",
+        "fsmn-vad.gguf"
+      ],
+      "repositoryHosted": true,
+      "estimatedSizeMb": 243
+    }
+  ],
+  "acceleration": [
+    "CPU"
+  ],
+  "tone": "blue",
+  "task": "将音频转换为文本，附带语言、情感和音频事件信息",
+  "harness": {
+    "kind": "host-adapter",
+    "adapter": "funasr-sensevoice-gguf",
+    "capability": "speech.transcribe"
+  },
+  "usage": {
+    "inputRequirements": [
+      "上传可解码的音频文件。",
+      "首次运行前安装本项目所需的模型权重和运行时。"
+    ],
+    "limitations": [
+      "识别质量受噪声、方言和录音质量影响。",
+      "本项目不生成会议纪要，也不区分说话人。"
+    ],
+    "examples": [
+      "上传中文录音，生成转写文本。",
+      "识别中英混合音频并查看语言与情感标签。"
+    ]
+  },
+  "inputs": [
+    {
+      "name": "audio",
+      "label": "音频",
+      "type": "audio",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "outputs": [
+    {
+      "name": "transcript",
+      "label": "识别结果",
+      "type": "transcript",
+      "modes": [
+        "batch"
+      ]
+    }
+  ],
+  "kind": "data-processing-agent"
+}

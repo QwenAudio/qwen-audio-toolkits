@@ -7,6 +7,8 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { open } from '@tauri-apps/plugin-dialog'
+import { AgentProjectCard } from '../components/AgentProjectCard'
 import Markdown from 'react-markdown'
 import { listen } from '@tauri-apps/api/event'
 import {
@@ -36,6 +38,7 @@ import {
   getModelPluginFiles,
   getModelPluginReadme,
   installCatalogModel,
+  installAgentProject,
   installRecommendedModelDependency,
   isTauriRuntime,
   listModelPlugins,
@@ -145,6 +148,37 @@ export function PluginsView({
   onAction,
   taxonomyHost,
 }: PluginsViewProps) {
+  const [importingAgent, setImportingAgent] = useState(false)
+  const importAgent = async (directory = true) => {
+    if (!isTauriRuntime()) {
+      onAction('请在桌面端导入 Agent 项目')
+      return
+    }
+    setImportingAgent(true)
+    try {
+      const path = await open({
+        title: directory ? '选择包含 agent.json 的项目文件夹' : '导入 Agent 安装包',
+        multiple: false,
+        directory,
+        ...(directory ? {} : { filters: [{ name: 'Agent 安装包', extensions: ['zip', 'cspkg'] }] }),
+      })
+      if (!path) return
+      const installed = await installAgentProject(path)
+      const [nextPlugins, nextCatalog] = await Promise.all([listModelPlugins(), getHarnessCatalog()])
+      onPluginsChanged(nextPlugins)
+      onCatalogChanged(nextCatalog)
+      setSearch('')
+      setPrimaryFilter('all')
+      setSecondaryFilter('all')
+      setRuntimeFilter('all')
+      setSelectedId(installed.id)
+      onAction(`${installed.name} 已安装`)
+    } catch (error) {
+      onAction(`Agent 导入失败：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setImportingAgent(false)
+    }
+  }
   const [search, setSearch] = useState('')
   const [primaryFilter, setPrimaryFilter] = useState<
     'all' | ModelPrimaryCategory
@@ -447,7 +481,7 @@ export function PluginsView({
       selectedPlugin.sidebarVisible === false &&
       selectedDependencyReferences.length > 0,
   )
-  const anotherOperationBusy = Boolean(
+  const anotherOperationBusy = importingAgent || Boolean(
     busyId && !installJobsRef.current[busyId],
   )
 
@@ -518,6 +552,7 @@ export function PluginsView({
         plugin.id,
         dependency.role,
         dependency.default ? dependency.pluginId : '',
+        allModels,
       )
       if (
         dependencyId &&
@@ -759,10 +794,10 @@ export function PluginsView({
   const taxonomy = (
     <aside
       className="catalog-taxonomy"
-      aria-label="模型分类"
+      aria-label="Agent 分类"
     >
       <div className="taxonomy-heading">
-        <span>模型分类</span>
+        <span>Agent 分类</span>
         <small>{allModels.length}</small>
       </div>
       <nav className="taxonomy-tree" role="tree">
@@ -776,7 +811,7 @@ export function PluginsView({
               setSecondaryFilter('all')
             }}
           >
-            <span>全部模型</span>
+            <span>全部 Agents</span>
             <small>{allModels.length}</small>
           </button>
           {categoryTree.map((category) => {
@@ -856,14 +891,29 @@ export function PluginsView({
         }
       >
         <main className="plugin-catalog">
+          <div className="agent-catalog-heading">
+            <div><h1>Agents</h1><p>模型、使用知识与 Harness，组成完整的数据处理项目。</p></div>
+            <div className="agent-import-actions">
+            <button type="button" className="secondary-action" onClick={() => void importAgent()}
+              disabled={importingAgent || Boolean(busyId) || Object.keys(installJobs).length > 0}>
+              {importingAgent ? <RefreshCw size={15} className="model-spin" /> : <CirclePlus size={15} />}
+              {importingAgent ? '正在导入' : '导入 Agent'}
+            </button>
+            <button type="button" className="icon-button" title="导入 ZIP 安装包" aria-label="导入 ZIP 安装包"
+              onClick={() => void importAgent(false)}
+              disabled={importingAgent || Boolean(busyId) || Object.keys(installJobs).length > 0}>
+              <Boxes size={17} />
+            </button>
+            </div>
+          </div>
           <div className="plugin-catalog-head">
             <label className="search-field plugin-search">
               <Search size={15} />
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索模型、能力或作者"
-                aria-label="搜索插件"
+                placeholder="搜索 Agent、模型、能力或作者"
+                aria-label="搜索 Agent"
               />
             </label>
             {Object.keys(installJobs).length > 0 && (
@@ -916,7 +966,7 @@ export function PluginsView({
               <div className="plugin-empty-category">
                 <BrainCircuit size={22} />
                 <strong>
-                  这个分类暂时没有模型
+                  这个分类暂时没有 Agent
                 </strong>
                 <p>
                   尝试切换分类或搜索其他能力。
@@ -1049,13 +1099,13 @@ export function PluginsView({
                           ? '适配中'
                           : plugin.catalogManaged
                             ? '安装'
-                            : '仅兼容'}
+                            : '导入资源'}
                       </button>
                     )}
                       </div>
                     </div>
                     <span className="plugin-author">
-                      模型：{plugin.author} ·{' '}
+                      {plugin.agent ? 'Agent' : '兼容扩展'} · {plugin.author} ·{' '}
                       {displayPluginVersion(plugin, apiPlugin)}
                     </span>
                     <p>{plugin.description}</p>
@@ -1095,8 +1145,8 @@ export function PluginsView({
           {!selectedPlugin && (
             <div className="plugin-empty-category plugin-details-empty">
               <BrainCircuit size={22} />
-              <strong>选择一个模型查看详情</strong>
-              <p>在中间列表中点击模型，这里会显示它的主页与安装选项。</p>
+              <strong>选择一个 Agent 查看详情</strong>
+              <p>选择一个数据处理项目，查看使用说明、运行资源与安装选项。</p>
             </div>
           )}
 
@@ -1117,7 +1167,7 @@ export function PluginsView({
                 )}
                 <div className="plugin-project-meta">
                   <span>
-                    v{displayPluginVersion(selectedPlugin, selectedIsApi)}
+                    {displayPluginVersion(selectedPlugin, selectedIsApi)}
                   </span>
                   {selectedPlugin.license && <span>{selectedPlugin.license}</span>}
                   {!selectedIsApi && (
@@ -1262,8 +1312,8 @@ export function PluginsView({
                       {selectedPlugin.installable === false
                         ? '运行适配中'
                         : selectedPlugin.catalogManaged
-                          ? '安装模型'
-                          : '仅兼容已安装模型'}
+                          ? '安装 Agent'
+                          : '需导入完整项目资源'}
                     </>
                   )}
                   </button>
@@ -1342,7 +1392,7 @@ export function PluginsView({
                             ? '再次点击确认删除'
                             : selectedIsApi
                               ? '从工作台移除'
-                              : '删除模型'}
+                              : '删除 Agent'}
                         </>
                       )}
                     </button>
@@ -1357,7 +1407,7 @@ export function PluginsView({
                   className={detailsTab === 'card' ? 'active' : ''}
                   onClick={() => setDetailsTab('card')}
                 >
-                  模型卡片
+                  项目说明
                 </button>
                 {selectedHasFiles && (
                   <button
@@ -1394,6 +1444,7 @@ export function PluginsView({
                 </section>
               ) : (
                 <section className="model-introduction-card">
+                  <AgentProjectCard plugin={selectedPlugin} />
                   <div className="model-introduction-body">
                     {selectedReadme || selectedNote ? (
                       <div className="model-note">
@@ -1426,6 +1477,7 @@ export function PluginsView({
                     {selectedDependencies.map((dependency) => {
                       const candidates = allModels.filter(
                         (candidate) =>
+                          !candidate.agent &&
                           candidate.installed &&
                           candidate.harnessCapabilities.includes(
                             dependency.capability,
@@ -1438,6 +1490,7 @@ export function PluginsView({
                         selectedPlugin.id,
                         dependency.role,
                         dependency.default ? dependency.pluginId : '',
+                        allModels,
                       )
                       return (
                         <label key={dependency.role}>
