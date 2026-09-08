@@ -5,6 +5,11 @@ All notable user-facing changes are documented here. The project follows
 
 ## Unreleased
 
+### Added
+
+- Chinese and English interface languages, with Chinese as the default, immediate
+  switching in General settings, a saved preference, and localized macOS menus.
+
 ### Fixed
 
 - On macOS, "quit on close" exits the entire application even while the hidden

@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from "../i18n"
 import {
   Fragment,
   type CSSProperties,
@@ -177,17 +178,13 @@ interface ModelWorkspaceViewProps {
 }
 
 const statusLabels: Record<HarnessRun['status'], string> = {
-  queued: '等待运行',
-  running: '正在处理',
-  canceling: '正在取消',
-  completed: '处理完成',
-  failed: '运行失败',
-  canceled: '已取消',
+  get queued() { return t('等待运行') },
+  get running() { return t('正在处理') },
+  get canceling() { return t('正在取消') },
+  get completed() { return t('处理完成') },
+  get failed() { return t('运行失败') },
+  get canceled() { return t('已取消') },
 }
-const CREATED_AT_FORMATTER = new Intl.DateTimeFormat('zh-CN', {
-  hour: '2-digit',
-  minute: '2-digit',
-})
 const MAX_WORKSPACE_PREVIEW_CACHE = 32
 
 function conversationRunError(
@@ -243,7 +240,7 @@ function isAsrOutput(output: RunOutput): output is AsrTranscriptionResult {
 }
 
 function formatCreatedAt(timestamp: number): string {
-  return CREATED_AT_FORMATTER.format(new Date(timestamp))
+  return new Intl.DateTimeFormat(getLocale(), { hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp))
 }
 
 function withBoundedEntry<T>(
@@ -288,8 +285,8 @@ function withBoundedAttachment(
 }
 
 function genericOutputPreview(output: RunOutput): string {
-  if (isAsrOutput(output)) return output.text || '未识别到有效语音'
-  if (isVadOutput(output)) return `检测到 ${output.segments.length} 个语音片段`
+  if (isAsrOutput(output)) return output.text || t("未识别到有效语音")
+  if (isVadOutput(output)) return t("检测到 {0} 个语音片段", [output.segments.length])
   if (isTextOutput(output)) return output.text
   if ('tags' in output && Array.isArray(output.tags)) {
     return output.tags
@@ -299,28 +296,28 @@ function genericOutputPreview(output: RunOutput): string {
       .join(' · ')
   }
   if ('detected' in output && typeof output.detected === 'boolean') {
-    return output.detected ? '检测到关键词' : '未检测到关键词'
+    return output.detected ? t("检测到关键词") : t("未检测到关键词")
   }
   if ('language' in output && typeof output.language === 'string') {
-    return `识别语言：${output.language}`
+    return t("识别语言：{0}", [output.language])
   }
   if (
     'cosineSimilarity' in output &&
     typeof output.cosineSimilarity === 'number'
   ) {
     const similarity = Math.max(-1, Math.min(1, output.cosineSimilarity))
-    return `声纹余弦相似度 ${similarity.toFixed(3)} · ${output.sameSpeaker === true ? '可能为同一说话人' : '声纹差异较大'}`
+    return t("声纹余弦相似度 {0} · {1}", [similarity.toFixed(3), output.sameSpeaker === true ? t("可能为同一说话人") : t("声纹差异较大")])
   }
   if ('dimension' in output && typeof output.dimension === 'number') {
-    return `${output.dimension} 维声纹已生成`
+    return t("{0} 维声纹已生成", [output.dimension])
   }
   if ('speakerCount' in output && typeof output.speakerCount === 'number') {
-    return `检测到 ${output.speakerCount} 位说话人`
+    return t("检测到 {0} 位说话人", [output.speakerCount])
   }
   if ('tracks' in output && Array.isArray(output.tracks)) {
-    return `已生成 ${output.tracks.length} 条音轨`
+    return t("已生成 {0} 条音轨", [output.tracks.length])
   }
-  return '查看结果'
+  return t("查看结果")
 }
 
 function RuntimeInfo({
@@ -332,6 +329,8 @@ function RuntimeInfo({
   fallbackEngine?: string
   automaticSegmentation?: { engine: string; segmentCount: number }
 }) {
+  useLocale()
+
   const engine =
     typeof output.engine === 'string'
       ? output.engine
@@ -348,21 +347,20 @@ function RuntimeInfo({
     <dl className="detail-runtime-facts">
       {engine && (
         <div>
-          <dt>{typeof output.model === 'string' ? '模型' : '引擎'}</dt>
+          <dt>{typeof output.model === 'string' ? t("模型") : t("引擎")}</dt>
           <dd>{engine}</dd>
         </div>
       )}
       {automaticSegmentation && (
         <div>
-          <dt>自动分段</dt>
+          <dt>{t("自动分段")}</dt>
           <dd>
-            {automaticSegmentation.engine} · {automaticSegmentation.segmentCount} 段
-          </dd>
+            {automaticSegmentation.engine} · {automaticSegmentation.segmentCount} {t(" 段")}</dd>
         </div>
       )}
       {inferenceSeconds !== null && (
         <div>
-          <dt>推理耗时</dt>
+          <dt>{t("推理耗时")}</dt>
           <dd>{inferenceSeconds.toFixed(2)} s</dd>
         </div>
       )}
@@ -374,19 +372,19 @@ function RuntimeInfo({
       )}
       {typeof output.threshold === 'number' && (
         <div>
-          <dt>阈值</dt>
+          <dt>{t("阈值")}</dt>
           <dd>{output.threshold.toFixed(2)}</dd>
         </div>
       )}
       {typeof output.inputTokens === 'number' && (
         <div>
-          <dt>输入 Tokens</dt>
+          <dt>{t("输入 Tokens")}</dt>
           <dd>{output.inputTokens}</dd>
         </div>
       )}
       {typeof output.outputTokens === 'number' && (
         <div>
-          <dt>输出 Tokens</dt>
+          <dt>{t("输出 Tokens")}</dt>
           <dd>{output.outputTokens}</dd>
         </div>
       )}
@@ -401,8 +399,10 @@ function DependencyResultDetail({
   execution: HarnessExecution<RunOutput>
   onSeek?: (seconds: number) => void
 }) {
+  useLocale()
+
   const { run, output } = execution
-  const modelName = run.providerName || run.modelId || '辅助模型'
+  const modelName = run.providerName || run.modelId || t("辅助模型")
   return (
     <article className="detail-dependency-item">
       <header>
@@ -417,8 +417,8 @@ function DependencyResultDetail({
       {isVadOutput(output) ? (
         <>
           <div className="detail-dependency-summary">
-            <strong>{output.segments.length} 个语音片段</strong>
-            <span>语音 {formatTime(output.speechSeconds, true)}</span>
+            <strong>{output.segments.length} {t(" 个语音片段")}</strong>
+            <span>{t("语音 ")}{formatTime(output.speechSeconds, true)}</span>
           </div>
           <div className="detail-dependency-segments">
             {output.segments.map((segment, index) => (
@@ -438,7 +438,7 @@ function DependencyResultDetail({
         </>
       ) : isAsrOutput(output) ? (
         <p className="detail-dependency-text">
-          {output.text || '未识别到有效语音'}
+          {output.text || t("未识别到有效语音")}
         </p>
       ) : isTextOutput(output) ? (
         <p className="detail-dependency-text">{output.text}</p>
@@ -456,6 +456,8 @@ function AdvancedResultDetail({
   output: Record<string, unknown>
   onSeek?: (seconds: number) => void
 }) {
+  useLocale()
+
   const normalized = normalizeHarnessResult(output)
   if (Array.isArray(output.tags)) {
     const tags = output.tags
@@ -470,8 +472,8 @@ function AdvancedResultDetail({
       <section className="audio-tagging-result">
         <header>
           <div>
-            <strong>{tags[0]?.label ?? '未识别到音频事件'}</strong>
-            <span>最可能的声音</span>
+            <strong>{tags[0]?.label ?? t("未识别到音频事件")}</strong>
+            <span>{t("最可能的声音")}</span>
           </div>
           <b>{Math.round((tags[0]?.probability ?? 0) * 100)}%</b>
         </header>
@@ -502,7 +504,7 @@ function AdvancedResultDetail({
   if (typeof output.detected === 'boolean') {
     return (
       <div className="advanced-result-status">
-        <strong>{output.detected ? '检测到关键词' : '未检测到关键词'}</strong>
+        <strong>{output.detected ? t("检测到关键词") : t("未检测到关键词")}</strong>
         {normalized.segments.map((segment) => (
           <button
             className="advanced-result-list advanced-result-segment-row"
@@ -528,7 +530,7 @@ function AdvancedResultDetail({
       <div className="advanced-text-result">
         <p>{output.text}</p>
         {typeof output.originalText === 'string' && (
-          <small>原文：{output.originalText}</small>
+          <small>{t("原文：")}{output.originalText}</small>
         )}
       </div>
     )
@@ -549,7 +551,7 @@ function AdvancedResultDetail({
           <Fingerprint size={24} />
           <div>
             <strong>{similarity.toFixed(3)}</strong>
-            <span>余弦相似度</span>
+            <span>{t("余弦相似度")}</span>
           </div>
         </div>
         <div className="speaker-similarity-meter" aria-hidden="true">
@@ -558,11 +560,10 @@ function AdvancedResultDetail({
         </div>
         <div className="speaker-comparison-verdict">
           <strong>
-            {sameSpeaker ? '可能为同一说话人' : '声纹差异较大'}
+            {sameSpeaker ? t("可能为同一说话人") : t("声纹差异较大")}
           </strong>
           <span>
-            参考阈值 {threshold.toFixed(2)} · 结果会受录音时长、噪声和设备影响
-          </span>
+            {t("参考阈值 ")}{threshold.toFixed(2)} {t(" · 结果会受录音时长、噪声和设备影响")}</span>
         </div>
       </section>
     )
@@ -570,8 +571,8 @@ function AdvancedResultDetail({
   if (typeof output.dimension === 'number') {
     return (
       <div className="advanced-result-status">
-        <strong>{output.dimension} 维声纹已生成</strong>
-        <small>可保存到声纹库用于识别与聚类</small>
+        <strong>{output.dimension} {t(" 维声纹已生成")}</strong>
+        <small>{t("可保存到声纹库用于识别与聚类")}</small>
       </div>
     )
   }
@@ -580,12 +581,12 @@ function AdvancedResultDetail({
     return (
       <div className="vad-result-detail">
         <div className="transcript-result-summary">
-          <strong>{output.speakerCount} 位说话人</strong>
-          <span>{segments.length} 个片段</span>
+          <strong>{output.speakerCount} {t(" 位说话人")}</strong>
+          <span>{segments.length} {t(" 个片段")}</span>
         </div>
         <section className="vad-detail-section">
           <header>
-            <strong>说话片段</strong>
+            <strong>{t("说话片段")}</strong>
             <span>{segments.length} SEGMENTS</span>
           </header>
           <div className="transcript-result-segments vad-segment-list">
@@ -666,6 +667,8 @@ export function ModelWorkspaceView({
   onClearTextHistory,
   onClearConversation,
 }: ModelWorkspaceViewProps) {
+  useLocale()
+
   const capability =
     plugin.harnessCapabilities[0] ?? 'speech.synthesize'
   const capabilityMeta = capabilityDefinition(capability)
@@ -831,10 +834,10 @@ export function ModelWorkspaceView({
         if (disposed) return
         const options = voices.map((item) => ({
             id: item.id,
-            name: item.id.split('-').slice(-2, -1)[0] || '自定义音色',
+            name: item.id.split('-').slice(-2, -1)[0] || t("自定义音色"),
             description: item.createdAt
-              ? `自定义音色 · ${item.createdAt}`
-              : '自定义音色',
+              ? t("自定义音色 · {0}", [item.createdAt])
+              : t("自定义音色"),
             custom: true,
           }))
         setCustomVoices(options)
@@ -1472,7 +1475,7 @@ export function ModelWorkspaceView({
       .catch((error) => {
         if (!disposed) {
           onActionRef.current(
-            `无法读取结果：${error instanceof Error ? error.message : String(error)}`,
+            t("无法读取结果：{0}", [error instanceof Error ? error.message : String(error)]),
           )
         }
       })
@@ -1599,7 +1602,7 @@ export function ModelWorkspaceView({
         setStreamingRunId(null)
         setRecording(false)
         setBusy(false)
-        onActionRef.current('实时识别已完成')
+        onActionRef.current(t("实时识别已完成"))
       } else if (event.kind === 'error') {
         setStreamEngineLoading(false)
         streamPushFailedRef.current = true
@@ -1613,7 +1616,7 @@ export function ModelWorkspaceView({
         setStreamingRunId(null)
         setRecording(false)
         setBusy(false)
-        onActionRef.current(event.error || '实时识别失败')
+        onActionRef.current(event.error || t("实时识别失败"))
       }
     }).then((unlisten) => {
       if (disposed) {
@@ -1659,7 +1662,7 @@ export function ModelWorkspaceView({
         setStreamingRunId(null)
         setBusy(false)
         stopStreamingTtsPlayback()
-        onActionRef.current(event.error || '流式音频生成失败')
+        onActionRef.current(event.error || t("流式音频生成失败"))
       } else {
         const sessionId = event.sessionId
         const generation = ttsPlaybackGenerationRef.current
@@ -1673,7 +1676,7 @@ export function ModelWorkspaceView({
           ttsStreamSessionRef.current = null
           setStreamingRunId(null)
           setBusy(false)
-          onActionRef.current('流式音频生成完成')
+          onActionRef.current(t("流式音频生成完成"))
         })
       }
     }).then((unlisten) => {
@@ -1716,7 +1719,7 @@ export function ModelWorkspaceView({
     const input = text.trim()
     if (!input || !plugin.providerId || busy || recording) return
     if (requiresCustomCosyVoice && !voice.trim()) {
-      onAction('CosyVoice v3.5 需要先填写声音复刻或声音设计生成的音色 ID')
+      onAction(t("CosyVoice v3.5 需要先填写声音复刻或声音设计生成的音色 ID"))
       return
     }
     setText('')
@@ -1811,7 +1814,7 @@ export function ModelWorkspaceView({
     } catch (error) {
       setText((current) => current || input)
       onAction(
-        `运行失败：${error instanceof Error ? error.message : String(error)}`,
+        t("运行失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       if (!ttsStreamSessionRef.current) setBusy(false)
@@ -1844,7 +1847,7 @@ export function ModelWorkspaceView({
         false,
       )
       if (!isAsrOutput(result.output)) {
-        throw new Error('识别模型没有返回文本')
+        throw new Error(t("识别模型没有返回文本"))
       }
       if (
         requestId === referenceTranscriptionRequestRef.current &&
@@ -1852,14 +1855,12 @@ export function ModelWorkspaceView({
       ) {
         setTtsReferenceDependencyRunId(result.run.id)
         setTtsReferenceText(result.output.text)
-        onAction('参考文本已自动识别，可继续修改')
+        onAction(t("参考文本已自动识别，可继续修改"))
       }
     } catch (error) {
       if (requestId === referenceTranscriptionRequestRef.current) {
         onAction(
-          `参考音频识别失败：${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          t("参考音频识别失败：{0}", [error instanceof Error ? error.message : String(error)]),
         )
       }
     } finally {
@@ -1879,9 +1880,7 @@ export function ModelWorkspaceView({
       void transcribeTtsReferenceAudio(clip)
     } catch (error) {
       onAction(
-        `无法读取参考音频：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("无法读取参考音频：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -1891,15 +1890,15 @@ export function ModelWorkspaceView({
     setVoiceDialogError('')
     const audioDataUrl = ttsReferenceClip?.transcriptionAudioUrl
     if (voiceCreationMode === 'clone' && !audioDataUrl) {
-      setVoiceDialogError('请先上传或录制参考音频')
+      setVoiceDialogError(t("请先上传或录制参考音频"))
       return
     }
     if (voiceCreationMode === 'design' && voicePrompt.trim().length < 10) {
-      setVoiceDialogError('声音描述至少输入 10 个字')
+      setVoiceDialogError(t("声音描述至少输入 10 个字"))
       return
     }
     if (voiceCreationMode === 'design' && voicePreviewText.trim().length < 2) {
-      setVoiceDialogError('试听文本至少输入 2 个字')
+      setVoiceDialogError(t("试听文本至少输入 2 个字"))
       return
     }
     setVoiceCreating(true)
@@ -1917,7 +1916,7 @@ export function ModelWorkspaceView({
         id: created.id,
         name: voicePrefix,
         description:
-          voiceCreationMode === 'clone' ? '复刻音色' : '设计音色',
+          voiceCreationMode === 'clone' ? t("复刻音色") : t("设计音色"),
         custom: true,
       }
       setCustomVoices((current) => {
@@ -1930,7 +1929,7 @@ export function ModelWorkspaceView({
       })
       selectVoice(created.id)
       setVoiceDialogOpen(false)
-      onAction('音色已创建并选中')
+      onAction(t("音色已创建并选中"))
     } catch (error) {
       setVoiceDialogError(
         error instanceof Error ? error.message : String(error),
@@ -1941,7 +1940,7 @@ export function ModelWorkspaceView({
   }
 
   const deleteCloudVoice = async (voiceId: string, name: string) => {
-    if (!window.confirm(`确定删除音色“${name}”吗？删除后无法恢复。`)) return
+    if (!window.confirm(t("确定删除音色“{0}”吗？删除后无法恢复。", [name]))) return
     try {
       await deleteBailianVoice(voiceId)
       setCustomVoices((current) => {
@@ -1952,10 +1951,10 @@ export function ModelWorkspaceView({
       if (voice === voiceId) {
         selectVoice(voiceOptions[0]?.id ?? '')
       }
-      onAction('音色已删除')
+      onAction(t("音色已删除"))
     } catch (error) {
       onAction(
-        `删除音色失败：${error instanceof Error ? error.message : String(error)}`,
+        t("删除音色失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -1963,7 +1962,7 @@ export function ModelWorkspaceView({
   const prepareSpeakerAudio = async (file: File, slot: 'a' | 'b') => {
     if (busy) return
     setBusy(true)
-    onAction(`正在准备音频 ${slot.toUpperCase()}…`)
+    onAction(t("正在准备音频 {0}…", [slot.toUpperCase()]))
     try {
       const clip = await audioFileToClip(file)
       if (slot === 'a') {
@@ -1971,10 +1970,10 @@ export function ModelWorkspaceView({
       } else {
         setSpeakerAudioB(clip)
       }
-      onAction(`音频 ${slot.toUpperCase()} 已就绪`)
+      onAction(t("音频 {0} 已就绪", [slot.toUpperCase()]))
     } catch (error) {
       onAction(
-        `音频准备失败：${error instanceof Error ? error.message : String(error)}`,
+        t("音频准备失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       setBusy(false)
@@ -1991,7 +1990,7 @@ export function ModelWorkspaceView({
       return
     }
     setBusy(true)
-    onAction(speakerAudioB ? '正在提取两段声纹并计算余弦相似度…' : '正在提取声纹…')
+    onAction(speakerAudioB ? t("正在提取两段声纹并计算余弦相似度…") : t("正在提取声纹…"))
     try {
       const result = await onRunAudio(
         speakerAudioA,
@@ -2014,10 +2013,10 @@ export function ModelWorkspaceView({
       setInlineOutputs((current) =>
         withBoundedEntry(current, result.run.id, result.output),
       )
-      onAction(speakerAudioB ? '声纹比对完成' : '声纹提取完成')
+      onAction(speakerAudioB ? t("声纹比对完成") : t("声纹提取完成"))
     } catch (error) {
       onAction(
-        `声纹处理失败：${error instanceof Error ? error.message : String(error)}`,
+        t("声纹处理失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       setBusy(false)
@@ -2035,14 +2034,14 @@ export function ModelWorkspaceView({
     if (!providerReady) {
       onAction(
         apiModel
-          ? `请先配置 ${provider?.name ?? '模型服务商'} Provider`
-          : `请先在扩展中启用 ${plugin.name}`,
+          ? t("请先配置 {0} Provider", [provider?.name ?? t("模型服务商")])
+          : t("请先在扩展中启用 {0}", [plugin.name]),
       )
       openRequiredSetup()
       return
     }
     setBusy(true)
-    onAction('正在准备音频…')
+    onAction(t("正在准备音频…"))
     try {
       const clip = await audioFileToClip(file)
       let speechSegments: VadDetectionResult['segments'] | undefined
@@ -2061,11 +2060,11 @@ export function ModelWorkspaceView({
         )
         dependencyRunIds = [preprocessed.run.id]
         if (!('segments' in preprocessed.output)) {
-          throw new Error(`${automaticVadModel.name} 没有返回可用的语音片段`)
+          throw new Error(t("{0} 没有返回可用的语音片段", [automaticVadModel.name]))
         }
         speechSegments = (preprocessed.output as VadDetectionResult).segments
         if (!speechSegments.length) {
-          throw new Error(`${automaticVadModel.name} 没有检测到可识别的语音`)
+          throw new Error(t("{0} 没有检测到可识别的语音", [automaticVadModel.name]))
         }
       }
       const result = await onRunAudio(
@@ -2161,7 +2160,7 @@ export function ModelWorkspaceView({
       }
     } catch (error) {
       onAction(
-        `运行失败：${error instanceof Error ? error.message : String(error)}`,
+        t("运行失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       setBusy(false)
@@ -2200,7 +2199,7 @@ export function ModelWorkspaceView({
         })
         const file = new File(
           [blob],
-          `${target === 'tts-reference' ? '参考音频' : '录音'}-${Date.now()}.webm`,
+          `${target === 'tts-reference' ? t("参考音频") : t("录音")}-${Date.now()}.webm`,
           {
           type: blob.type,
           },
@@ -2217,7 +2216,7 @@ export function ModelWorkspaceView({
     } catch (error) {
       setRecordingTarget(null)
       onAction(
-        `无法开始录音：${error instanceof Error ? error.message : String(error)}`,
+        t("无法开始录音：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -2269,7 +2268,7 @@ export function ModelWorkspaceView({
       streamPushFailedRef.current = false
       if (streamingAsrModel) {
         const started = await startFunAsrStream({
-          clipName: `电脑音频-${Date.now()}`,
+          clipName: t("电脑音频-{0}", [Date.now()]),
           providerId: plugin.providerId,
           modelId: plugin.version,
           sampleRate: 48_000,
@@ -2305,9 +2304,7 @@ export function ModelWorkspaceView({
             .catch((error) => {
               streamPushFailedRef.current = true
               onActionRef.current(
-                `电脑音频流发送失败：${
-                  error instanceof Error ? error.message : String(error)
-                }`,
+                t("电脑音频流发送失败：{0}", [error instanceof Error ? error.message : String(error)]),
               )
             })
         } else if (
@@ -2344,9 +2341,7 @@ export function ModelWorkspaceView({
             .catch((error) => {
               streamPushFailedRef.current = true
               onActionRef.current(
-                `电脑音频实时增强失败：${
-                  error instanceof Error ? error.message : String(error)
-                }`,
+                t("电脑音频实时增强失败：{0}", [error instanceof Error ? error.message : String(error)]),
               )
             })
             .finally(() => {
@@ -2363,8 +2358,8 @@ export function ModelWorkspaceView({
       setRecording(true)
       onAction(
         streamingEnhanceModel
-          ? '电脑音频监听已开始'
-          : '电脑音频采集已开始',
+          ? t("电脑音频监听已开始")
+          : t("电脑音频采集已开始"),
       )
     } catch (error) {
       if (streamSessionRef.current) {
@@ -2384,9 +2379,7 @@ export function ModelWorkspaceView({
       systemAudioUnlistenRef.current?.()
       systemAudioUnlistenRef.current = null
       onAction(
-        `无法采集电脑音频：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("无法采集电脑音频：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -2404,15 +2397,15 @@ export function ModelWorkspaceView({
         await streamPushQueueRef.current
         await finishEnhancementStream(enhancementSessionRef.current)
         enhancementSessionRef.current = null
-        onAction('实时监听已停止')
+        onAction(t("实时监听已停止"))
       } else {
         const file = pcm16ChunksToWavFile(
           systemAudioChunksRef.current,
           48_000,
-          `电脑音频-${Date.now()}.wav`,
+          t("电脑音频-{0}.wav", [Date.now()]),
         )
         if (file.size <= 44) {
-          throw new Error('没有捕获到可用音频，请确认 Chrome 正在播放声音')
+          throw new Error(t("没有捕获到可用音频，请确认 Chrome 正在播放声音"))
         }
         if (streamingAsrModel && streamSessionRef.current) {
         await streamPushQueueRef.current
@@ -2430,9 +2423,7 @@ export function ModelWorkspaceView({
       }
     } catch (error) {
       onAction(
-        `电脑音频处理失败：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("电脑音频处理失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       systemAudioSessionRef.current = null
@@ -2467,7 +2458,7 @@ export function ModelWorkspaceView({
       })
       recordingStreamRef.current = stream
       const started = await startFunAsrStream({
-        clipName: `实时录音-${Date.now()}`,
+        clipName: t("实时录音-{0}", [Date.now()]),
         providerId: plugin.providerId,
         modelId: plugin.version,
         sampleRate: 16_000,
@@ -2496,7 +2487,7 @@ export function ModelWorkspaceView({
         const blob = new Blob(recordingChunksRef.current, {
           type: recorder.mimeType || 'audio/webm',
         })
-        const file = new File([blob], `实时录音-${Date.now()}.webm`, {
+        const file = new File([blob], t("实时录音-{0}.webm", [Date.now()]), {
           type: blob.type,
         })
         recorderRef.current = null
@@ -2508,9 +2499,7 @@ export function ModelWorkspaceView({
           })
           .catch((error) => {
             onActionRef.current(
-              `无法准备录音回放：${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              t("无法准备录音回放：{0}", [error instanceof Error ? error.message : String(error)]),
             )
           })
       }
@@ -2537,9 +2526,7 @@ export function ModelWorkspaceView({
             if (streamPushFailedRef.current) return
             streamPushFailedRef.current = true
             onActionRef.current(
-              `实时音频发送失败：${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              t("实时音频发送失败：{0}", [error instanceof Error ? error.message : String(error)]),
             )
           })
       }
@@ -2551,7 +2538,7 @@ export function ModelWorkspaceView({
       streamProcessorRef.current = processor
       streamGainRef.current = gain
       setRecording(true)
-      onAction('已开始实时识别')
+      onAction(t("已开始实时识别"))
     } catch (error) {
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
       recordingStreamRef.current = null
@@ -2562,9 +2549,7 @@ export function ModelWorkspaceView({
       setStreamSessionId(null)
       setStreamingRunId(null)
       onAction(
-        `无法开始实时识别：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("无法开始实时识别：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -2586,9 +2571,7 @@ export function ModelWorkspaceView({
       setStreamSessionId(null)
       setBusy(false)
       onAction(
-        `无法结束实时识别：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("无法结束实时识别：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -2599,11 +2582,11 @@ export function ModelWorkspaceView({
     try {
       const destinationPath = await exportAudioFile(output)
       if (destinationPath) {
-        onAction(`${output.fileName} 已保存到 ${destinationPath}`)
+        onAction(t("{0} 已保存到 {1}", [output.fileName, destinationPath]))
       }
     } catch (error) {
       onAction(
-        `导出音频失败：${error instanceof Error ? error.message : String(error)}`,
+        t("导出音频失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -2637,8 +2620,8 @@ export function ModelWorkspaceView({
           <button
             className="icon-button result-detail-close"
             type="button"
-            title="收起详情"
-            aria-label="收起详情"
+            title={t("收起详情")}
+            aria-label={t("收起详情")}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={() => setSelectedRunId(null)}
           >
@@ -2650,7 +2633,7 @@ export function ModelWorkspaceView({
       <section className="model-conversation">
 
         {modelRuns.length > 0 && (
-          <nav className="conversation-index" aria-label="对话记录导航">
+          <nav className="conversation-index" aria-label={t("对话记录导航")}>
             {modelRuns.map((run) => (
               <button
                 type="button"
@@ -2658,7 +2641,7 @@ export function ModelWorkspaceView({
                 className={visibleRunId === run.id ? 'current' : undefined}
                 data-preview={run.inputSummary || run.title}
                 title={run.inputSummary || run.title}
-                aria-label={`跳转到 ${run.inputSummary || run.title}`}
+                aria-label={t("跳转到 {0}", [run.inputSummary || run.title])}
                 onClick={() => {
                   document
                     .getElementById(`model-exchange-${run.id}`)
@@ -2675,15 +2658,15 @@ export function ModelWorkspaceView({
               <span className={`model-avatar tone-${plugin.tone}`}>
                 <Icon size={22} />
               </span>
-              <h2>开始使用 {plugin.name}</h2>
-              <p>{plugin.description}</p>
+              <h2>{t("开始使用 ")}{plugin.name}</h2>
+              <p>{t(plugin.description)}</p>
               {!providerReady && (
                 <button
                   className="secondary-action"
                   type="button"
                   onClick={openRequiredSetup}
                 >
-                  {apiModel ? '配置 API' : '打开扩展'}
+                  {apiModel ? t("配置 API") : t("打开扩展")}
                 </button>
               )}
             </div>
@@ -2738,7 +2721,7 @@ export function ModelWorkspaceView({
                       role="separator"
                       key={key}
                     >
-                      <span>新对话</span>
+                      <span>{t("新对话")}</span>
                     </div>
                   ))}
                 <div
@@ -2751,7 +2734,7 @@ export function ModelWorkspaceView({
                     <strong>{run.inputSummary || run.title}</strong>
                     {inputAudioUrl && (
                       <div className="model-user-audio">
-                        {comparisonInputAudio && <span>音频 A</span>}
+                        {comparisonInputAudio && <span>{t("音频 A")}</span>}
                         <InlineAudioPlayer
                           src={inputAudioUrl}
                           duration={inputAudioDuration}
@@ -2760,7 +2743,7 @@ export function ModelWorkspaceView({
                     )}
                     {comparisonInputAudio?.url && (
                       <div className="model-user-audio comparison-audio">
-                        <span>音频 B</span>
+                        <span>{t("音频 B")}</span>
                         <InlineAudioPlayer
                           src={comparisonInputAudio.url}
                           duration={comparisonInputAudio.duration}
@@ -2787,8 +2770,8 @@ export function ModelWorkspaceView({
                               {isAsrOutput(inlineOutput)
                                 ? inlineOutput.language
                                 : isVadOutput(inlineOutput)
-                                  ? `语音 ${inlineOutput.speechSeconds.toFixed(1)}s · 点击查看片段`
-                                  : '点击查看结果详情'}
+                                  ? t("语音 {0}s · 点击查看片段", [inlineOutput.speechSeconds.toFixed(1)])
+                                  : t("点击查看结果详情")}
                             </small>
                           </>
                         ) : (
@@ -2818,8 +2801,8 @@ export function ModelWorkspaceView({
                       <button
                         className="audio-output-detail-button"
                         type="button"
-                        title="查看波形与频谱"
-                        aria-label="查看波形与频谱"
+                        title={t("查看波形与频谱")}
+                        aria-label={t("查看波形与频谱")}
                         onClick={() => openRunDetail(run.id)}
                       >
                         <SlidersHorizontal size={14} />
@@ -2830,13 +2813,13 @@ export function ModelWorkspaceView({
                     <div className="model-live-transcript" aria-live="polite">
                       <span>
                         <i />
-                        {streamingTtsModel ? '正在流式播放' : '实时转写'}
+                        {streamingTtsModel ? t("正在流式播放") : t("实时转写")}
                       </span>
                       <p>
                         {streamingTtsModel
-                          ? '音频生成后立即播放'
+                          ? t("音频生成后立即播放")
                           : liveTranscript ||
-                            (streamEngineLoading ? '引擎加载中…' : '正在聆听…')}
+                            (streamEngineLoading ? t("引擎加载中…") : t("正在聆听…"))}
                       </p>
                     </div>
                   )}
@@ -2844,8 +2827,8 @@ export function ModelWorkspaceView({
                     <button
                       className="model-result-caption-button"
                       type="button"
-                      title="弹出字幕"
-                      aria-label="弹出字幕"
+                      title={t("弹出字幕")}
+                      aria-label={t("弹出字幕")}
                       onClick={() => {
                         void showCaptionOutput()
                         if (liveTranscript) {
@@ -2874,7 +2857,7 @@ export function ModelWorkspaceView({
                 role="separator"
                 key={key}
               >
-                <span>新对话</span>
+                <span>{t("新对话")}</span>
               </div>
             ))}
         </div>
@@ -2883,12 +2866,12 @@ export function ModelWorkspaceView({
           <footer className="model-provider-required">
             <div>
               <strong>
-                {apiModel ? '配置 API 后继续使用' : '模型尚未准备好'}
+                {apiModel ? t("配置 API 后继续使用") : t("模型尚未准备好")}
               </strong>
               <span>
                 {apiModel
-                  ? '已有对话记录仍会保留，配置完成后即可继续。'
-                  : '请前往扩展完成安装或修复依赖。'}
+                  ? t("已有对话记录仍会保留，配置完成后即可继续。")
+                  : t("请前往扩展完成安装或修复依赖。")}
               </span>
             </div>
             <button
@@ -2896,7 +2879,7 @@ export function ModelWorkspaceView({
               type="button"
               onClick={openRequiredSetup}
             >
-              {apiModel ? '配置 API' : '打开扩展'}
+              {apiModel ? t("配置 API") : t("打开扩展")}
             </button>
           </footer>
         )}
@@ -2958,14 +2941,14 @@ export function ModelWorkspaceView({
                 <div className="model-parameter-bar">
                   {apiModel && (
                     <label className="voice-parameter-field">
-                      <span>音色</span>
+                      <span>{t("音色")}</span>
                       <VoiceCombobox
                         value={voice}
                         options={availableVoiceOptions}
                         placeholder={
                           requiresCustomCosyVoice
-                            ? '声音复刻或声音设计音色 ID'
-                            : '搜索音色或粘贴自定义 ID'
+                            ? t("声音复刻或声音设计音色 ID")
+                            : t("搜索音色或粘贴自定义 ID")
                         }
                         onChange={selectVoice}
                         onCreate={
@@ -2986,7 +2969,7 @@ export function ModelWorkspaceView({
                   )}
                   {supportsSpeakerSelection && (
                     <label>
-                      <span>音色 ID</span>
+                      <span>{t("音色 ID")}</span>
                       <input
                         type="number"
                         min={0}
@@ -3001,7 +2984,7 @@ export function ModelWorkspaceView({
                   )}
                   {supportsTtsLanguage && (
                     <label>
-                      <span>语言</span>
+                      <span>{t("语言")}</span>
                       <select
                         value={ttsLanguage}
                         onChange={(event) =>
@@ -3044,7 +3027,7 @@ export function ModelWorkspaceView({
                   )}
                   {!requiresTtsReferenceAudio && (
                     <label>
-                      <span>语速</span>
+                      <span>{t("语速")}</span>
                       <select
                         value={speed}
                         onChange={(event) =>
@@ -3060,11 +3043,11 @@ export function ModelWorkspaceView({
                   )}
                   {supportsTtsInstruction && (
                     <label className="context-field">
-                      <span>表达指令</span>
+                      <span>{t("表达指令")}</span>
                       <input
                         value={ttsInstruction}
                         maxLength={100}
-                        placeholder="例如：温柔、开心地朗读"
+                        placeholder={t("例如：温柔、开心地朗读")}
                         onChange={(event) =>
                           setTtsInstruction(event.target.value)
                         }
@@ -3082,12 +3065,12 @@ export function ModelWorkspaceView({
                     onInvalidFile={onAction}
                   >
                     <div className="tts-reference-field">
-                      <span>参考音频</span>
+                      <span>{t("参考音频")}</span>
                       {recordingTarget === 'tts-reference' && (
                         <RecordingWaveform
                           active
                           stream={recordingStreamRef.current}
-                          label="参考音频录制中"
+                          label={t("参考音频录制中")}
                         />
                       )}
                       {ttsReferenceClip?.url &&
@@ -3100,8 +3083,8 @@ export function ModelWorkspaceView({
                       <span className="tts-reference-actions">
                         <button
                           type="button"
-                          title="上传参考音频"
-                          aria-label="上传参考音频"
+                          title={t("上传参考音频")}
+                          aria-label={t("上传参考音频")}
                           disabled={busy || recording}
                           onClick={() => ttsReferenceInputRef.current?.click()}
                         >
@@ -3116,13 +3099,13 @@ export function ModelWorkspaceView({
                           type="button"
                           title={
                             recordingTarget === 'tts-reference'
-                              ? '停止录制'
-                              : '录制参考音频'
+                              ? t("停止录制")
+                              : t("录制参考音频")
                           }
                           aria-label={
                             recordingTarget === 'tts-reference'
-                              ? '停止录制'
-                              : '录制参考音频'
+                              ? t("停止录制")
+                              : t("录制参考音频")
                           }
                           disabled={busy}
                           onClick={() =>
@@ -3142,8 +3125,8 @@ export function ModelWorkspaceView({
                             <button
                               className="remove"
                               type="button"
-                              title="清除参考音频"
-                              aria-label="清除参考音频"
+                              title={t("清除参考音频")}
+                              aria-label={t("清除参考音频")}
                               onClick={() => setTtsReferenceClip(null)}
                             >
                               <X size={14} />
@@ -3154,10 +3137,10 @@ export function ModelWorkspaceView({
                   </AudioFileDropZone>
                   {requiresTtsReferenceText && (
                     <label className="context-field">
-                      <span>参考文本</span>
+                      <span>{t("参考文本")}</span>
                       <input
                         value={ttsReferenceText}
-                        placeholder={plugin.agent ? "填写参考音频中实际说出的文字" : "识别后可继续修改"}
+                        placeholder={plugin.agent ? t("填写参考音频中实际说出的文字") : t("识别后可继续修改")}
                         onChange={(event) =>
                           {
                             ttsReferenceTextEditedRef.current = true
@@ -3168,7 +3151,7 @@ export function ModelWorkspaceView({
                     </label>
                   )}
                   <label>
-                    <span>语速</span>
+                    <span>{t("语速")}</span>
                     <select
                       value={speed}
                       onChange={(event) => setSpeed(Number(event.target.value))}
@@ -3184,25 +3167,25 @@ export function ModelWorkspaceView({
               {capability === 'text.normalize' && (
                 <div className="model-parameter-bar">
                   <label>
-                    <span>模式</span>
+                    <span>{t("模式")}</span>
                     <select
                       value={wetextOperator}
                       onChange={(event) =>
                         setWetextOperator(event.target.value as 'tn' | 'itn')
                       }
                     >
-                      <option value="tn">TN · 适合合成</option>
-                      <option value="itn">ITN · 适合识别</option>
+                      <option value="tn">{t("TN · 适合合成")}</option>
+                      <option value="itn">{t("ITN · 适合识别")}</option>
                     </select>
                   </label>
                   <label>
-                    <span>语言</span>
+                    <span>{t("语言")}</span>
                     <select
                       value={wetextLanguage}
                       onChange={(event) => setWetextLanguage(event.target.value)}
                     >
-                      <option value="auto">自动</option>
-                      <option value="zh">中文</option>
+                      <option value="auto">{t("自动")}</option>
+                      <option value="zh">{t("中文")}</option>
                       <option value="en">English</option>
                       <option value="ja">日本語</option>
                     </select>
@@ -3215,7 +3198,7 @@ export function ModelWorkspaceView({
                         setWetextFullToHalf(event.target.checked)
                       }
                     />
-                    <span>半角字符</span>
+                    <span>{t("半角字符")}</span>
                   </label>
                 </div>
               )}
@@ -3235,7 +3218,7 @@ export function ModelWorkspaceView({
                     />
                   </label>
                   <label>
-                    <span>最大输出</span>
+                    <span>{t("最大输出")}</span>
                     <input
                       type="number"
                       min={32}
@@ -3251,7 +3234,7 @@ export function ModelWorkspaceView({
                     <span>System Prompt</span>
                     <input
                       value={textSystemPrompt}
-                      placeholder="可选：设定助手角色和回答方式"
+                      placeholder={t("可选：设定助手角色和回答方式")}
                       onChange={(event) =>
                         setTextSystemPrompt(event.target.value)
                       }
@@ -3264,8 +3247,8 @@ export function ModelWorkspaceView({
                   <div className="text-composer-actions">
                     <button
                       type="button"
-                      title="新对话"
-                      aria-label="新对话"
+                      title={t("新对话")}
+                      aria-label={t("新对话")}
                       disabled={busy}
                       onClick={startNewConversation}
                     >
@@ -3274,8 +3257,8 @@ export function ModelWorkspaceView({
                     {onClearConversation && (
                       <button
                         type="button"
-                        title="清空对话"
-                        aria-label="清空对话"
+                        title={t("清空对话")}
+                        aria-label={t("清空对话")}
                         disabled={busy || clearingConversation || !modelRuns.length}
                         onClick={() => void clearConversation()}
                       >
@@ -3296,10 +3279,10 @@ export function ModelWorkspaceView({
                   }
                   placeholder={
                     capability === 'text.generate'
-                      ? `给 ${plugin.name} 发送消息…`
+                      ? t("给 {0} 发送消息…", [plugin.name])
                       : capability === 'text.normalize'
-                        ? '输入需要归一化的文本…'
-                      : `给 ${plugin.name} 输入要生成的文字…`
+                        ? t("输入需要归一化的文本…")
+                      : t("给 {0} 输入要生成的文字…", [plugin.name])
                   }
                   onChange={(event) => setText(event.target.value)}
                   onKeyDown={(event) => {
@@ -3317,10 +3300,10 @@ export function ModelWorkspaceView({
                   className="composer-send"
                   type="button"
                   title={
-                    capability === 'speech.synthesize' ? '生成语音' : '发送'
+                    capability === 'speech.synthesize' ? t("生成语音") : t("发送")
                   }
                   aria-label={
-                    capability === 'speech.synthesize' ? '生成语音' : '发送'
+                    capability === 'speech.synthesize' ? t("生成语音") : t("发送")
                   }
                   disabled={
                     !text.trim() ||
@@ -3356,8 +3339,8 @@ export function ModelWorkspaceView({
                   <div>
                     <Fingerprint size={18} />
                     <span>
-                      <strong>提取声纹或比较两段人声</strong>
-                      <small>建议每段 5–15 秒，尽量只包含一位说话人</small>
+                      <strong>{t("提取声纹或比较两段人声")}</strong>
+                      <small>{t("建议每段 5–15 秒，尽量只包含一位说话人")}</small>
                     </span>
                   </div>
                   <button
@@ -3371,7 +3354,7 @@ export function ModelWorkspaceView({
                     ) : (
                       <Fingerprint size={16} />
                     )}
-                    {busy ? '处理中' : speakerAudioB ? '开始比对' : '提取声纹'}
+                    {busy ? t("处理中") : speakerAudioB ? t("开始比对") : t("提取声纹")}
                   </button>
                 </header>
                 <div className="speaker-comparison-inputs">
@@ -3381,8 +3364,8 @@ export function ModelWorkspaceView({
                     <div>
                       <span className="speaker-slot-label">A</span>
                       <span>
-                        <strong>参考音频</strong>
-                        <small>{speakerAudioA?.name ?? '拖入或上传第一段人声'}</small>
+                        <strong>{t("参考音频")}</strong>
+                        <small>{speakerAudioA?.name ?? t("拖入或上传第一段人声")}</small>
                       </span>
                     </div>
                     {speakerAudioA?.url && (
@@ -3398,14 +3381,14 @@ export function ModelWorkspaceView({
                         onClick={() => speakerAudioAInputRef.current?.click()}
                       >
                         <Upload size={15} />
-                        {speakerAudioA ? '更换' : '上传'}
+                        {speakerAudioA ? t("更换") : t("上传")}
                       </button>
                       {speakerAudioA && (
                         <button
                           className="remove"
                           type="button"
-                          title="清除音频 A"
-                          aria-label="清除音频 A"
+                          title={t("清除音频 A")}
+                          aria-label={t("清除音频 A")}
                           disabled={busy}
                           onClick={() => setSpeakerAudioA(null)}
                         >
@@ -3420,8 +3403,8 @@ export function ModelWorkspaceView({
                     <div>
                       <span className="speaker-slot-label">B</span>
                       <span>
-                        <strong>对比音频（可选）</strong>
-                        <small>{speakerAudioB?.name ?? '拖入或上传第二段人声'}</small>
+                        <strong>{t("对比音频（可选）")}</strong>
+                        <small>{speakerAudioB?.name ?? t("拖入或上传第二段人声")}</small>
                       </span>
                     </div>
                     {speakerAudioB?.url && (
@@ -3437,14 +3420,14 @@ export function ModelWorkspaceView({
                         onClick={() => speakerAudioBInputRef.current?.click()}
                       >
                         <Upload size={15} />
-                        {speakerAudioB ? '更换' : '上传'}
+                        {speakerAudioB ? t("更换") : t("上传")}
                       </button>
                       {speakerAudioB && (
                         <button
                           className="remove"
                           type="button"
-                          title="清除音频 B"
-                          aria-label="清除音频 B"
+                          title={t("清除音频 B")}
+                          aria-label={t("清除音频 B")}
                           disabled={busy}
                           onClick={() => setSpeakerAudioB(null)}
                         >
@@ -3466,12 +3449,12 @@ export function ModelWorkspaceView({
               {funAsrModel && (
                 <div className="model-parameter-bar funasr-parameters">
                   {!funAsrIs8k && <label>
-                    <span>语言</span>
+                    <span>{t("语言")}</span>
                     <select
                       value={asrLanguage}
                       onChange={(event) => setAsrLanguage(event.target.value)}
                     >
-                      <option value="auto">自动识别</option>
+                      <option value="auto">{t("自动识别")}</option>
                       {(paraformerModel
                         ? FUN_ASR_LANGUAGE_OPTIONS.slice(0, 2)
                         : FUN_ASR_LANGUAGE_OPTIONS
@@ -3481,11 +3464,11 @@ export function ModelWorkspaceView({
                     </select>
                   </label>}
                   {funAsrSupportsContext && <label className="context-field">
-                    <span>上下文</span>
+                    <span>{t("上下文")}</span>
                     <input
                       value={asrContext}
                       maxLength={400}
-                      placeholder="人名、术语或对话背景"
+                      placeholder={t("人名、术语或对话背景")}
                       onChange={(event) => setAsrContext(event.target.value)}
                     />
                   </label>}
@@ -3497,31 +3480,31 @@ export function ModelWorkspaceView({
                         setSemanticPunctuation(event.target.checked)
                       }
                     />
-                    <span>语义断句</span>
+                    <span>{t("语义断句")}</span>
                   </label>
                 </div>
               )}
               {qwenAudioAsrModel && (
                 <div className="model-parameter-bar funasr-parameters">
                   <label>
-                    <span>语言</span>
+                    <span>{t("语言")}</span>
                     <select
                       value={asrLanguage}
                       onChange={(event) => setAsrLanguage(event.target.value)}
                     >
-                      <option value="auto">自动识别</option>
-                      <option value="zh">中文</option>
-                      <option value="en">英文</option>
-                      <option value="ja">日语</option>
-                      <option value="ko">韩语</option>
+                      <option value="auto">{t("自动识别")}</option>
+                      <option value="zh">{t("中文")}</option>
+                      <option value="en">{t("英文")}</option>
+                      <option value="ja">{t("日语")}</option>
+                      <option value="ko">{t("韩语")}</option>
                     </select>
                   </label>
                   <label className="context-field">
-                    <span>上下文</span>
+                    <span>{t("上下文")}</span>
                     <input
                       value={asrContext}
                       maxLength={400}
-                      placeholder="人名、术语或对话背景"
+                      placeholder={t("人名、术语或对话背景")}
                       onChange={(event) => setAsrContext(event.target.value)}
                     />
                   </label>
@@ -3530,23 +3513,23 @@ export function ModelWorkspaceView({
               {cloudQwen3AsrModel && (
                 <div className="model-parameter-bar funasr-parameters">
                   <label>
-                    <span>语言</span>
+                    <span>{t("语言")}</span>
                     <select
                       value={asrLanguage}
                       onChange={(event) => setAsrLanguage(event.target.value)}
                     >
-                      <option value="auto">自动识别</option>
+                      <option value="auto">{t("自动识别")}</option>
                       {QWEN_ASR_LANGUAGE_OPTIONS.map(([value, label]) => (
                         <option key={value} value={value}>{label}</option>
                       ))}
                     </select>
                   </label>
                   <label className="context-field">
-                    <span>识别提示</span>
+                    <span>{t("识别提示")}</span>
                     <input
                       value={asrContext}
                       maxLength={400}
-                      placeholder="背景信息、人名或术语说明"
+                      placeholder={t("背景信息、人名或术语说明")}
                       onChange={(event) => setAsrContext(event.target.value)}
                     />
                   </label>
@@ -3556,30 +3539,30 @@ export function ModelWorkspaceView({
                       checked={asrEnableItn}
                       onChange={(event) => setAsrEnableItn(event.target.checked)}
                     />
-                    <span>数字格式化</span>
+                    <span>{t("数字格式化")}</span>
                   </label>
                 </div>
               )}
               {compatibleAsrModel && (
                 <div className="model-parameter-bar funasr-parameters">
                   <label>
-                    <span>语言</span>
+                    <span>{t("语言")}</span>
                     <select
                       value={asrLanguage}
                       onChange={(event) => setAsrLanguage(event.target.value)}
                     >
-                      <option value="auto">自动识别</option>
+                      <option value="auto">{t("自动识别")}</option>
                       {QWEN_ASR_LANGUAGE_OPTIONS.map(([value, label]) => (
                         <option key={value} value={value}>{label}</option>
                       ))}
                     </select>
                   </label>
                   <label className="context-field">
-                    <span>识别提示</span>
+                    <span>{t("识别提示")}</span>
                     <input
                       value={asrContext}
                       maxLength={400}
-                      placeholder="人名、术语或上下文"
+                      placeholder={t("人名、术语或上下文")}
                       onChange={(event) => setAsrContext(event.target.value)}
                     />
                   </label>
@@ -3588,11 +3571,11 @@ export function ModelWorkspaceView({
               {localQwen3AsrModel && (
                 <div className="model-parameter-bar">
                   <label className="context-field">
-                    <span>热词</span>
+                    <span>{t("热词")}</span>
                     <input
                       value={asrContext}
                       maxLength={400}
-                      placeholder="人名、术语，多个词用逗号分隔"
+                      placeholder={t("人名、术语，多个词用逗号分隔")}
                       onChange={(event) => setAsrContext(event.target.value)}
                     />
                   </label>
@@ -3601,7 +3584,7 @@ export function ModelWorkspaceView({
               {canaryModel && (
                 <div className="model-parameter-bar funasr-parameters">
                   <label>
-                    <span>输入语言</span>
+                    <span>{t("输入语言")}</span>
                     <select
                       value={asrLanguage === 'auto' ? 'en' : asrLanguage}
                       onChange={(event) => setAsrLanguage(event.target.value)}
@@ -3613,7 +3596,7 @@ export function ModelWorkspaceView({
                     </select>
                   </label>
                   <label>
-                    <span>输出语言</span>
+                    <span>{t("输出语言")}</span>
                     <select
                       value={asrTargetLanguage}
                       onChange={(event) =>
@@ -3634,17 +3617,17 @@ export function ModelWorkspaceView({
                         setSemanticPunctuation(event.target.checked)
                       }
                     />
-                    <span>标点</span>
+                    <span>{t("标点")}</span>
                   </label>
                 </div>
               )}
               {capability === 'speech.keyword' && (
                 <div className="model-parameter-bar">
                   <label className="context-field">
-                    <span>关键词</span>
+                    <span>{t("关键词")}</span>
                     <input
                       value={keywords}
-                      placeholder="留空使用内置关键词；多个关键词用逗号分隔"
+                      placeholder={t("留空使用内置关键词；多个关键词用逗号分隔")}
                       onChange={(event) => setKeywords(event.target.value)}
                     />
                   </label>
@@ -3653,7 +3636,7 @@ export function ModelWorkspaceView({
               {adjustableVadModel && (
                 <div className="model-parameter-bar">
                   <label>
-                    <span>检测阈值</span>
+                    <span>{t("检测阈值")}</span>
                     <input
                       type="number"
                       min={0.05}
@@ -3666,7 +3649,7 @@ export function ModelWorkspaceView({
                     />
                   </label>
                   <label>
-                    <span>最短语音（秒）</span>
+                    <span>{t("最短语音（秒）")}</span>
                     <input
                       type="number"
                       min={0.05}
@@ -3679,7 +3662,7 @@ export function ModelWorkspaceView({
                     />
                   </label>
                   <label>
-                    <span>结束静音（秒）</span>
+                    <span>{t("结束静音（秒）")}</span>
                     <input
                       type="number"
                       min={0.05}
@@ -3696,7 +3679,7 @@ export function ModelWorkspaceView({
               {adjustableEnhanceModel && (
                 <div className="model-parameter-bar">
                   <label className="enhance-strength-field">
-                    <span>降噪强度</span>
+                    <span>{t("降噪强度")}</span>
                     <input
                       type="range"
                       min={0}
@@ -3713,12 +3696,12 @@ export function ModelWorkspaceView({
                   {streamingEnhanceModel && audioSource === 'system' && (
                     <span
                       className={`monitor-latency${recording ? ' active' : ''}`}
-                      title="从采集音频块进入处理队列，到增强结果送入系统输出的延迟"
+                      title={t("从采集音频块进入处理队列，到增强结果送入系统输出的延迟")}
                     >
                       <Activity size={13} />
                       {monitorLatencyMs === null
-                        ? '处理延迟 --'
-                        : `处理延迟 ≈ ${monitorLatencyMs} ms`}
+                        ? t("处理延迟 --")
+                        : t("处理延迟 ≈ {0} ms", [monitorLatencyMs])}
                     </span>
                   )}
                 </div>
@@ -3733,11 +3716,11 @@ export function ModelWorkspaceView({
                     label={
                       audioSource === 'system'
                         ? streamingEnhanceModel
-                          ? '电脑音频监听中'
-                          : '电脑音频采集中'
+                          ? t("电脑音频监听中")
+                          : t("电脑音频采集中")
                         : streamingAsrModel
-                          ? '麦克风实时识别中'
-                          : '麦克风录音中'
+                          ? t("麦克风实时识别中")
+                          : t("麦克风录音中")
                     }
                   />
                 )}
@@ -3755,8 +3738,8 @@ export function ModelWorkspaceView({
                     <button
                       className="composer-tool-button audio-input-menu-trigger"
                       type="button"
-                      title="选择音频输入"
-                      aria-label="选择音频输入"
+                      title={t("选择音频输入")}
+                      aria-label={t("选择音频输入")}
                       aria-expanded={audioInputMenuOpen}
                       disabled={busy || recording}
                       onClick={() => setAudioInputMenuOpen((open) => !open)}
@@ -3773,8 +3756,7 @@ export function ModelWorkspaceView({
                           }}
                         >
                           <Upload size={15} />
-                          上传音频
-                        </button>
+                          {t("上传音频")}</button>
                         <button
                           className={audioSource === 'microphone' ? 'active' : ''}
                           type="button"
@@ -3784,8 +3766,7 @@ export function ModelWorkspaceView({
                           }}
                         >
                           <Mic size={15} />
-                          麦克风
-                        </button>
+                          {t("麦克风")}</button>
                         <button
                           className={audioSource === 'system' ? 'active' : ''}
                           type="button"
@@ -3795,13 +3776,12 @@ export function ModelWorkspaceView({
                           }}
                         >
                           <MonitorSpeaker size={15} />
-                          电脑音频
-                        </button>
+                          {t("电脑音频")}</button>
                       </div>
                     )}
                   </div>
                   <span className="audio-input-current">
-                    {audioSource === 'system' ? '电脑音频' : '麦克风'}
+                    {audioSource === 'system' ? t("电脑音频") : t("麦克风")}
                   </span>
                 <button
                   className={`composer-record-button${recording ? ' active' : ''}`}
@@ -3810,12 +3790,12 @@ export function ModelWorkspaceView({
                     recording
                       ? streamingEnhanceModel &&
                         audioSource === 'system'
-                        ? '停止监听'
-                        : '停止'
+                        ? t("停止监听")
+                        : t("停止")
                       : streamingEnhanceModel &&
                           audioSource === 'system'
-                        ? '开始监听'
-                        : '开始录音'
+                        ? t("开始监听")
+                        : t("开始录音")
                   }
                   disabled={busy || !providerReady}
                   onClick={() =>
@@ -3871,11 +3851,11 @@ export function ModelWorkspaceView({
             aria-labelledby="voice-create-title"
           >
             <header>
-              <h2 id="voice-create-title">新建音色</h2>
+              <h2 id="voice-create-title">{t("新建音色")}</h2>
               <button
                 type="button"
-                title="关闭"
-                aria-label="关闭"
+                title={t("关闭")}
+                aria-label={t("关闭")}
                 disabled={voiceCreating}
                 onClick={() => setVoiceDialogOpen(false)}
               >
@@ -3892,8 +3872,7 @@ export function ModelWorkspaceView({
                     setVoiceDialogError('')
                   }}
                 >
-                  声音复刻
-                </button>
+                  {t("声音复刻")}</button>
                 <button
                   type="button"
                   className={voiceCreationMode === 'design' ? 'active' : ''}
@@ -3902,13 +3881,12 @@ export function ModelWorkspaceView({
                     setVoiceDialogError('')
                   }}
                 >
-                  声音设计
-                </button>
+                  {t("声音设计")}</button>
               </div>
             )}
             <div className="voice-create-fields">
               <label>
-                <span>名称</span>
+                <span>{t("名称")}</span>
                 <input
                   value={voicePrefix}
                   maxLength={10}
@@ -3922,7 +3900,7 @@ export function ModelWorkspaceView({
                 />
               </label>
               <label>
-                <span>语言</span>
+                <span>{t("语言")}</span>
                 <select
                   value={voiceLanguage}
                   onChange={(event) => {
@@ -3930,7 +3908,7 @@ export function ModelWorkspaceView({
                     setVoiceDialogError('')
                   }}
                 >
-                  <option value="zh">中文</option>
+                  <option value="zh">{t("中文")}</option>
                   <option value="en">English</option>
                   <option value="ja">日本語</option>
                   <option value="ko">한국어</option>
@@ -3943,11 +3921,11 @@ export function ModelWorkspaceView({
                   <div>
                     <FileAudio size={16} />
                     <span>
-                      <strong>参考音频</strong>
+                      <strong>{t("参考音频")}</strong>
                       <small>
                         {recordingTarget === 'tts-reference'
-                          ? '正在录制'
-                          : ttsReferenceClip?.name ?? '建议 10-20 秒清晰人声'}
+                          ? t("正在录制")
+                          : ttsReferenceClip?.name ?? t("建议 10-20 秒清晰人声")}
                       </small>
                     </span>
                   </div>
@@ -3955,7 +3933,7 @@ export function ModelWorkspaceView({
                     <RecordingWaveform
                       active
                       stream={recordingStreamRef.current}
-                      label="参考音频录制中"
+                      label={t("参考音频录制中")}
                     />
                   )}
                   {ttsReferenceClip?.url &&
@@ -3972,8 +3950,7 @@ export function ModelWorkspaceView({
                       onClick={() => ttsReferenceInputRef.current?.click()}
                     >
                       <Upload size={15} />
-                      上传
-                    </button>
+                      {t("上传")}</button>
                     <button
                       type="button"
                       disabled={voiceCreating}
@@ -3988,28 +3965,28 @@ export function ModelWorkspaceView({
                       ) : (
                         <Mic size={15} />
                       )}
-                      {recordingTarget === 'tts-reference' ? '停止' : '录制'}
+                      {recordingTarget === 'tts-reference' ? t("停止") : t("录制")}
                     </button>
                   </div>
                 </div>
               ) : (
                 <>
                   <label className="wide">
-                    <span>声音描述</span>
+                    <span>{t("声音描述")}</span>
                     <textarea
                       value={voicePrompt}
                       maxLength={500}
                       rows={3}
-                      placeholder="例如：沉稳的中年男性播音员，音色低沉，吐字清晰"
+                      placeholder={t("例如：沉稳的中年男性播音员，音色低沉，吐字清晰")}
                       onChange={(event) => {
                         setVoicePrompt(event.target.value)
                         setVoiceDialogError('')
                       }}
                     />
-                    <small>{voicePrompt.trim().length}/500 · 至少 10 个字</small>
+                    <small>{voicePrompt.trim().length}{t("/500 · 至少 10 个字")}</small>
                   </label>
                   <label className="wide">
-                    <span>试听文本</span>
+                    <span>{t("试听文本")}</span>
                     <input
                       value={voicePreviewText}
                       maxLength={200}
@@ -4034,8 +4011,7 @@ export function ModelWorkspaceView({
                 disabled={voiceCreating}
                 onClick={() => setVoiceDialogOpen(false)}
               >
-                取消
-              </button>
+                {t("取消")}</button>
               <button
                 className="primary-action"
                 type="button"
@@ -4050,7 +4026,7 @@ export function ModelWorkspaceView({
                 onClick={() => void createCloudVoice()}
               >
                 {voiceCreating && <LoaderCircle className="model-spin" size={15} />}
-                {voiceCreating ? '正在创建' : '创建音色'}
+                {voiceCreating ? t("正在创建") : t("创建音色")}
               </button>
             </footer>
           </section>
@@ -4063,15 +4039,14 @@ export function ModelWorkspaceView({
           <div
             className="result-detail-resize-handle"
             role="separator"
-            aria-label="调整详情宽度"
+            aria-label={t("调整详情宽度")}
             aria-orientation="vertical"
             onPointerDown={beginDetailResize}
           />
           {detailLoading && (
             <div className="result-detail-loading">
               <LoaderCircle className="model-spin" size={18} />
-              正在读取结果
-            </div>
+              {t("正在读取结果")}</div>
           )}
 
           {execution && (
@@ -4153,21 +4128,21 @@ export function ModelWorkspaceView({
                       />
                       <dl className="detail-output-meta">
                         <div>
-                          <dt>文件</dt>
+                          <dt>{t("文件")}</dt>
                           <dd>{execution.output.fileName}</dd>
                         </div>
                         <div>
-                          <dt>时长</dt>
+                          <dt>{t("时长")}</dt>
                           <dd>
                             {formatTime(execution.output.duration, true)}
                           </dd>
                         </div>
                         <div>
-                          <dt>采样率</dt>
+                          <dt>{t("采样率")}</dt>
                           <dd>{execution.output.sampleRate / 1000} kHz</dd>
                         </div>
                         <div>
-                          <dt>大小</dt>
+                          <dt>{t("大小")}</dt>
                           <dd>
                             {formatFileSize(execution.output.sizeBytes)}
                           </dd>
@@ -4185,8 +4160,7 @@ export function ModelWorkspaceView({
                         }
                       >
                         <Download size={15} />
-                        导出音频
-                      </button>
+                        {t("导出音频")}</button>
                     </div>
                   )}
 
@@ -4194,10 +4168,9 @@ export function ModelWorkspaceView({
                     <div className="detail-timed-output">
                       <div className="transcript-result-summary">
                         <strong>
-                          {execution.output.segments.length} 个语音片段
-                        </strong>
+                          {execution.output.segments.length} {t(" 个语音片段")}</strong>
                         <span>
-                          语音{' '}
+                          {t("语音")}{' '}
                           {formatTime(
                             execution.output.speechSeconds,
                             true,
@@ -4239,7 +4212,7 @@ export function ModelWorkspaceView({
                       <div className="detail-transcript-output">
                         <div className="transcript-result-summary">
                           <strong>
-                            {execution.output.segments.length} 个文本段 ·{' '}
+                            {execution.output.segments.length} {t(" 个文本段 ·")}{' '}
                             {execution.output.segments.reduce(
                               (count, segment) =>
                                 count +
@@ -4248,12 +4221,9 @@ export function ModelWorkspaceView({
                                 ).length,
                               0,
                             )}{' '}
-                            个字词时间戳
-                          </strong>
+                            {t("个字词时间戳")}</strong>
                           <span>
-                            {execution.output.language.toUpperCase()} ·
-                            点击字词播放
-                          </span>
+                            {execution.output.language.toUpperCase()} {t(" · 点击字词播放")}</span>
                         </div>
                         <div
                           ref={transcriptResultRef}
@@ -4270,7 +4240,7 @@ export function ModelWorkspaceView({
                                     {formatTime(segment.start, true)}–
                                     {formatTime(segment.end, true)}
                                   </time>
-                                  <small>文本段 {segmentIndex + 1}</small>
+                                  <small>{t("文本段 ")}{segmentIndex + 1}</small>
                                 </div>
                                 {segment.tokens.some((token) =>
                                   token.text.trim(),
@@ -4350,11 +4320,11 @@ export function ModelWorkspaceView({
                   {(dependencyLoading || dependencyExecutions.length > 0) && (
                     <section className="detail-dependency-results">
                       <header>
-                        <strong>辅助结果</strong>
+                        <strong>{t("辅助结果")}</strong>
                         <span>
                           {dependencyLoading
-                            ? '读取中'
-                            : `${dependencyExecutions.length} 个`}
+                            ? t("读取中")
+                            : t("{0} 个", [dependencyExecutions.length])}
                         </span>
                       </header>
                       {dependencyExecutions.map((dependency) => (
@@ -4371,7 +4341,7 @@ export function ModelWorkspaceView({
 
               <section className="model-detail-card detail-runtime-card">
                 <header>
-                  <strong>运行信息</strong>
+                  <strong>{t("运行信息")}</strong>
                   <span>RUNTIME</span>
                 </header>
                 <div className="detail-card-body">
@@ -4398,7 +4368,7 @@ export function ModelWorkspaceView({
                   selectedRun.error,
                   plugin.apiAliases,
                 ) ||
-                  '任务完成后，这里会显示波形、文字和运行参数。'}
+                  t("任务完成后，这里会显示波形、文字和运行参数。")}
               </p>
             </div>
           )}

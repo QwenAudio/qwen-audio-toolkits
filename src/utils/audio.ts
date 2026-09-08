@@ -1,3 +1,4 @@
+import { t } from "../i18n"
 import { createWaveSamples } from '../data'
 import type { AudioClip } from '../types'
 
@@ -88,7 +89,7 @@ function fileToDataUrl(file: File): Promise<string> {
     const reader = new FileReader()
     reader.addEventListener('load', () => resolve(String(reader.result)))
     reader.addEventListener('error', () =>
-      reject(reader.error ?? new Error('无法读取音频文件')),
+      reject(reader.error ?? new Error(t("无法读取音频文件"))),
     )
     reader.readAsDataURL(file)
   })
@@ -143,7 +144,7 @@ export async function audioFileToClip(file: File): Promise<AudioClip> {
     samples: createWaveSamples(file.size || 4, 280, 0.8),
     color: '#827df8',
     sizeLabel: formatFileSize(file.size),
-    sourceLabel: '本地文件',
+    sourceLabel: t("本地文件"),
     url,
   }
 

@@ -1,3 +1,4 @@
+import { t, useLocale, setLocale } from "./i18n"
 import {
   lazy,
   Suspense,
@@ -459,10 +460,10 @@ const ACCENT_OPTIONS: {
   label: string
   swatch: string
 }[] = [
-  { id: 'mint', label: '青瓷绿', swatch: '#4c7e6c' },
-  { id: 'indigo', label: '靛蓝', swatch: '#4d63b0' },
-  { id: 'amber', label: '琥珀', swatch: '#9a7a2f' },
-  { id: 'rose', label: '玫瑰', swatch: '#a95f6f' },
+  { id: 'mint', get label() { return t("青瓷绿") }, swatch: '#4c7e6c' },
+  { id: 'indigo', get label() { return t("靛蓝") }, swatch: '#4d63b0' },
+  { id: 'amber', get label() { return t("琥珀") }, swatch: '#9a7a2f' },
+  { id: 'rose', get label() { return t("玫瑰") }, swatch: '#a95f6f' },
 ]
 
 type SidebarDensity = 'comfortable' | 'compact'
@@ -471,8 +472,8 @@ const SIDEBAR_DENSITY_OPTIONS: {
   id: SidebarDensity
   label: string
 }[] = [
-  { id: 'comfortable', label: '舒适' },
-  { id: 'compact', label: '紧凑' },
+  { id: 'comfortable', get label() { return t("舒适") } },
+  { id: 'compact', get label() { return t("紧凑") } },
 ]
 
 const SETTINGS_SECTIONS: {
@@ -480,12 +481,21 @@ const SETTINGS_SECTIONS: {
   label: string
   Icon: typeof Palette
 }[] = [
-  { id: 'general', label: '常规', Icon: Settings2 },
-  { id: 'appearance', label: '外观', Icon: Palette },
-  { id: 'storage', label: '模型与存储', Icon: HardDrive },
+  { id: 'general', get label() { return t("常规") }, Icon: Settings2 },
+  { id: 'appearance', get label() { return t("外观") }, Icon: Palette },
+  { id: 'storage', get label() { return t("模型与存储") }, Icon: HardDrive },
 ]
 
 function App() {
+  const locale = useLocale()
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    void invoke('set_ui_language', { language: locale }).catch(error => {
+      console.error('Could not update the native menu language', error)
+    })
+  }, [locale])
+
   const [view, setView] = useState<AppView>('workspace')
   const [shellPage, setShellPage] = useState<ShellPage>('workspace')
   const [extensionsNavHost, setExtensionsNavHost] =
@@ -726,7 +736,7 @@ function App() {
       await revealInFileManager(dataDirectory)
     } catch (error) {
       notify(
-        `无法打开数据目录：${error instanceof Error ? error.message : String(error)}`,
+        t("无法打开数据目录：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -735,10 +745,10 @@ function App() {
     setCleaningCache(true)
     try {
       const removed = await cleanupDownloadCache()
-      notify(removed > 0 ? `已清理 ${removed} 个下载缓存文件` : '没有可清理的下载缓存')
+      notify(removed > 0 ? t("已清理 {0} 个下载缓存文件", [removed]) : t("没有可清理的下载缓存"))
     } catch (error) {
       notify(
-        `清理下载缓存失败：${error instanceof Error ? error.message : String(error)}`,
+        t("清理下载缓存失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       setCleaningCache(false)
@@ -782,7 +792,7 @@ function App() {
     if (isTauriRuntime()) {
       void replaceModelDependencyBindings(next).catch((error) =>
         setToast(
-          `无法保存模型依赖：${error instanceof Error ? error.message : String(error)}`,
+          t("无法保存模型依赖：{0}", [error instanceof Error ? error.message : String(error)]),
         ),
       )
     }
@@ -796,7 +806,7 @@ function App() {
       if (isTauriRuntime()) {
         void replaceModelDependencyBindings(next).catch((error) =>
           setToast(
-            `无法清理模型依赖：${error instanceof Error ? error.message : String(error)}`,
+            t("无法清理模型依赖：{0}", [error instanceof Error ? error.message : String(error)]),
           ),
         )
       }
@@ -884,7 +894,7 @@ function App() {
     return [
       {
         id: 'pinned',
-        label: '已置顶',
+        get label() { return t("已置顶") },
         models: orderedRunnablePlugins.filter((plugin) =>
           pinnedModelIds.includes(plugin.id),
         ),
@@ -961,7 +971,7 @@ function App() {
     repairingDependenciesRef.current.add(selectedPlugin.id)
     void (async () => {
       try {
-        notify(`正在补齐 ${selectedPlugin.name} 的配套组件`)
+        notify(t("正在补齐 {0} 的配套组件", [selectedPlugin.name]))
         for (const dependency of missing) {
           const dependencyId = getModelBinding(
             modelBindings,
@@ -978,13 +988,11 @@ function App() {
         ])
         setPlugins(nextPlugins)
         setCatalog(nextCatalog)
-        notify(`${selectedPlugin.name} 的配套组件已就绪`)
+        notify(t("{0} 的配套组件已就绪", [selectedPlugin.name]))
       } catch (error) {
         repairingDependenciesRef.current.delete(selectedPlugin.id)
         notify(
-          `配套组件安装失败：${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          t("配套组件安装失败：{0}", [error instanceof Error ? error.message : String(error)]),
         )
       }
     })()
@@ -1195,12 +1203,12 @@ function App() {
         status: 'downloaded',
         progress: 100,
       }))
-      if (!silent) notify('更新已下载，点击“重启安装”完成更新')
+      if (!silent) notify(t("更新已下载，点击“重启安装”完成更新"))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       appUpdateStatusRef.current = 'error'
       setAppUpdate((current) => ({ ...current, status: 'error', message }))
-      if (!silent) notify(`下载更新失败：${message}`)
+      if (!silent) notify(t("下载更新失败：{0}", [message]))
     }
   }
 
@@ -1222,12 +1230,12 @@ function App() {
       if (result.status === 'available') {
         appUpdateStatusRef.current = 'available'
         setAppUpdate({ status: 'available', update: result.update })
-        if (!silent) notify(`发现新版本 ${result.update.version}，正在后台下载`)
+        if (!silent) notify(t("发现新版本 {0}，正在后台下载", [result.update.version]))
         void downloadApplicationUpdate(silent)
       } else if (result.status === 'current') {
         appUpdateStatusRef.current = 'current'
         setAppUpdate({ status: 'current' })
-        if (!silent) notify('当前已是最新版本')
+        if (!silent) notify(t("当前已是最新版本"))
       } else {
         appUpdateStatusRef.current = 'unavailable'
         setAppUpdate({ status: 'unavailable', message: result.message })
@@ -1237,13 +1245,13 @@ function App() {
       const message = error instanceof Error ? error.message : String(error)
       appUpdateStatusRef.current = 'error'
       setAppUpdate({ status: 'error', message })
-      if (!silent) notify(`检查更新失败：${message}`)
+      if (!silent) notify(t("检查更新失败：{0}", [message]))
     }
   }
 
   const applyApplicationUpdate = async () => {
     if (activeRunIds.size > 0) {
-      notify('请等待当前模型任务结束后再安装更新')
+      notify(t("请等待当前模型任务结束后再安装更新"))
       return
     }
     if (
@@ -1270,7 +1278,7 @@ function App() {
       const message = error instanceof Error ? error.message : String(error)
       appUpdateStatusRef.current = 'error'
       setAppUpdate((current) => ({ ...current, status: 'error', message }))
-      notify(`安装更新失败：${message}`)
+      notify(t("安装更新失败：{0}", [message]))
     }
   }
 
@@ -1399,7 +1407,7 @@ function App() {
       setCustomApiModels(getInitialCustomApiModels())
     } catch (error) {
       setToast(
-        `无法同步扩展状态：${error instanceof Error ? error.message : String(error)}`,
+        t("无法同步扩展状态：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }, [])
@@ -1515,12 +1523,12 @@ function App() {
       (run) => !activeRunIds.has(run.id),
     )
     if (!removableRuns.length && !Object.keys(workflowTurns).length) {
-      notify('当前没有历史消息')
+      notify(t("当前没有历史消息"))
       return
     }
     if (
       !window.confirm(
-        `确定清除 ${removableRuns.length} 条历史记录吗？此操作无法撤销。`,
+        t("确定清除 {0} 条历史记录吗？此操作无法撤销。", [removableRuns.length]),
       )
     ) {
       return
@@ -1538,10 +1546,10 @@ function App() {
       if (isTauriRuntime()) {
         void emit(HISTORY_CLEARED_EVENT, {}).catch(() => undefined)
       }
-      notify('历史消息已清除')
+      notify(t("历史消息已清除"))
     } catch (error) {
       notify(
-        `清除失败：${error instanceof Error ? error.message : String(error)}`,
+        t("清除失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       setClearingHistory(false)
@@ -1595,12 +1603,12 @@ function App() {
         routing: capability === 'text.generate' ? 'quality' : 'local',
         title: `${selectedPlugin.name} · ${
           capability === 'text.generate'
-            ? '文本生成'
+            ? t("文本生成")
             : capability === 'text.punctuate'
-              ? '标点恢复'
+              ? t("标点恢复")
               : capability === 'text.normalize'
-                ? '文本归一化'
-              : '音频生成'
+                ? t("文本归一化")
+              : t("音频生成")
         }`,
         input:
           capability === 'text.generate'
@@ -1646,10 +1654,10 @@ function App() {
   const clearConversationRuns = async (runIds: string[]): Promise<boolean> => {
     const removableIds = runIds.filter((id) => !activeRunIds.has(id))
     if (!removableIds.length) {
-      notify('当前没有可清除的对话记录')
+      notify(t("当前没有可清除的对话记录"))
       return false
     }
-    if (!window.confirm(`确定清除当前模型的 ${removableIds.length} 条对话记录吗？`)) {
+    if (!window.confirm(t("确定清除当前模型的 {0} 条对话记录吗？", [removableIds.length]))) {
       return false
     }
     try {
@@ -1659,10 +1667,10 @@ function App() {
       if (isTauriRuntime()) {
         void emit(RUNS_REMOVED_EVENT, removableIds).catch(() => undefined)
       }
-      notify('当前模型的对话记录已清除')
+      notify(t("当前模型的对话记录已清除"))
       return true
     } catch (error) {
-      notify(`清除失败：${error instanceof Error ? error.message : String(error)}`)
+      notify(t("清除失败：{0}", [error instanceof Error ? error.message : String(error)]))
       return false
     }
   }
@@ -1698,11 +1706,11 @@ function App() {
         ? clip.transcriptionAudioUrl
         : clip.processingAudioUrl
     if (!audioDataUrl) {
-      throw new Error('该音频无法解码为模型需要的 WAV 格式')
+      throw new Error(t("该音频无法解码为模型需要的 WAV 格式"))
     }
     const comparisonAudioDataUrl = comparisonClip?.processingAudioUrl
     if (comparisonClip && !comparisonAudioDataUrl) {
-      throw new Error('第二段音频无法解码为模型需要的 WAV 格式')
+      throw new Error(t("第二段音频无法解码为模型需要的 WAV 格式"))
     }
     const { speechSegments, ...executionParameters } = modelParameters
 
@@ -1721,12 +1729,12 @@ function App() {
         routing: 'local',
         title:
           capability === 'speaker.embed' && comparisonClip
-            ? `${clip.name} 与 ${comparisonClip.name} · 声纹比对`
+            ? t("{0} 与 {1} · 声纹比对", [clip.name, comparisonClip.name])
             : capability === 'speech.transcribe'
-            ? `${clip.name} · 语音识别`
+            ? t("{0} · 语音识别", [clip.name])
             : capability === 'speech.detect'
-              ? `${clip.name} · 语音活动检测`
-            : `${clip.name} · 音频增强`,
+              ? t("{0} · 语音活动检测", [clip.name])
+            : t("{0} · 音频增强", [clip.name]),
         input: {
           audioDataUrl,
           clipName: clip.name,
@@ -1856,7 +1864,7 @@ function App() {
         {running && (
           <span
             className="installed-model-running"
-            aria-label={`${plugin.name} 运行中`}
+            aria-label={t("{0} 运行中", [plugin.name])}
           >
             <LoaderCircle className="sidebar-model-spinner" size={14} />
           </span>
@@ -1866,8 +1874,8 @@ function App() {
             <button
               className="installed-model-pin"
               type="button"
-              aria-label={`${pinned ? '取消置顶' : '置顶'} ${plugin.name}`}
-              title={pinned ? '取消置顶' : '置顶'}
+              aria-label={`${pinned ? t("取消置顶") : t("置顶")} ${plugin.name}`}
+              title={pinned ? t("取消置顶") : t("置顶")}
               aria-pressed={pinned}
               draggable={false}
               onMouseDown={(event) => event.stopPropagation()}
@@ -1885,13 +1893,13 @@ function App() {
             <button
               className={`installed-model-remove${pendingSidebarRemovalId === plugin.id ? ' confirming' : ''}`}
               type="button"
-              aria-label={`删除 ${plugin.name}`}
+              aria-label={t("删除 {0}", [plugin.name])}
               title={
                 running
-                  ? '模型运行中，暂时无法删除'
+                  ? t("模型运行中，暂时无法删除")
                   : pendingSidebarRemovalId === plugin.id
-                    ? '再次点击确认删除'
-                    : '删除模型'
+                    ? t("再次点击确认删除")
+                    : t("删除模型")
               }
               disabled={running}
               draggable={false}
@@ -1906,17 +1914,17 @@ function App() {
                   setPendingSidebarRemovalId(plugin.id)
                   notify(
                     apiPlugin
-                      ? `再次点击垃圾桶确认从工作台移除 ${plugin.name}`
+                      ? t("再次点击垃圾桶确认从工作台移除 {0}", [plugin.name])
                       : references.length
-                      ? `${plugin.name} 仍被引用；再次点击将隐藏模型并保留权重`
-                      : `再次点击垃圾桶确认删除 ${plugin.name} 的模型权重`,
+                      ? t("{0} 仍被引用；再次点击将隐藏模型并保留权重", [plugin.name])
+                      : t("再次点击垃圾桶确认删除 {0} 的模型权重", [plugin.name]),
                   )
                   return
                 }
                 setPendingSidebarRemovalId(null)
                 if (apiPlugin) {
                   setCloudModelInstalled(plugin.id, false)
-                  notify(`${plugin.name} 已从侧栏移除`)
+                  notify(t("{0} 已从侧栏移除", [plugin.name]))
                 } else {
                   void uninstallModelPlugin(plugin.id)
                     .then(({ plugins: next, removal }) => {
@@ -1924,15 +1932,13 @@ function App() {
                       if (removal.deleted) removeModelBindings(plugin.id)
                       notify(
                         removal.retained
-                          ? `${plugin.name} 已隐藏；共享权重仍被 ${removal.referencedBy.length} 个模型引用`
-                          : `${plugin.name} 的模型权重已删除`,
+                          ? t("{0} 已隐藏；共享权重仍被 {1} 个模型引用", [plugin.name, removal.referencedBy.length])
+                          : t("{0} 的模型权重已删除", [plugin.name]),
                       )
                     })
                     .catch((error) => {
                       notify(
-                        `删除失败：${
-                          error instanceof Error ? error.message : String(error)
-                        }`,
+                        t("删除失败：{0}", [error instanceof Error ? error.message : String(error)]),
                       )
                     })
                 }
@@ -1952,14 +1958,34 @@ function App() {
         <div className="settings-card">
         <div className="settings-row">
           <span>
-            <strong>关闭窗口时</strong>
-            <small>隐藏到程序坞可以快速唤回，退出则完全关闭应用</small>
+            <strong>{t('界面语言')}</strong>
+            <small>{t('选择界面显示语言，立即生效')}</small>
           </span>
-          <div className="settings-segmented" aria-label="关闭窗口时">
+          <div className="settings-segmented" aria-label={t('界面语言')}>
+            {([['zh-CN', '简体中文'], ['en', 'English']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                lang={value}
+                className={locale === value ? 'active' : ''}
+                aria-pressed={locale === value}
+                onClick={() => setLocale(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="settings-row">
+          <span>
+            <strong>{t("关闭窗口时")}</strong>
+            <small>{t("隐藏到程序坞可以快速唤回，退出则完全关闭应用")}</small>
+          </span>
+          <div className="settings-segmented" aria-label={t("关闭窗口时")}>
             {(
               [
-                [false, '隐藏到程序坞'],
-                [true, '退出应用'],
+                [false, t("隐藏到程序坞")],
+                [true, t("退出应用")],
               ] as const
             ).map(([quit, label]) => (
               <button
@@ -1976,38 +2002,38 @@ function App() {
         </div>
         <div className="settings-row">
           <span>
-            <strong>自动检查更新</strong>
-            <small>应用运行期间定期检查是否有新版本</small>
+            <strong>{t("自动检查更新")}</strong>
+            <small>{t("应用运行期间定期检查是否有新版本")}</small>
           </span>
           <button
             className="settings-switch"
             type="button"
             role="switch"
             aria-checked={autoUpdateCheck}
-            aria-label="自动检查更新"
+            aria-label={t("自动检查更新")}
             onClick={() => selectAutoUpdateCheck(!autoUpdateCheck)}
           />
         </div>
         </div>
-        <div className="settings-group-label">更新与数据</div>
+        <div className="settings-group-label">{t("更新与数据")}</div>
         <div className="settings-card">
         <div className="settings-row">
         <span>
-          <strong>软件更新</strong>
+          <strong>{t("软件更新")}</strong>
           <small>
             {appUpdate.status === 'available'
-              ? `版本 ${appUpdate.update?.version} 已可用`
+              ? t("版本 {0} 已可用", [appUpdate.update?.version])
               : appUpdate.status === 'downloading'
                 ? appUpdate.progress === undefined
-                  ? '正在下载安装包'
-                  : `正在下载 ${Math.round(appUpdate.progress)}%`
+                  ? t("正在下载安装包")
+                  : t("正在下载 {0}%", [Math.round(appUpdate.progress)])
                 : appUpdate.status === 'downloaded'
-                  ? `版本 ${appUpdate.update?.version} 已下载，点击重启安装`
+                  ? t("版本 {0} 已下载，点击重启安装", [appUpdate.update?.version])
                   : appUpdate.status === 'installing'
-                    ? '正在安装更新'
+                    ? t("正在安装更新")
                     : appUpdate.status === 'current'
-                      ? `QwenAudio Toolkits ${runtime.version} 已是最新版`
-                      : appUpdate.message ?? `当前版本 ${runtime.version}`}
+                      ? t("QwenAudio Toolkits {0} 已是最新版", [runtime.version])
+                      : appUpdate.message ?? t("当前版本 {0}", [runtime.version])}
           </small>
         </span>
         <button
@@ -2037,24 +2063,24 @@ function App() {
             <RefreshCw size={13} />
           )}
           {appUpdate.status === 'available'
-            ? '下载并安装'
+            ? t("下载并安装")
             : appUpdate.status === 'downloaded'
-              ? '重启安装'
+              ? t("重启安装")
               : appUpdate.status === 'checking'
-                ? '检查中'
+                ? t("检查中")
                 : appUpdate.status === 'downloading'
-                  ? '下载中'
+                  ? t("下载中")
                   : appUpdate.status === 'installing'
-                    ? '安装中'
+                    ? t("安装中")
                     : appUpdate.status === 'unavailable'
-                      ? '开发版本'
-                      : '检查更新'}
+                      ? t("开发版本")
+                      : t("检查更新")}
         </button>
       </div>
       <div className="settings-row">
         <span>
-          <strong>任务数据</strong>
-          <small>输入、结果和运行记录仅保存在本机</small>
+          <strong>{t("任务数据")}</strong>
+          <small>{t("输入、结果和运行记录仅保存在本机")}</small>
         </span>
         <button
           className="settings-danger-action"
@@ -2067,18 +2093,17 @@ function App() {
           ) : (
             <Trash2 size={13} />
           )}
-          清除历史
-        </button>
+          {t("清除历史")}</button>
       </div>
       <div className="settings-row">
         <span>
-          <strong>应用版本</strong>
-          <small>QwenAudio Toolkits 桌面版</small>
+          <strong>{t("应用版本")}</strong>
+          <small>{t("QwenAudio Toolkits 桌面版")}</small>
         </span>
         <span className="settings-value">v{runtime.version}</span>
       </div>
       </div>
-      <div className="settings-group-label">运行环境</div>
+      <div className="settings-group-label">{t("运行环境")}</div>
       <div className="settings-card">
       <div className="settings-row">
         <span>
@@ -2089,7 +2114,7 @@ function App() {
       </div>
       <div className="settings-row">
         <span>
-          <strong>运行设备</strong>
+          <strong>{t("运行设备")}</strong>
           <small>{runtime.platform}</small>
         </span>
         <span className="settings-value">{runtime.device}</span>
@@ -2102,15 +2127,15 @@ function App() {
         <div className="settings-card">
         <div className="settings-row theme-settings-row">
         <span>
-          <strong>外观主题</strong>
-          <small>使用系统外观，或固定浅色与深色模式</small>
+          <strong>{t("外观主题")}</strong>
+          <small>{t("使用系统外观，或固定浅色与深色模式")}</small>
         </span>
-        <div className="theme-segmented" aria-label="外观主题">
+        <div className="theme-segmented" aria-label={t("外观主题")}>
           {(
             [
-              ['system', Monitor, '跟随系统'],
-              ['light', Sun, '浅色'],
-              ['dark', Moon, '深色'],
+              ['system', Monitor, t("跟随系统")],
+              ['light', Sun, t("浅色")],
+              ['dark', Moon, t("深色")],
             ] as const
           ).map(([theme, Icon, label]) => (
             <button
@@ -2129,10 +2154,10 @@ function App() {
       </div>
       <div className="settings-row">
         <span>
-          <strong>强调色</strong>
-          <small>按钮、选中项与高亮状态使用的主题色</small>
+          <strong>{t("强调色")}</strong>
+          <small>{t("按钮、选中项与高亮状态使用的主题色")}</small>
         </span>
-        <div className="accent-swatches" aria-label="强调色">
+        <div className="accent-swatches" aria-label={t("强调色")}>
           {ACCENT_OPTIONS.map(({ id, label, swatch }) => (
             <button
               className={`accent-swatch${accent === id ? ' active' : ''}`}
@@ -2151,10 +2176,10 @@ function App() {
       </div>
       <div className="settings-row">
         <span>
-          <strong>侧边栏密度</strong>
-          <small>紧凑模式可以在模型列表中显示更多条目</small>
+          <strong>{t("侧边栏密度")}</strong>
+          <small>{t("紧凑模式可以在模型列表中显示更多条目")}</small>
         </span>
-        <div className="settings-segmented" aria-label="侧边栏密度">
+        <div className="settings-segmented" aria-label={t("侧边栏密度")}>
           {SIDEBAR_DENSITY_OPTIONS.map(({ id, label }) => (
             <button
               className={sidebarDensity === id ? 'active' : ''}
@@ -2176,11 +2201,11 @@ function App() {
         <div className="settings-card">
         <div className="settings-row">
           <span>
-            <strong>模型与数据目录</strong>
+            <strong>{t("模型与数据目录")}</strong>
             <small>
               {dataDirectory === null
-                ? '正在读取目录位置…'
-                : dataDirectory || '仅桌面版可查看数据目录'}
+                ? t("正在读取目录位置…")
+                : dataDirectory || t("仅桌面版可查看数据目录")}
             </small>
           </span>
           <button
@@ -2189,13 +2214,12 @@ function App() {
             disabled={!dataDirectory}
             onClick={() => void revealDataDirectory()}
           >
-            在访达中显示
-          </button>
+            {t("在访达中显示")}</button>
         </div>
         <div className="settings-row">
           <span>
-            <strong>下载缓存</strong>
-            <small>已完成的模型安装包会保留在本地，可手动清理以释放空间</small>
+            <strong>{t("下载缓存")}</strong>
+            <small>{t("已完成的模型安装包会保留在本地，可手动清理以释放空间")}</small>
           </span>
           <button
             className="settings-update-action"
@@ -2206,8 +2230,7 @@ function App() {
             {cleaningCache ? (
               <LoaderCircle className="model-spin" size={13} />
             ) : null}
-            清理缓存
-          </button>
+            {t("清理缓存")}</button>
         </div>
         </div>
       </>
@@ -2249,7 +2272,7 @@ function App() {
               onClick={leaveShellPage}
             >
               <ArrowLeft size={15} />
-              <span>返回</span>
+              <span>{t("返回")}</span>
             </button>
             <div className="sidebar-page-title">
               {shellPage === 'extensions' ? (
@@ -2257,7 +2280,7 @@ function App() {
               ) : (
                 <Settings size={15} />
               )}
-              <span>{shellPage === 'extensions' ? 'Agents' : '设置'}</span>
+              <span>{shellPage === 'extensions' ? 'Agents' : t("设置")}</span>
             </div>
             {shellPage === 'extensions' ? (
               <div
@@ -2267,7 +2290,7 @@ function App() {
             ) : (
               <nav
                 className="sidebar-page-nav-body settings-nav"
-                aria-label="设置分类"
+                aria-label={t("设置分类")}
               >
                 {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
                   <button
@@ -2288,7 +2311,7 @@ function App() {
 
 
         {shellPage === 'workspace' && (
-        <nav className="installed-models" aria-label="已安装 Agents">
+        <nav className="installed-models" aria-label={t("已安装 Agents")}>
           {sidebarModelGroups.map((group) => {
             const models = group.models
             if (!models.length) return null
@@ -2321,15 +2344,15 @@ function App() {
 
         {shellPage === 'workspace' && <div className="sidebar-spacer" />}
 
-        <nav className="sidebar-dock" aria-label="资源与设置">
+        <nav className="sidebar-dock" aria-label={t("资源与设置")}>
           {WORKFLOWS_ENABLED && (
             <button
               className={`sidebar-dock-button${
                 shellPage === 'workspace' && view === 'workflows' ? ' active' : ''
               }`}
               type="button"
-              aria-label="流程编排"
-              data-tooltip="流程编排"
+              aria-label={t("流程编排")}
+              data-tooltip={t("流程编排")}
               onClick={() => {
                 setEditingWorkflowId(null)
                 changeView('workflows')
@@ -2353,9 +2376,9 @@ function App() {
             ref={settingsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'settings' ? ' active' : ''}`}
             type="button"
-            aria-label="设置"
+            aria-label={t("设置")}
             aria-pressed={shellPage === 'settings'}
-            data-tooltip="设置"
+            data-tooltip={t("设置")}
             onClick={shellPage === 'settings' ? leaveShellPage : openSettings}
           >
             <Settings size={18} />
@@ -2372,22 +2395,22 @@ function App() {
               data-tooltip={
                 appUpdate.status === 'downloading'
                   ? appUpdate.progress === undefined
-                    ? '正在下载安装包'
-                    : `正在下载 ${Math.round(appUpdate.progress)}%`
+                    ? t("正在下载安装包")
+                    : t("正在下载 {0}%", [Math.round(appUpdate.progress)])
                   : appUpdate.status === 'installing'
-                    ? '正在安装更新'
+                    ? t("正在安装更新")
                     : appUpdate.status === 'downloaded'
-                      ? `重启安装 ${appUpdate.update?.version ?? ''}`
-                      : `后台下载更新 ${appUpdate.update?.version ?? ''}`
+                      ? t("重启安装 {0}", [appUpdate.update?.version ?? ''])
+                      : t("后台下载更新 {0}", [appUpdate.update?.version ?? ''])
               }
               aria-label={
                 appUpdate.status === 'downloading'
-                  ? '正在下载安装包'
+                  ? t("正在下载安装包")
                   : appUpdate.status === 'installing'
-                    ? '正在安装更新'
+                    ? t("正在安装更新")
                     : appUpdate.status === 'downloaded'
-                      ? '重启安装新版本'
-                      : '下载新版本'
+                      ? t("重启安装新版本")
+                      : t("下载新版本")
               }
               disabled={
                 appUpdate.status === 'downloading' ||
@@ -2408,7 +2431,7 @@ function App() {
           className="sidebar-resize-handle"
           role="separator"
           tabIndex={0}
-          aria-label="调整左侧栏宽度"
+          aria-label={t("调整左侧栏宽度")}
           aria-orientation="vertical"
           aria-valuemin={MIN_SIDEBAR_WIDTH}
           aria-valuemax={responsiveSidebarMaxWidth}
@@ -2442,7 +2465,7 @@ function App() {
         <button
           className="sidebar-scrim"
           type="button"
-          aria-label="关闭导航"
+          aria-label={t("关闭导航")}
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -2452,7 +2475,7 @@ function App() {
           <button
             className="mobile-menu-button"
             type="button"
-            aria-label="打开导航"
+            aria-label={t("打开导航")}
             onClick={() => setSidebarOpen(true)}
           >
             <Menu size={19} />
@@ -2462,20 +2485,20 @@ function App() {
               {shellPage === 'extensions'
                 ? 'Agents'
                 : shellPage === 'settings'
-                  ? `设置 · ${activeSettingsSection.label}`
+                  ? t("设置 · {0}", [activeSettingsSection.label])
                   : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
                   ? workflows.find(
                       (workflow) => workflow.id === selectedWorkflowId,
-                    )?.name ?? '虚拟模型'
+                    )?.name ?? t("虚拟模型")
                   : selectedPlugin.name
-                : '流程编排'}
+                : t("流程编排")}
             </span>
           </div>
           <div className="topbar-actions">
             <span className="model-runtime-state">
               <i />
-              {isTauriRuntime() ? '本地运行' : '界面预览'}
+              {isTauriRuntime() ? t("本地运行") : t("界面预览")}
             </span>
           </div>
         </header>
@@ -2485,7 +2508,7 @@ function App() {
         >
           <Suspense
             fallback={
-              <div className="app-view-loading" aria-label="正在加载">
+              <div className="app-view-loading" aria-label={t("正在加载")}>
                 <LoaderCircle className="model-spin" size={19} />
               </div>
             }
@@ -2521,7 +2544,13 @@ function App() {
               {settingsRows[settingsSection]}
             </section>
           )}
-          {shellPage === 'workspace' && view === 'workspace' && (
+          {/* Keep draft inputs and live sessions alive while changing settings. */}
+          <div
+            className="workspace-session"
+            hidden={shellPage !== 'workspace'}
+            inert={shellPage !== 'workspace'}
+          >
+          {view === 'workspace' && (
             WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
               <WorkflowChatView
                 workflowId={selectedWorkflowId}
@@ -2555,7 +2584,7 @@ function App() {
               />
             )
           )}
-          {shellPage === 'workspace' && WORKFLOWS_ENABLED && view === 'workflows' && (
+          {WORKFLOWS_ENABLED && view === 'workflows' && (
             <WorkflowsView
               key={editingWorkflowId ?? 'new-workflow'}
               catalog={catalog}
@@ -2570,6 +2599,7 @@ function App() {
               onAction={notify}
             />
           )}
+          </div>
           </Suspense>
         </div>
       </div>
@@ -2582,7 +2612,7 @@ function App() {
           {toast}
           <button
             type="button"
-            aria-label="关闭通知"
+            aria-label={t("关闭通知")}
             onClick={() => setToast(null)}
           >
             <X size={14} />
@@ -2607,13 +2637,13 @@ function App() {
             <div className="dialog-heading">
               <div>
                 <span className="section-kicker">PROVIDER</span>
-                <h2 id="provider-dialog-title">Provider 配置</h2>
+                <h2 id="provider-dialog-title">{t("Provider 配置")}</h2>
               </div>
               <button
                 className="icon-button"
                 type="button"
                 autoFocus
-                aria-label="关闭 Provider 配置"
+                aria-label={t("关闭 Provider 配置")}
                 onClick={closeProviderDialog}
               >
                 <X size={17} />

@@ -9917,3 +9917,11 @@ body.detail-resizing .model-workspace {
 .agent-usage ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.8; }
 
 .agent-import-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* Preserve workspace state while settings/extensions are visible. */
+.workspace-session {
+  display: contents;
+}
+.workspace-session[hidden] {
+  display: none;
+}
