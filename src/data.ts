@@ -101,5 +101,5 @@ export const fallbackRuntime: RuntimeStatus = {
   backend: 'Rust + sherpa-onnx',
   device: 'Apple Metal',
   platform: 'Browser preview',
-  version: '0.1.12',
+  version: '0.1.14',
 }

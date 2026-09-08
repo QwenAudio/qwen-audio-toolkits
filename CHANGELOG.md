@@ -5,6 +5,8 @@ All notable user-facing changes are documented here. The project follows
 
 ## Unreleased
 
+## 0.1.14 - 2026-09-08
+
 ### Fixed
 
 - On macOS, "quit on close" exits the entire application even while the hidden
