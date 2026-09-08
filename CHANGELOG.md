@@ -3,6 +3,14 @@
 All notable user-facing changes are documented here. The project follows
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- On macOS, "quit on close" exits the entire application even while the hidden
+  captions window exists. Dock reopen recreates a missing main window instead of
+  leaving the application running without a usable window.
+
 ## 0.1.12 - 2026-09-06
 
 ### Added

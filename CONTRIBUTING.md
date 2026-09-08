@@ -69,3 +69,24 @@ Keep full model names and taxonomy labels (such as `Audio-to-Text`) in the
 sidebar. The default width is 260px; saved user widths take precedence. Model
 rows use 30px height, or 26px in compact mode. Bottom utility buttons remain
 icon-only with hover labels.
+
+## macOS window lifecycle
+
+The red close button hides the main window by default. With "quit on close"
+enabled it must exit the entire application, including the hidden captions window.
+Dock reopen must show and focus a hidden/minimized window and recover a missing
+main window using its Tauri configuration.
+
+For lifecycle changes, run the native regression check in a disposable debug
+bundle with a separate identifier ending in `.windowtest`:
+
+```bash
+npm run tauri -- build --debug --bundles app --config '{"productName":"QwenAudio Window Test","identifier":"org.qwenaudio.toolkits.windowtest","bundle":{"createUpdaterArtifacts":false}}'
+node scripts/macos-window-smoke.mjs "src-tauri/target/debug/bundle/macos/QwenAudio Window Test.app"
+```
+
+Adjust the bundle path if `CARGO_TARGET_DIR` is set. Use Xcode 26+ on Tahoe.
+The smoke check sends actual close/minimize requests and Launch Services reopen
+Apple events, tests missing-window recovery, and verifies full process exit with
+the captions window present. It never runs against the normal app identifier or
+its settings/model data. The in-app hook is excluded from release builds.
