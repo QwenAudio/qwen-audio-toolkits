@@ -282,6 +282,20 @@ const plugins = (await jsonFetch('/v1/plugins')).filter(
     plugin.adapter !== 'web-audio' &&
     (requestedPluginIds.size === 0 || requestedPluginIds.has(plugin.id)),
 )
+if (!plugins.length) throw new Error('no installed local models were discovered')
+const duplicatePluginIds = plugins
+  .map((plugin) => plugin.id)
+  .filter((id, index, ids) => ids.indexOf(id) !== index)
+if (duplicatePluginIds.length) {
+  throw new Error(`duplicate installed model ids: ${duplicatePluginIds.join(', ')}`)
+}
+for (const plugin of plugins) {
+  if (plugin.harnessCapabilities.length !== 1) {
+    throw new Error(
+      `${plugin.name} must expose exactly one smoke-testable Harness capability`,
+    )
+  }
+}
 const results = []
 
 for (const plugin of plugins) {
@@ -303,5 +317,20 @@ for (const plugin of plugins) {
 }
 
 const failed = results.filter((result) => result.status !== 'completed')
-console.log(JSON.stringify({ total: results.length, passed: results.length - failed.length, failed }, null, 2))
+const capabilities = Object.fromEntries(
+  [...new Set(plugins.map((plugin) => plugin.harnessCapabilities[0]))]
+    .sort()
+    .map((capability) => [
+      capability,
+      plugins.filter(
+        (plugin) => plugin.harnessCapabilities[0] === capability,
+      ).length,
+    ]),
+)
+console.log(JSON.stringify({
+  total: results.length,
+  passed: results.length - failed.length,
+  capabilities,
+  failed,
+}, null, 2))
 process.exitCode = failed.length ? 1 : 0

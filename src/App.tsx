@@ -29,6 +29,7 @@ import {
   Pin,
   RefreshCw,
   Palette,
+  Scissors,
   Settings,
   Settings2,
   ShoppingBag,
@@ -40,6 +41,12 @@ import {
   ProviderSettings,
   type ProviderSettingsKind,
 } from './components/ProviderSettings'
+import {
+  appAgentsWithInstallState,
+  INSTALLED_APP_AGENTS_STORAGE_KEY,
+  isWorkspaceAgent,
+  sanitizeInstalledAppAgentIds,
+} from './appAgents'
 import { initialPlugins, fallbackRuntime } from './data'
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
 import { modelTaxonomy } from './domain/modelTaxonomy'
@@ -117,8 +124,13 @@ const WorkflowsView = lazy(() =>
     default: module.WorkflowsView,
   })),
 )
+const SmartCutView = lazy(() =>
+  import('./views/SmartCutView').then((module) => ({
+    default: module.SmartCutView,
+  })),
+)
 
-type AppView = 'workspace' | 'workflows'
+type AppView = 'workspace' | 'smart-cut' | 'workflows'
 type ThemePreference = 'system' | 'light' | 'dark'
 type AppUpdateState = {
   status:
@@ -352,6 +364,17 @@ function getInitialCustomApiModels(): CustomApiModelDefinition[] {
   }
 }
 
+function getInitialInstalledAppAgents(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    return sanitizeInstalledAppAgentIds(JSON.parse(
+      window.localStorage.getItem(INSTALLED_APP_AGENTS_STORAGE_KEY) ?? '[]',
+    ))
+  } catch {
+    return []
+  }
+}
+
 function getInitialSidebarModelOrder(): string[] {
   if (typeof window === 'undefined') return []
   try {
@@ -518,6 +541,9 @@ function App() {
   )
   const [installedCloudModelIds, setInstalledCloudModelIds] = useState<string[]>(
     getInitialCloudModels,
+  )
+  const [installedAppAgentIds, setInstalledAppAgentIds] = useState<string[]>(
+    getInitialInstalledAppAgents,
   )
   const [customApiModels, setCustomApiModels] = useState<
     CustomApiModelDefinition[]
@@ -763,6 +789,35 @@ function App() {
       customApiModels,
     ).filter((plugin) => plugin.installed)
   }, [apiModelCatalog, catalog, customApiModels, installedCloudModelIds])
+  const appAgents = useMemo(
+    () => appAgentsWithInstallState(installedAppAgentIds),
+    [installedAppAgentIds],
+  )
+  const installedAppAgents = useMemo(
+    () => appAgents.filter((agent) => agent.installed),
+    [appAgents],
+  )
+
+  const setAppAgentInstalled = (agentId: string, installed: boolean) => {
+    setInstalledAppAgentIds((current) => {
+      const next = sanitizeInstalledAppAgentIds(
+        installed
+          ? [...current, agentId]
+          : current.filter((id) => id !== agentId),
+      )
+      try {
+        window.localStorage.setItem(
+          INSTALLED_APP_AGENTS_STORAGE_KEY,
+          JSON.stringify(next),
+        )
+      } catch {
+        // Keep the current session state when storage is unavailable.
+      }
+      return next
+    })
+    const agent = appAgents.find((candidate) => candidate.id === agentId)
+    if (!installed && agent?.workspaceEntry === view) changeView('workspace')
+  }
 
   useEffect(() => {
     if (!modelBindingsLoaded) return
@@ -1952,6 +2007,12 @@ function App() {
     )
   }
 
+  const openWorkspaceAgent = (agent: ModelPlugin) => {
+    if (!isWorkspaceAgent(agent)) return
+    setWorkflowSelected(false)
+    changeView(agent.workspaceEntry)
+  }
+
   const settingsRows: Record<SettingsSection, ReactNode> = {
     general: (
       <>
@@ -2339,6 +2400,66 @@ function App() {
               </section>
             )
           })}
+          {installedAppAgents.length > 0 && (
+            <section
+              className="sidebar-model-group"
+              aria-label="Agents"
+            >
+              <button
+                className="sidebar-model-group-label"
+                type="button"
+                aria-expanded={!collapsedSidebarGroups.has('workspace-agents')}
+                onClick={() => toggleSidebarGroup('workspace-agents')}
+              >
+                <span>Agents</span>
+                <span className="sidebar-group-count">{installedAppAgents.length}</span>
+              </button>
+              {!collapsedSidebarGroups.has('workspace-agents') && (
+                <div className="sidebar-model-group-items">
+                  {installedAppAgents.map((agent) => {
+                    const active = agent.workspaceEntry === view
+                    return (
+                      <div className="installed-model-entry" key={agent.id}>
+                        <button
+                          className={`installed-model-button${active ? ' active' : ''}`}
+                          type="button"
+                          aria-label={agent.name}
+                          aria-current={active ? 'page' : undefined}
+                          onClick={() => openWorkspaceAgent(agent)}
+                        >
+                          <Scissors size={14} />
+                          <span className="activity-model-name">
+                            <span className="activity-model-name-text">{agent.name}</span>
+                          </span>
+                        </button>
+                        <div className="installed-model-actions">
+                          <button
+                            className={`installed-model-remove${pendingSidebarRemovalId === agent.id ? ' confirming' : ''}`}
+                            type="button"
+                            aria-label={`卸载 ${agent.name}`}
+                            title={pendingSidebarRemovalId === agent.id ? '再次点击确认卸载' : '卸载 Agent'}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              if (pendingSidebarRemovalId !== agent.id) {
+                                setPendingSidebarRemovalId(agent.id)
+                                notify(`再次点击垃圾桶确认卸载 ${agent.name}`)
+                                return
+                              }
+                              setPendingSidebarRemovalId(null)
+                              setAppAgentInstalled(agent.id, false)
+                              notify(`${agent.name} 已卸载`)
+                            }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </section>
+          )}
         </nav>
         )}
 
@@ -2486,7 +2607,9 @@ function App() {
                 ? 'Agents'
                 : shellPage === 'settings'
                   ? t("设置 · {0}", [activeSettingsSection.label])
-                  : view === 'workspace'
+                  : view === 'smart-cut'
+                    ? t("口播剪辑")
+                    : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
                   ? workflows.find(
                       (workflow) => workflow.id === selectedWorkflowId,
@@ -2521,6 +2644,7 @@ function App() {
               catalog={catalog}
               apiModelCatalog={apiModelCatalog}
               customApiModels={customApiModels}
+              appAgents={appAgents}
               installedCloudModelIds={installedCloudModelIds}
               onConfigureProvider={openProviderSettings}
               onPluginsChanged={setPlugins}
@@ -2529,6 +2653,7 @@ function App() {
               onSetModelBinding={saveModelBinding}
               onCatalogChanged={setCatalog}
               onCloudModelInstalled={setCloudModelInstalled}
+              onAppAgentInstalled={setAppAgentInstalled}
               onAction={notify}
               taxonomyHost={extensionsNavHost}
             />
@@ -2583,6 +2708,15 @@ function App() {
                 onClearConversation={clearConversationRuns}
               />
             )
+          )}
+          {view === 'smart-cut' && (
+            <SmartCutView
+              models={orderedRunnablePlugins}
+              catalog={catalog}
+              onRunAudio={runAudio}
+              onOpenStore={openExtensions}
+              onAction={notify}
+            />
           )}
           {WORKFLOWS_ENABLED && view === 'workflows' && (
             <WorkflowsView

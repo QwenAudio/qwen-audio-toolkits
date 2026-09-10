@@ -23,12 +23,19 @@ export interface AgentProject {
     limitations: string[]
     examples: string[]
   }
-  harness: {
-    kind: 'host-adapter'
-    adapter: string
-    capability: HarnessCapabilityId
-  }
+  harness:
+    | {
+        kind: 'host-adapter'
+        adapter: string
+        capability: HarnessCapabilityId
+      }
+    | {
+        kind: 'app-workflow'
+        entry: WorkspaceAgentEntry
+      }
 }
+
+export type WorkspaceAgentEntry = 'smart-cut'
 
 /** An extension is an Agent project; model fields remain compatible with v1/v2 packages. */
 export interface AgentExtension {
@@ -67,6 +74,9 @@ export interface AgentExtension {
   outputs?: PluginPortDefinition[]
   parameterSchema?: PluginParameterDefinition[]
   recommendedDependencies?: ModelDependencyDefinition[]
+  /** App workflows are installed from the same catalog but open a dedicated workspace. */
+  extensionKind?: 'model' | 'workspace-agent'
+  workspaceEntry?: WorkspaceAgentEntry
 }
 
 /** Compatibility alias for existing model execution components. */
@@ -123,6 +133,7 @@ export interface CustomApiModelDefinition {
 
 type PluginPortType =
   | 'audio'
+  | 'video'
   | 'speech-segments'
   | 'transcript'
   | 'text'

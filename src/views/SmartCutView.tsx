@@ -1,0 +1,1101 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
+import { open, save } from '@tauri-apps/plugin-dialog'
+import {
+  Check,
+  Captions,
+  ChevronLeft,
+  Download,
+  Eye,
+  FileVideo,
+  LoaderCircle,
+  Pause,
+  Play,
+  RotateCcw,
+  Scissors,
+  ShieldCheck,
+  Sparkles,
+  Upload,
+  Volume2,
+} from 'lucide-react'
+import {
+  activeSmartCutWordId,
+  buildSmartCutCandidates,
+  buildSmartCutSubtitleCues,
+  buildSmartCutTextSegments,
+  deletedDuration,
+  keepRangesFromCuts,
+  hasUsableSmartCutTimeline,
+  manualWordCandidate,
+  modelSupportsSmartCutTimeline,
+  normalizeSmartCutTranscription,
+  selectedDeleteRanges,
+  smartCutWords,
+  type SmartCutCandidate,
+  type SmartCutWord,
+} from '../domain/smartCut'
+import { audioFileToClip, formatFileSize, formatTime } from '../utils/audio'
+import { readDroppedAudioFile } from '../services/harness'
+import {
+  analyzeCutBoundaries,
+  exportSmartCut,
+  localVideoUrl,
+  prepareVideoMedia,
+  videoEditorStatus,
+  type PreparedVideoMedia,
+  type VideoEditorStatus,
+} from '../services/videoEditor'
+import type {
+  AsrTranscriptionResult,
+  AudioClip,
+  AudioProcessResult,
+  HarnessCatalog,
+  HarnessCapabilityId,
+  HarnessExecution,
+  ModelPlugin,
+  VadDetectionResult,
+} from '../types'
+import './SmartCutView.css'
+
+type AnalysisStage =
+  | 'empty'
+  | 'preparing'
+  | 'ready'
+  | 'transcribing'
+  | 'review'
+  | 'preview'
+  | 'exporting'
+
+interface SmartCutViewProps {
+  models: ModelPlugin[]
+  catalog: HarnessCatalog | null
+  onRunAudio: (
+    clip: AudioClip,
+    capability: Extract<
+      HarnessCapabilityId,
+      'speech.transcribe' | 'speech.detect' | 'audio.enhance'
+    >,
+    providerId: string,
+    modelId: string,
+    parameters: Record<string, unknown>,
+    conversationVisible?: boolean,
+  ) => Promise<
+    HarnessExecution<
+      | AsrTranscriptionResult
+      | VadDetectionResult
+      | AudioProcessResult
+      | Record<string, unknown>
+    >
+  >
+  onOpenStore: () => void
+  onAction: (message: string) => void
+}
+
+const REASON_LABELS: Record<SmartCutCandidate['reason'], string> = {
+  silence: '静音',
+  filler: '口水词',
+  repetition: '重复',
+  manual: '手动',
+}
+
+function isAsrResult(value: unknown): value is AsrTranscriptionResult {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'text' in value &&
+      'segments' in value,
+  )
+}
+
+function isVadResult(value: unknown): value is VadDetectionResult {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      'speechSeconds' in value &&
+      'silenceSeconds' in value &&
+      'segments' in value,
+  )
+}
+
+function modelReady(model: ModelPlugin, catalog: HarnessCatalog | null): boolean {
+  const provider = catalog?.providers.find((item) => item.id === model.providerId)
+  return model.installed && Boolean(model.providerId) && (!provider || provider.status === 'ready')
+}
+
+function clipNameWithoutExtension(name: string): string {
+  return name.replace(/\.[^.]+$/, '') || 'smart-cut'
+}
+
+function compactCandidateLabel(candidate: SmartCutCandidate): string {
+  return candidate.label.replace(/^(?:口水词|重复词)/u, '')
+}
+
+function statusCopy(stage: AnalysisStage): string {
+  if (stage === 'preparing') return '正在提取音轨并读取视频信息…'
+  if (stage === 'transcribing') return '正在识别语音、检测停顿并检查画面切口…'
+  if (stage === 'exporting') return '正在生成 MP4，请勿关闭窗口…'
+  return ''
+}
+
+export function SmartCutView({
+  models,
+  catalog,
+  onRunAudio,
+  onOpenStore,
+  onAction,
+}: SmartCutViewProps) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const segmentListRef = useRef<HTMLDivElement>(null)
+  const segmentElementRefs = useRef(new Map<string, HTMLElement>())
+  const wordDragRef = useRef<{
+    deleting: boolean
+    visited: Set<string>
+  } | null>(null)
+  const [engine, setEngine] = useState<VideoEditorStatus | null>(null)
+  const [stage, setStage] = useState<AnalysisStage>('empty')
+  const [media, setMedia] = useState<PreparedVideoMedia | null>(null)
+  const [audioClip, setAudioClip] = useState<AudioClip | null>(null)
+  const [transcription, setTranscription] =
+    useState<AsrTranscriptionResult | null>(null)
+  const [vadResult, setVadResult] = useState<VadDetectionResult | null>(null)
+  const [candidates, setCandidates] = useState<SmartCutCandidate[]>([])
+  const [history, setHistory] = useState<SmartCutCandidate[][]>([])
+  const [minimumSilence, setMinimumSilence] = useState(0.65)
+  const [edgePadding, setEdgePadding] = useState(0.12)
+  const [selectedAsrModelId, setSelectedAsrModelId] = useState('')
+  const [currentTime, setCurrentTime] = useState(0)
+  const [playing, setPlaying] = useState(false)
+  const [error, setError] = useState('')
+  const [activeAudition, setActiveAudition] = useState<{
+    id: string
+    start: number
+    end: number
+  } | null>(null)
+  const [auditionMode, setAuditionMode] = useState<'comparison' | 'removed'>('comparison')
+  const [includeSubtitles, setIncludeSubtitles] = useState(true)
+
+  const asrModels = useMemo(
+    () =>
+      models
+        .filter(
+          (model) =>
+            modelReady(model, catalog) &&
+            model.streamingMode !== 'streaming' &&
+            modelSupportsSmartCutTimeline(model) &&
+            model.harnessCapabilities.includes('speech.transcribe'),
+        )
+        .sort((left, right) => {
+          const leftLocal = left.providerId?.startsWith('api.') ? 1 : 0
+          const rightLocal = right.providerId?.startsWith('api.') ? 1 : 0
+          return leftLocal - rightLocal || left.name.localeCompare(right.name)
+        }),
+    [catalog, models],
+  )
+  const vadModel = useMemo(
+    () =>
+      models.find(
+        (model) =>
+          modelReady(model, catalog) &&
+          model.streamingMode !== 'streaming' &&
+          model.harnessCapabilities.includes('speech.detect'),
+      ),
+    [catalog, models],
+  )
+
+  useEffect(() => {
+    void videoEditorStatus()
+      .then(setEngine)
+      .catch((reason) =>
+        setEngine({
+          available: false,
+          message: reason instanceof Error ? reason.message : String(reason),
+        }),
+      )
+  }, [])
+
+  useEffect(() => {
+    if (asrModels.some((model) => model.id === selectedAsrModelId)) return
+    setSelectedAsrModelId(asrModels[0]?.id ?? '')
+  }, [asrModels, selectedAsrModelId])
+
+  useEffect(() => {
+    return () => {
+      if (audioClip?.url?.startsWith('blob:')) URL.revokeObjectURL(audioClip.url)
+    }
+  }, [audioClip])
+
+  const aiCandidates = useMemo(
+    () => candidates.filter((candidate) => candidate.reason !== 'manual'),
+    [candidates],
+  )
+  const manualCandidates = useMemo(
+    () => candidates.filter((candidate) => candidate.reason === 'manual' && candidate.selected),
+    [candidates],
+  )
+  const transcriptWords = useMemo(
+    () => (transcription ? smartCutWords(transcription) : []),
+    [transcription],
+  )
+  const wordsById = useMemo(
+    () => new Map(transcriptWords.map((word) => [word.id, word])),
+    [transcriptWords],
+  )
+  const activeWordId = useMemo(
+    () => activeSmartCutWordId(transcriptWords, currentTime),
+    [currentTime, transcriptWords],
+  )
+  const textSegments = useMemo(
+    () => transcription
+      ? buildSmartCutTextSegments(transcription, vadResult)
+      : [],
+    [transcription, vadResult],
+  )
+  const activeTextSegmentId = useMemo(
+    () => textSegments.find(
+      (segment) => currentTime >= segment.start && currentTime < segment.end,
+    )?.id ?? null,
+    [currentTime, textSegments],
+  )
+
+  useEffect(() => {
+    if (!playing || !activeTextSegmentId) return
+    const container = segmentListRef.current
+    const segment = segmentElementRefs.current.get(activeTextSegmentId)
+    if (!container || !segment) return
+    const top = segment.offsetTop
+    const bottom = top + segment.offsetHeight
+    const visibleTop = container.scrollTop
+    const visibleBottom = visibleTop + container.clientHeight
+    if (top >= visibleTop && bottom <= visibleBottom) return
+    container.scrollTo({
+      top: Math.max(0, top - 7),
+      behavior: 'smooth',
+    })
+  }, [activeTextSegmentId, playing])
+  const manualGroups = useMemo(() => {
+    const selected = new Map(
+      manualCandidates.map((candidate) => [candidate.id, candidate]),
+    )
+    const groups: Array<{
+      id: string
+      text: string
+      start: number
+      end: number
+    }> = []
+    let activeGroup: (typeof groups)[number] | null = null
+    for (const word of transcriptWords) {
+      const candidate = selected.get(`manual-${word.id}`)
+      if (!candidate) {
+        activeGroup = null
+        continue
+      }
+      if (activeGroup && candidate.start - activeGroup.end > 0.35) {
+        activeGroup = null
+      }
+      if (!activeGroup) {
+        activeGroup = {
+          id: `manual-group-${word.id}`,
+          text: word.text,
+          start: candidate.start,
+          end: candidate.end,
+        }
+        groups.push(activeGroup)
+        continue
+      }
+      const joinWithoutSpace =
+        /[\u3400-\u9fff]$/u.test(activeGroup.text) &&
+        /^[\u3400-\u9fff]/u.test(word.text)
+      activeGroup.text += `${joinWithoutSpace ? '' : ' '}${word.text}`
+      activeGroup.end = candidate.end
+    }
+    return groups
+  }, [manualCandidates, transcriptWords])
+  const removedSeconds = media ? deletedDuration(candidates, media.duration) : 0
+  const outputDuration = media ? Math.max(0, media.duration - removedSeconds) : 0
+  const cuts = useMemo(
+    () => (media ? selectedDeleteRanges(candidates, media.duration) : []),
+    [candidates, media],
+  )
+
+  const updateCandidates = useCallback(
+    (update: (current: SmartCutCandidate[]) => SmartCutCandidate[]) => {
+      setCandidates((current) => {
+        setHistory((snapshots) => [...snapshots.slice(-19), current])
+        return update(current)
+      })
+    },
+    [],
+  )
+
+  const applyManualWordSelection = useCallback(
+    (word: SmartCutWord, deleting: boolean) => {
+      setCandidates((current) => {
+        const id = `manual-${word.id}`
+        const midpoint = (word.start + word.end) / 2
+        const withoutWord = current
+          .filter((candidate) => candidate.id !== id)
+          .map((candidate) =>
+            !deleting &&
+            candidate.selected &&
+            midpoint >= candidate.start &&
+            midpoint < candidate.end
+              ? { ...candidate, selected: false }
+              : candidate,
+          )
+        if (!deleting) return withoutWord
+        return [...withoutWord, manualWordCandidate(word)].sort(
+          (left, right) => left.start - right.start,
+        )
+      })
+    },
+    [],
+  )
+
+  const beginWordSelection = (
+    event: ReactPointerEvent<HTMLSpanElement>,
+    word: SmartCutWord,
+  ) => {
+    if (stage !== 'review' || event.button !== 0) return
+    event.preventDefault()
+    const midpoint = (word.start + word.end) / 2
+    const deleting = !candidates.some(
+      (candidate) =>
+        candidate.selected &&
+        midpoint >= candidate.start &&
+        midpoint < candidate.end,
+    )
+    wordDragRef.current = { deleting, visited: new Set([word.id]) }
+    setHistory((snapshots) => [...snapshots.slice(-19), candidates])
+    applyManualWordSelection(word, deleting)
+    if (videoRef.current) videoRef.current.currentTime = word.start
+  }
+
+  const continueWordSelection = (word: SmartCutWord) => {
+    const drag = wordDragRef.current
+    if (!drag || stage !== 'review' || drag.visited.has(word.id)) return
+    drag.visited.add(word.id)
+    applyManualWordSelection(word, drag.deleting)
+  }
+
+  useEffect(() => {
+    const finishSelection = () => {
+      wordDragRef.current = null
+    }
+    window.addEventListener('pointerup', finishSelection)
+    window.addEventListener('pointercancel', finishSelection)
+    return () => {
+      window.removeEventListener('pointerup', finishSelection)
+      window.removeEventListener('pointercancel', finishSelection)
+    }
+  }, [])
+
+  const resetProject = () => {
+    videoRef.current?.pause()
+    setMedia(null)
+    setAudioClip(null)
+    setTranscription(null)
+    setVadResult(null)
+    setCandidates([])
+    setHistory([])
+    setError('')
+    setStage('empty')
+    setCurrentTime(0)
+    setActiveAudition(null)
+  }
+
+  const chooseVideo = async () => {
+    if (!engine?.available) {
+      setError(engine?.message ?? '视频引擎尚未就绪')
+      return
+    }
+    const selection = await open({
+      title: '选择要剪辑的口播视频',
+      multiple: false,
+      directory: false,
+      filters: [
+        { name: '视频文件', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'] },
+      ],
+    })
+    const sourcePath = typeof selection === 'string' ? selection : null
+    if (!sourcePath) return
+    resetProject()
+    setStage('preparing')
+    try {
+      const prepared = await prepareVideoMedia(sourcePath).catch((reason) => {
+        throw new Error(`视频准备失败：${reason instanceof Error ? reason.message : String(reason)}`)
+      })
+      const audioFile = await readDroppedAudioFile(prepared.audioPath).catch((reason) => {
+        throw new Error(`读取视频音轨失败：${reason instanceof Error ? reason.message : String(reason)}`)
+      })
+      const clip = await audioFileToClip(audioFile).catch((reason) => {
+        throw new Error(`解析视频音轨失败：${reason instanceof Error ? reason.message : String(reason)}`)
+      })
+      setMedia(prepared)
+      setAudioClip({ ...clip, name: prepared.sourceName })
+      setStage('ready')
+      onAction('视频已导入，选择识别模型后开始分析')
+    } catch (reason) {
+      setStage('empty')
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  const analyze = async () => {
+    const asrModel = asrModels.find((model) => model.id === selectedAsrModelId)
+    if (!media || !audioClip || !asrModel?.providerId) return
+    setStage('transcribing')
+    setError('')
+    try {
+      const asrExecution = await onRunAudio(
+        audioClip,
+        'speech.transcribe',
+        asrModel.providerId,
+        asrModel.version,
+        { language: 'auto' },
+        false,
+      )
+      if (!isAsrResult(asrExecution.output)) {
+        throw new Error('识别模型没有返回带时间轴的文本')
+      }
+      const asr = normalizeSmartCutTranscription(
+        asrExecution.output,
+        media.duration,
+      )
+      if (!hasUsableSmartCutTimeline(asr)) {
+        throw new Error('识别模型没有返回可用于剪辑的词级或分段时间戳')
+      }
+      let vad: VadDetectionResult | null = null
+      if (vadModel?.providerId) {
+        try {
+          const vadExecution = await onRunAudio(
+            audioClip,
+            'speech.detect',
+            vadModel.providerId,
+            vadModel.version,
+            {
+              threshold: 0.25,
+              minSpeechDuration: 0.18,
+              minSilenceDuration: 0.2,
+            },
+            false,
+          )
+          if (isVadResult(vadExecution.output)) vad = vadExecution.output
+        } catch {
+          onAction('VAD 暂时不可用，已根据识别时间戳推断停顿')
+        }
+      }
+      let next = buildSmartCutCandidates(asr, vad, media.duration, {
+        minimumSilence,
+        edgePadding,
+      })
+      const visualTargets = next
+        .filter((candidate) => candidate.reason === 'silence')
+        .map(({ id, start, end }) => ({ id, start, end }))
+      if (visualTargets.length) {
+        const analyses = await analyzeCutBoundaries(media.sourcePath, visualTargets)
+        const byId = new Map(analyses.map((item) => [item.id, item]))
+        next = next.map((candidate) => {
+          const visual = byId.get(candidate.id)
+          if (!visual) return candidate
+          return {
+            ...candidate,
+            visualSimilarity: visual.similarity,
+            visualStable: visual.stable,
+            visualAvailable: visual.available,
+            selected:
+              candidate.reason === 'silence' &&
+              candidate.confidence === 'high' &&
+              visual.stable,
+          }
+        })
+      }
+      setTranscription(asr)
+      setVadResult(vad)
+      setCandidates(next)
+      setHistory([])
+      setStage('review')
+      onAction(`分析完成：找到 ${next.length} 个候选，请先校对再生成剪辑结果`)
+    } catch (reason) {
+      setStage('ready')
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  const rebuildSilences = () => {
+    if (!transcription || !media) return
+    const rebuilt = buildSmartCutCandidates(
+      transcription,
+      vadResult,
+      media.duration,
+      { minimumSilence, edgePadding },
+    )
+    const visualByWindow = candidates
+      .filter((candidate) => candidate.reason === 'silence')
+      .map((candidate) => candidate)
+    const selectedById = new Map(
+      candidates.map((candidate) => [candidate.id, candidate.selected]),
+    )
+    const manual = candidates.filter((candidate) => candidate.reason === 'manual')
+    updateCandidates(() =>
+      [...rebuilt.map((candidate) => {
+        if (candidate.reason !== 'silence') return candidate
+        const nearest = visualByWindow.find(
+          (current) =>
+            Math.abs(current.start - candidate.start) < 0.2 &&
+            Math.abs(current.end - candidate.end) < 0.2,
+        )
+        return nearest
+          ? {
+              ...candidate,
+              visualSimilarity: nearest.visualSimilarity,
+              visualStable: nearest.visualStable,
+              visualAvailable: nearest.visualAvailable,
+              selected: Boolean(nearest.visualStable && candidate.confidence === 'high'),
+            }
+          : candidate
+      }).map((candidate) => candidate.reason === 'silence'
+        ? candidate
+        : { ...candidate, selected: selectedById.get(candidate.id) ?? candidate.selected }), ...manual]
+        .sort((left, right) => left.start - right.start),
+    )
+  }
+
+  const previewCandidate = (candidate: { id: string; start: number; end: number }) => {
+    const video = videoRef.current
+    if (!video) return
+    setAuditionMode('comparison')
+    setActiveAudition(candidate)
+    video.currentTime = Math.max(0, candidate.start - 1.2)
+    void video.play()
+  }
+
+  const previewRemovedCandidate = (candidate: { id: string; start: number; end: number }) => {
+    const video = videoRef.current
+    if (!video) return
+    setAuditionMode('removed')
+    setActiveAudition(candidate)
+    video.currentTime = candidate.start
+    void video.play()
+  }
+
+  const handleVideoTime = () => {
+    const video = videoRef.current
+    if (!video) return
+    let time = video.currentTime
+    const previewCuts = activeAudition && auditionMode === 'comparison'
+      ? [activeAudition]
+      : stage === 'preview'
+        ? cuts
+        : []
+    const containing = previewCuts.find(
+      (range) => time >= range.start && time < range.end,
+    )
+    if (containing) {
+      video.currentTime = Math.min(media?.duration ?? containing.end, containing.end + 0.015)
+      time = video.currentTime
+    }
+    if (activeAudition) {
+      const candidate = activeAudition
+      const finishedRemoved = candidate && auditionMode === 'removed' && time >= candidate.end
+      const finishedComparison = candidate && auditionMode === 'comparison' && time > candidate.end + 1.2
+      if (candidate && (finishedRemoved || finishedComparison)) {
+        video.pause()
+        if (finishedRemoved) {
+          video.currentTime = candidate.end
+          time = candidate.end
+        }
+        setActiveAudition(null)
+      }
+    }
+    setCurrentTime(time)
+  }
+
+  const seekTimeline = (event: MouseEvent<HTMLDivElement>) => {
+    if (!media || !videoRef.current) return
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width))
+    videoRef.current.currentTime = ratio * media.duration
+  }
+
+  const exportVideo = async () => {
+    if (!media) return
+    const destinationPath = await save({
+      title: '导出口播剪辑视频',
+      defaultPath: `${clipNameWithoutExtension(media.sourceName)}-smart-cut.mp4`,
+      canCreateDirectories: true,
+      filters: [{ name: 'MP4 视频', extensions: ['mp4'] }],
+    })
+    if (!destinationPath) return
+    setStage('exporting')
+    setError('')
+    try {
+      await exportSmartCut(
+        media.sourcePath,
+        destinationPath,
+        keepRangesFromCuts(candidates, media.duration),
+        includeSubtitles && transcription
+          ? buildSmartCutSubtitleCues(
+              transcription,
+              candidates,
+              media.duration,
+              {},
+              vadResult,
+            )
+          : [],
+      )
+      setStage('preview')
+      onAction(`剪辑视频已保存到 ${destinationPath}`)
+    } catch (reason) {
+      setStage('preview')
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  if (!media) {
+    return (
+      <main className="smart-cut-view empty">
+        <section className="smart-cut-hero">
+          <div className="smart-cut-hero-icon"><Scissors size={26} /></div>
+          <span className="smart-cut-kicker">AI VIDEO ROUGH CUT</span>
+          <h1>先校对，再剪辑</h1>
+          <p>
+            导入口播视频，使用现有语音模型找到停顿、口水词和重复词；
+            你确认后才会生成跳剪预览，原视频始终不变。
+          </p>
+          <button
+            className="smart-cut-primary"
+            type="button"
+            disabled={stage === 'preparing' || engine?.available === false}
+            onClick={() => void chooseVideo()}
+          >
+            {stage === 'preparing' ? <LoaderCircle className="model-spin" size={17} /> : <Upload size={17} />}
+            {stage === 'preparing' ? '正在准备视频' : '导入视频'}
+          </button>
+          <div className={`smart-cut-engine${engine?.available === false ? ' error' : ''}`}>
+            <i />
+            {engine?.message ?? '正在检查视频引擎…'}
+          </div>
+          {error && <div className="smart-cut-error">{error}</div>}
+        </section>
+        <section className="smart-cut-flow" aria-label="口播剪辑流程">
+          <div><span>1</span><strong>识别分析</strong><small>ASR + VAD + 画面切口</small></div>
+          <div><span>2</span><strong>人工校对</strong><small>改文字、调阈值、勾选候选</small></div>
+          <div><span>3</span><strong>预览导出</strong><small>跳剪预览，不改原片</small></div>
+        </section>
+      </main>
+    )
+  }
+
+  const busy = stage === 'transcribing' || stage === 'exporting'
+  return (
+    <main className="smart-cut-view project">
+      <header className="smart-cut-project-header">
+        <div>
+          <button className="smart-cut-back" type="button" onClick={resetProject} disabled={busy}>
+            <ChevronLeft size={15} /> 新建项目
+          </button>
+          <h1>{media.sourceName}</h1>
+        </div>
+        <div className="smart-cut-stage-indicator">
+          {['识别分析', '人工校对', '预览导出'].map((label, index) => {
+            const activeIndex = stage === 'ready' || stage === 'transcribing' ? 0 : stage === 'review' ? 1 : 2
+            return <span key={label} className={index <= activeIndex ? 'active' : ''}>{index + 1}. {label}</span>
+          })}
+        </div>
+      </header>
+
+      <div className="smart-cut-layout">
+        <section className="smart-cut-preview-panel">
+          <div className="smart-cut-video-shell">
+            <video
+              ref={videoRef}
+              src={localVideoUrl(media.sourcePath)}
+              onTimeUpdate={handleVideoTime}
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => setPlaying(false)}
+              playsInline
+            />
+            {busy && (
+              <div className="smart-cut-busy-overlay">
+                <LoaderCircle className="model-spin" size={24} />
+                <strong>{statusCopy(stage)}</strong>
+              </div>
+            )}
+          </div>
+          <div className="smart-cut-player-controls">
+            <button
+              type="button"
+              aria-label={playing ? '暂停' : '播放'}
+              onClick={() => {
+                const video = videoRef.current
+                if (!video) return
+                if (video.paused) void video.play()
+                else video.pause()
+              }}
+            >
+              {playing ? <Pause size={16} /> : <Play size={16} />}
+            </button>
+            <span>{formatTime(currentTime, true)} / {formatTime(media.duration, true)}</span>
+            {stage === 'preview' && <em><Sparkles size={13} /> 正在预览剪辑结果</em>}
+          </div>
+          <div className="smart-cut-timeline" onClick={seekTimeline} role="slider" aria-label="视频时间线" tabIndex={0}>
+            <span className="smart-cut-timeline-meta">
+              {formatTime(media.duration)} · {media.width}×{media.height}
+              {media.fps > 0 ? ` · ${media.fps.toFixed(1)} fps` : ''} · {formatFileSize(media.sizeBytes)}
+            </span>
+            <div className="smart-cut-waveform" aria-hidden="true">
+              {(audioClip?.samples ?? []).slice(0, 180).map((sample, index) => (
+                <i key={index} style={{ height: `${Math.max(8, sample * 86)}%` }} />
+              ))}
+            </div>
+            {candidates.map((candidate) => (
+              <span
+                key={candidate.id}
+                className={`smart-cut-range ${candidate.reason}${candidate.selected ? ' selected' : ''}`}
+                style={{
+                  left: `${(candidate.start / media.duration) * 100}%`,
+                  width: `${Math.max(0.2, ((candidate.end - candidate.start) / media.duration) * 100)}%`,
+                }}
+                title={candidate.label}
+              />
+            ))}
+            <b style={{ left: `${(currentTime / media.duration) * 100}%` }} />
+          </div>
+
+          {stage === 'ready' && (
+            <section className="smart-cut-setup-card">
+              <div>
+                <span className="smart-cut-kicker">STEP 1</span>
+                <h2>识别视频内容</h2>
+                <p>建议使用带词级时间戳的本地批处理模型；安装 VAD 后会得到更可靠的静音边界。</p>
+              </div>
+              {asrModels.length ? (
+                <>
+                  <label>
+                    识别模型
+                    <select value={selectedAsrModelId} onChange={(event) => setSelectedAsrModelId(event.target.value)}>
+                      {asrModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
+                    </select>
+                  </label>
+                  <button className="smart-cut-primary" type="button" onClick={() => void analyze()}>
+                    <Sparkles size={16} /> 开始分析
+                  </button>
+                </>
+              ) : (
+                <div className="smart-cut-no-model">
+                  <p>还没有可用且支持时间戳的批处理语音识别模型。</p>
+                  <button type="button" onClick={onOpenStore}>打开 Agents 安装模型</button>
+                </div>
+              )}
+            </section>
+          )}
+
+          {(stage === 'review' || stage === 'preview' || stage === 'exporting') && transcription && (
+            <section className="smart-cut-transcript">
+              <div className="smart-cut-section-heading">
+                <div>
+                  <span className="smart-cut-kicker">TEXT-BASED EDITING</span>
+                  <h2>按文字剪辑</h2>
+                </div>
+                <span>
+                  {transcription.engine} · {transcription.language} ·{' '}
+                  {transcriptWords.length ? `词级时间轴 · ${textSegments.length} 段` : '句段时间轴'}
+                </span>
+              </div>
+              {transcriptWords.length > 0 && (
+                <div className="smart-cut-word-toolbar">
+                  <p>点击或拖过文字即可标记删除；再次操作可恢复。</p>
+                  <div>
+                    <span className="suggested">AI 建议</span>
+                    <span className="deleted">将删除</span>
+                    <strong>{manualCandidates.length} 个手动选择</strong>
+                  </div>
+                </div>
+              )}
+              <div className="smart-cut-segments" ref={segmentListRef}>
+                {textSegments.map((segment) => {
+                  const segmentWords = segment.wordIds
+                    .map((wordId) => wordsById.get(wordId))
+                    .filter((word): word is SmartCutWord => Boolean(word))
+                  return (
+                  <article
+                    key={segment.id}
+                    className={activeTextSegmentId === segment.id ? 'active' : ''}
+                    ref={(element) => {
+                      if (element) segmentElementRefs.current.set(segment.id, element)
+                      else segmentElementRefs.current.delete(segment.id)
+                    }}
+                  >
+                    <button
+                      type="button"
+                      aria-label={`跳到 ${formatTime(segment.start, true)}，本段结束于 ${formatTime(segment.end, true)}`}
+                      title="开始时间–结束时间"
+                      onClick={() => {
+                        if (videoRef.current) videoRef.current.currentTime = segment.start
+                      }}
+                    >
+                      {formatTime(segment.start, true)}–{formatTime(segment.end, true)}
+                    </button>
+                    <div className="smart-cut-segment-content">
+                      {segmentWords.length > 0 ? (
+                        <div className="smart-cut-word-line">
+                          {segmentWords.map((word) => {
+                            const midpoint = (word.start + word.end) / 2
+                            const related = candidates.filter(
+                              (candidate) =>
+                                candidate.reason !== 'manual' &&
+                                midpoint >= candidate.start &&
+                                midpoint < candidate.end,
+                            )
+                            const manuallyDeleted = manualCandidates.some(
+                              (candidate) => candidate.id === `manual-${word.id}`,
+                            )
+                            const aiDeleted = related.some((candidate) => candidate.selected)
+                            const suggested = related.length > 0 && !aiDeleted
+                            const current = activeWordId === word.id
+                            return (
+                              <span
+                                key={word.id}
+                                role="button"
+                                tabIndex={stage === 'review' ? 0 : -1}
+                                className={`${manuallyDeleted || aiDeleted ? 'deleted' : ''}${suggested ? ' suggested' : ''}${current ? ' current' : ''}${manuallyDeleted ? ' manual' : ''}`}
+                                title={`${formatTime(word.start, true)}–${formatTime(word.end, true)}`}
+                                onPointerDown={(event) => beginWordSelection(event, word)}
+                                onPointerEnter={() => continueWordSelection(word)}
+                                onKeyDown={(event) => {
+                                  if (event.key !== 'Enter' && event.key !== ' ') return
+                                  event.preventDefault()
+                                  setHistory((snapshots) => [...snapshots.slice(-19), candidates])
+                                  applyManualWordSelection(word, !(manuallyDeleted || aiDeleted))
+                                }}
+                              >
+                                {word.text}
+                              </span>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p className="smart-cut-no-word-timeline">
+                          当前模型没有返回词级时间戳，只能按句段校对，不能自由选择单词。
+                        </p>
+                      )}
+                    </div>
+                  </article>
+                )})}
+              </div>
+            </section>
+          )}
+        </section>
+
+        <aside className="smart-cut-review-panel">
+          {(stage === 'review' || stage === 'preview' || stage === 'exporting') ? (
+            <>
+              <div className="smart-cut-section-heading">
+                <div>
+                  <span className="smart-cut-kicker">REVIEW</span>
+                  <h2>删除候选</h2>
+                </div>
+                <strong>AI {aiCandidates.filter((candidate) => candidate.selected).length}/{aiCandidates.length} · 手动 {manualCandidates.length}</strong>
+              </div>
+              <div className="smart-cut-summary">
+                <div><small>原时长</small><strong>{formatTime(media.duration, true)}</strong></div>
+                <div><small>预计删除</small><strong>-{formatTime(removedSeconds, true)}</strong></div>
+                <div><small>剪辑后</small><strong>{formatTime(outputDuration, true)}</strong></div>
+              </div>
+              <div className="smart-cut-tuning">
+                <label>
+                  最短静音 <strong>{minimumSilence.toFixed(2)}s</strong>
+                  <input type="range" min="0.3" max="2" step="0.05" value={minimumSilence} disabled={stage !== 'review'} onChange={(event) => setMinimumSilence(Number(event.target.value))} />
+                </label>
+                <label>
+                  切口缓冲 <strong>{edgePadding.toFixed(2)}s</strong>
+                  <input type="range" min="0.04" max="0.35" step="0.01" value={edgePadding} disabled={stage !== 'review'} onChange={(event) => setEdgePadding(Number(event.target.value))} />
+                </label>
+                {stage === 'review' && <button type="button" onClick={rebuildSilences}>应用参数</button>}
+              </div>
+              <div className="smart-cut-batch-actions">
+                <button
+                  type="button"
+                  disabled={!history.length || stage !== 'review'}
+                  onClick={() => {
+                    const previous = history.at(-1)
+                    if (!previous) return
+                    setCandidates(previous)
+                    setHistory((current) => current.slice(0, -1))
+                  }}
+                ><RotateCcw size={14} /> 撤销</button>
+                <button
+                  type="button"
+                  disabled={stage !== 'review'}
+                  onClick={() => updateCandidates((current) => current
+                    .filter((item) => item.reason !== 'manual')
+                    .map((item) => ({ ...item, selected: false })))}
+                >全部保留</button>
+                <button
+                  type="button"
+                  disabled={stage !== 'review'}
+                  onClick={() => updateCandidates((current) => current
+                    .filter((item) => item.reason !== 'manual')
+                    .map((item) => ({
+                      ...item,
+                      selected: item.reason === 'silence'
+                        ? Boolean(item.visualStable && item.confidence === 'high')
+                        : item.confidence === 'high',
+                    })))}
+                ><ShieldCheck size={14} /> 保守建议</button>
+              </div>
+              {manualCandidates.length > 0 && (
+                <div className="smart-cut-manual-summary">
+                  <div className="smart-cut-manual-heading">
+                    <div>
+                      <Scissors size={14} />
+                      <span>手动选择 <strong>{manualCandidates.length} 词 · {manualGroups.length} 组</strong></span>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={stage !== 'review'}
+                      onClick={() => updateCandidates((current) =>
+                        current.filter((candidate) => candidate.reason !== 'manual'))}
+                    >全部恢复</button>
+                  </div>
+                  <div className="smart-cut-manual-list">
+                    {manualGroups.map((group) => (
+                      <div className="smart-cut-manual-row" key={group.id}>
+                        <button
+                          type="button"
+                          className="smart-cut-manual-word"
+                          title="定位到这个删除单元"
+                          onClick={() => {
+                            if (videoRef.current) videoRef.current.currentTime = group.start
+                          }}
+                        >{group.text}</button>
+                        <time>{formatTime(group.start, true)}–{formatTime(group.end, true)}</time>
+                        <button
+                          type="button"
+                          className="smart-cut-manual-icon"
+                          aria-label={`试听切前切后：${group.text}`}
+                          title="试听切前/切后"
+                          onClick={() => previewCandidate(group)}
+                        ><Scissors size={12} /></button>
+                        <button
+                          type="button"
+                          className="smart-cut-manual-icon"
+                          aria-label={`试听待删除片段：${group.text}`}
+                          title="试听待删除片段"
+                          onClick={() => previewRemovedCandidate(group)}
+                        ><Volume2 size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="smart-cut-candidates">
+                {aiCandidates.length ? aiCandidates.map((candidate) => (
+                  <article
+                    key={candidate.id}
+                    className={candidate.selected ? 'selected' : ''}
+                    title={candidate.detail}
+                  >
+                    <label className="smart-cut-candidate-choice">
+                      <input
+                        type="checkbox"
+                        checked={candidate.selected}
+                        disabled={stage !== 'review'}
+                        onChange={() => updateCandidates((current) => current.map((item) => item.id === candidate.id ? { ...item, selected: !item.selected } : item))}
+                      />
+                      <span className={`smart-cut-reason ${candidate.reason}`}>{REASON_LABELS[candidate.reason]}</span>
+                      <strong>{compactCandidateLabel(candidate)}</strong>
+                    </label>
+                    <div className="smart-cut-candidate-inline-meta">
+                      <time>{formatTime(candidate.start, true)}–{formatTime(candidate.end, true)}</time>
+                      {candidate.reason === 'silence' && (
+                        candidate.visualAvailable
+                          ? <span
+                              className={candidate.visualStable ? 'stable' : 'unstable'}
+                              title={`画面相似度 ${Math.round((candidate.visualSimilarity ?? 0) * 100)}%`}
+                              aria-label={`画面相似度 ${Math.round((candidate.visualSimilarity ?? 0) * 100)}%`}
+                            >
+                              <Eye size={12} />
+                            </span>
+                          : <span title="未取得画面帧" aria-label="未取得画面帧"><Eye size={12} /></span>
+                      )}
+                    </div>
+                    <div className="smart-cut-audition-actions" aria-label="候选片段试听">
+                      <button
+                        type="button"
+                        className="smart-cut-audition"
+                        aria-label="试听切前切后"
+                        title="试听切前/切后"
+                        onClick={() => previewCandidate(candidate)}
+                      >
+                        <Scissors size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="smart-cut-audition"
+                        aria-label="试听待删除片段"
+                        title="试听待删除片段"
+                        onClick={() => previewRemovedCandidate(candidate)}
+                      >
+                        <Volume2 size={13} />
+                      </button>
+                    </div>
+                  </article>
+                )) : <div className="smart-cut-empty-candidates"><Check size={18} /><p>没有找到 AI 删除建议，你仍可在左侧手动选择文字。</p></div>}
+              </div>
+              <div className="smart-cut-review-footer">
+                <label className="smart-cut-subtitle-toggle">
+                  <input
+                    type="checkbox"
+                    checked={includeSubtitles}
+                    disabled={stage === 'exporting'}
+                    onChange={(event) => setIncludeSubtitles(event.target.checked)}
+                  />
+                  <Captions size={15} /> 内嵌字幕
+                </label>
+                {stage === 'review' ? (
+                  <button className="smart-cut-primary" type="button" onClick={() => {
+                    setActiveAudition(null)
+                    setStage('preview')
+                    if (videoRef.current) {
+                      videoRef.current.currentTime = 0
+                      void videoRef.current.play()
+                    }
+                  }}>
+                    <Scissors size={16} /> 生成剪辑预览
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => {
+                      videoRef.current?.pause()
+                      setStage('review')
+                    }}>返回校对</button>
+                    <button className="smart-cut-primary" type="button" disabled={stage === 'exporting'} onClick={() => void exportVideo()}>
+                      {stage === 'exporting' ? <LoaderCircle className="model-spin" size={16} /> : <Download size={16} />}
+                      导出 MP4
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="smart-cut-placeholder">
+              <FileVideo size={24} />
+              <h2>等待内容分析</h2>
+              <p>识别完成后，这里会列出每个建议删除的片段和画面检查结果。</p>
+            </div>
+          )}
+          {error && <div className="smart-cut-error">{error}</div>}
+        </aside>
+      </div>
+    </main>
+  )
+}

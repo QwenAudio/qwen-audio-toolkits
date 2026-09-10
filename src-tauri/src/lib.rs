@@ -13,6 +13,7 @@ mod plugins;
 mod system_audio;
 mod tts;
 mod vad;
+mod video_editor;
 mod wetext;
 
 use asr::AsrRuntime;
@@ -67,6 +68,9 @@ use tauri::Manager;
 #[cfg(target_os = "macos")]
 use tauri::{Emitter, RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
+use video_editor::{
+    analyze_cut_boundaries, export_smart_cut, prepare_video_media, video_editor_status,
+};
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
 
@@ -766,6 +770,10 @@ pub fn run() {
             cleanup_download_cache,
             read_dropped_audio_file,
             export_audio_file,
+            video_editor_status,
+            prepare_video_media,
+            analyze_cut_boundaries,
+            export_smart_cut,
             plugin_runtime_catalog,
             audio_processor_status,
             process_audio,

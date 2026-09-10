@@ -10,6 +10,7 @@ import {
 import { createPortal } from 'react-dom'
 import { open } from '@tauri-apps/plugin-dialog'
 import { AgentProjectCard } from '../components/AgentProjectCard'
+import { isWorkspaceAgent } from '../appAgents'
 import Markdown from 'react-markdown'
 import { listen } from '@tauri-apps/api/event'
 import {
@@ -83,6 +84,7 @@ interface PluginsViewProps {
   catalog: HarnessCatalog | null
   apiModelCatalog: ApiModelCatalogEntry[]
   customApiModels: CustomApiModelDefinition[]
+  appAgents: ModelPlugin[]
   installedCloudModelIds: string[]
   onConfigureProvider: (providerId: string) => void
   onPluginsChanged: (plugins: ModelPlugin[]) => void
@@ -95,6 +97,7 @@ interface PluginsViewProps {
   ) => Promise<void>
   onCatalogChanged: (catalog: HarnessCatalog) => void
   onCloudModelInstalled: (modelId: string, installed: boolean) => void
+  onAppAgentInstalled: (agentId: string, installed: boolean) => void
   onAction: (message: string) => void
   /** When set, the category tree renders into this element (the app sidebar). */
   taxonomyHost?: HTMLElement | null
@@ -138,6 +141,7 @@ export function PluginsView({
   catalog,
   apiModelCatalog,
   customApiModels,
+  appAgents,
   installedCloudModelIds,
   onConfigureProvider,
   onPluginsChanged,
@@ -146,6 +150,7 @@ export function PluginsView({
   onSetModelBinding,
   onCatalogChanged,
   onCloudModelInstalled,
+  onAppAgentInstalled,
   onAction,
   taxonomyHost,
 }: PluginsViewProps) {
@@ -279,8 +284,8 @@ export function PluginsView({
     [apiModelCatalog, catalog, customApiModels, installedCloudModelIds],
   )
   const allModels = useMemo(
-    () => [...plugins, ...cloudModels].sort(compareCatalogModels),
-    [cloudModels, plugins],
+    () => [...appAgents, ...plugins, ...cloudModels].sort(compareCatalogModels),
+    [appAgents, cloudModels, plugins],
   )
   const taxonomyByModelId = useMemo(
     () =>
@@ -297,14 +302,16 @@ export function PluginsView({
             taxonomyByModelId.get(model.id)?.primaryCategory === category.id,
         )
         const secondaryCounts = new Map<string, number>()
-        for (const model of categoryModels) {
-          const secondaryCategory =
-            taxonomyByModelId.get(model.id)?.secondaryCategory
-          if (!secondaryCategory) continue
-          secondaryCounts.set(
-            secondaryCategory,
-            (secondaryCounts.get(secondaryCategory) ?? 0) + 1,
-          )
+        if (category.id !== 'agents') {
+          for (const model of categoryModels) {
+            const secondaryCategory =
+              taxonomyByModelId.get(model.id)?.secondaryCategory
+            if (!secondaryCategory) continue
+            secondaryCounts.set(
+              secondaryCategory,
+              (secondaryCounts.get(secondaryCategory) ?? 0) + 1,
+            )
+          }
         }
         return {
           ...category,
@@ -406,13 +413,16 @@ export function PluginsView({
   const selectedIsApi = selectedPlugin
     ? isApiPlugin(selectedPlugin)
     : false
+  const selectedIsAppAgent = selectedPlugin
+    ? isWorkspaceAgent(selectedPlugin)
+    : false
   const selectedNote = selectedPlugin
     ? getModelNote(selectedPlugin.id)
     : undefined
   const selectedPluginId = selectedPlugin?.id
   useEffect(() => {
     let cancelled = false
-    if (!selectedPluginId || !isTauriRuntime()) {
+    if (!selectedPluginId || !isTauriRuntime() || selectedIsAppAgent) {
       setSelectedReadme(null)
       return undefined
     }
@@ -427,10 +437,11 @@ export function PluginsView({
     return () => {
       cancelled = true
     }
-  }, [selectedPluginId])
+  }, [selectedIsAppAgent, selectedPluginId])
   const selectedHasFiles = Boolean(
     selectedPlugin &&
       !selectedIsApi &&
+      !selectedIsAppAgent &&
       selectedPlugin.installed &&
       isTauriRuntime(),
   )
@@ -470,6 +481,7 @@ export function PluginsView({
     : undefined
   const selectedCanQueueInstall = Boolean(
     selectedPlugin &&
+      !selectedIsAppAgent &&
       !selectedIsApi &&
       !selectedPlugin.installed &&
       selectedPlugin.catalogManaged,
@@ -715,6 +727,13 @@ export function PluginsView({
   }
 
   const installOrAddPlugin = async (plugin: ModelPlugin) => {
+    if (isWorkspaceAgent(plugin)) {
+      if (!plugin.installed) {
+        onAppAgentInstalled(plugin.id, true)
+        onAction(`${plugin.name} 已安装并添加到工作台`)
+      }
+      return
+    }
     if (!plugin.installed) {
       if (plugin.catalogManaged) {
         enqueueCatalogInstall(plugin)
@@ -763,6 +782,11 @@ export function PluginsView({
       return
     }
     setPendingDeleteId(null)
+    if (isWorkspaceAgent(plugin)) {
+      onAppAgentInstalled(plugin.id, false)
+      onAction(`${plugin.name} 已卸载`)
+      return
+    }
     if (isApiPlugin(plugin)) {
       await setCloudModelInstalled(plugin, false)
       return
@@ -833,7 +857,7 @@ export function PluginsView({
                     setSecondaryFilter('all')
                   }}
                 >
-                  <ChevronRight size={13} />
+                  {category.id !== 'agents' && <ChevronRight size={13} />}
                   <span>{category.label}</span>
                   <small>{category.count}</small>
                 </button>
@@ -971,6 +995,7 @@ export function PluginsView({
             )}
             {filteredPlugins.map((plugin) => {
               const apiPlugin = isApiPlugin(plugin)
+              const appAgent = isWorkspaceAgent(plugin)
               const installState = installJobs[plugin.id]
               const requiresApiConfig = apiPlugin && !plugin.enabled
               const isCloudBusy = cloudBusyIds.has(plugin.id)
@@ -982,7 +1007,8 @@ export function PluginsView({
                 plugin.sidebarVisible === false &&
                 dependencyReferences.length > 0
               const installDisabled =
-                (!plugin.catalogManaged || plugin.installable === false) ||
+                (!appAgent &&
+                  (!plugin.catalogManaged || plugin.installable === false)) ||
                 retainedDependency ||
                 Boolean(busyId) ||
                 anotherOperationBusy
@@ -996,7 +1022,33 @@ export function PluginsView({
                     <div className="plugin-title-line">
                       <h2>{plugin.name}</h2>
                       <div className="plugin-row-action">
-                    {installState ? (
+                    {appAgent ? (
+                      <button
+                        className={
+                          plugin.installed
+                            ? `installed-button${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`
+                            : 'install-button'
+                        }
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          if (plugin.installed) void removePlugin(plugin)
+                          else void installOrAddPlugin(plugin)
+                        }}
+                      >
+                        {plugin.installed ? (
+                          <>
+                            <Trash2 size={14} />
+                            {pendingDeleteId === plugin.id ? '确认' : '卸载'}
+                          </>
+                        ) : (
+                          <>
+                            <Download size={14} />
+                            安装
+                          </>
+                        )}
+                      </button>
+                    ) : installState ? (
                       <button
                         className="install-button installing"
                         type="button"
@@ -1107,10 +1159,16 @@ export function PluginsView({
                         className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
                       >
                         {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
-                        {apiPlugin ? t("云端 API") : t("离线运行")}
+                        {appAgent
+                          ? t("应用 Agent")
+                          : apiPlugin
+                            ? t("云端 API")
+                            : t("离线运行")}
                       </span>
                       <span>
-                        {plugin.streamingMode === 'streaming'
+                        {appAgent
+                          ? t("工作流")
+                          : plugin.streamingMode === 'streaming'
                           ? t("流式")
                           : t("整段处理")}
                       </span>
@@ -1166,7 +1224,13 @@ export function PluginsView({
                   {!selectedIsApi && (
                     <span>{selectedVariant?.size ?? selectedPlugin.size}</span>
                   )}
-                  <span>{selectedIsApi ? t("云端 API") : t("离线运行")}</span>
+                  <span>
+                    {selectedIsAppAgent
+                      ? t("应用 Agent")
+                      : selectedIsApi
+                        ? t("云端 API")
+                        : t("离线运行")}
+                  </span>
                 </div>
                 <div className="plugin-capabilities">
                   {selectedPlugin.capabilities.map((capability) => (
@@ -1214,10 +1278,16 @@ export function PluginsView({
                 )}
                 <span>
                   <strong>
-                    {isApiPlugin(selectedPlugin) ? t("云端 API") : t("离线运行")}
+                    {selectedIsAppAgent
+                      ? t("应用工作流")
+                      : isApiPlugin(selectedPlugin)
+                        ? t("云端 API")
+                        : t("离线运行")}
                   </strong>
                   <small>
-                    {isApiPlugin(selectedPlugin)
+                    {selectedIsAppAgent
+                      ? t("安装后显示在工作台侧栏；识别模型和 VAD 组件单独选择")
+                      : isApiPlugin(selectedPlugin)
                       ? selectedPlugin.enabled
                         ? t("添加到工作台即可使用")
                         : t("先配置 Provider，再添加到工作台")
@@ -1237,11 +1307,13 @@ export function PluginsView({
                     disabled={
                       (!selectedPlugin.installed &&
                         !selectedIsApi &&
+                        !selectedIsAppAgent &&
                         (!selectedPlugin.catalogManaged ||
                           selectedPlugin.installable === false)) ||
                       selectedInstallState !== undefined ||
                       (!selectedCanQueueInstall &&
                         !selectedIsApi &&
+                        !selectedIsAppAgent &&
                         Boolean(busyId)) ||
                       selectedCloudBusy ||
                       (selectedCanQueueInstall && anotherOperationBusy)
@@ -1256,7 +1328,12 @@ export function PluginsView({
                         : void installOrAddPlugin(selectedPlugin)
                     }
                   >
-                  {selectedInstallState === 'queued' ? (
+                  {selectedIsAppAgent ? (
+                    <>
+                      <Download size={16} />
+                      安装 Agent
+                    </>
+                  ) : selectedInstallState === 'queued' ? (
                     <>
                       <RefreshCw size={16} />
                       {t("排队中")}</>
@@ -1376,8 +1453,12 @@ export function PluginsView({
                         <>
                           <Trash2 size={15} />
                           {pendingDeleteId === selectedPlugin.id
-                            ? t("再次点击确认删除")
-                            : selectedIsApi
+                            ? selectedIsAppAgent
+                              ? t("再次点击确认卸载")
+                              : t("再次点击确认删除")
+                            : selectedIsAppAgent
+                              ? t("卸载 Agent")
+                              : selectedIsApi
                               ? t("从工作台移除")
                               : t("删除 Agent")}
                         </>

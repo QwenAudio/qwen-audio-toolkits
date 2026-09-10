@@ -94,10 +94,12 @@ export async function readDroppedAudioFile(path: string): Promise<File> {
   const payload = await invoke<DroppedAudioFile>('read_dropped_audio_file', {
     path,
   })
-  const response = await fetch(
-    `data:${payload.mimeType};base64,${payload.dataBase64}`,
-  )
-  const blob = await response.blob()
+  const binary = atob(payload.dataBase64)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index)
+  }
+  const blob = new Blob([bytes], { type: payload.mimeType })
   return new File([blob], payload.name, { type: payload.mimeType })
 }
 

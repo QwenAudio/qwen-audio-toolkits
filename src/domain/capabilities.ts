@@ -15,6 +15,7 @@ export type WorkflowNodeKind = 'enhance' | 'vad' | 'asr' | 'llm' | 'tts'
 
 export type WorkflowPortType =
   | 'audio'
+  | 'video'
   | 'speech-segments'
   | 'transcript'
   | 'text'

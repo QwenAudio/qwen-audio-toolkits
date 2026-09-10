@@ -5,6 +5,10 @@ export function AgentProjectCard({ plugin }: { plugin: AgentExtension }) {
   useLocale()
 
   const project = plugin.agent
+  const harness = project?.harness
+  const harnessLabel = harness?.kind === 'app-workflow'
+    ? `${t("应用工作流")} · ${harness.entry}`
+    : harness?.adapter ?? plugin.adapter
   return (
     <section className="agent-project-card" aria-label={t("Agent 项目定义")}>
       <header>
@@ -16,18 +20,20 @@ export function AgentProjectCard({ plugin }: { plugin: AgentExtension }) {
         <div><dt>{t("模型 / API")}</dt><dd>{plugin.variants?.length
           ? plugin.variants.map((variant) => variant.name).join(' / ')
           : plugin.name}</dd></div>
-        <div><dt>Harness</dt><dd>{project?.harness.adapter ?? plugin.adapter}</dd></div>
+        <div><dt>Harness</dt><dd>{harnessLabel}</dd></div>
         <div><dt>{t("运行环境")}</dt><dd>{plugin.runtime}</dd></div>
         <div><dt>{t("输入")}</dt><dd>{plugin.inputs?.length
           ? plugin.inputs.map((port) => `${t(port.label || port.name)}${port.optional ? t("（可选）") : ''}`).join('、')
           : t("由能力契约定义")}</dd></div>
         <div><dt>{t("输出")}</dt><dd>{plugin.outputs?.length
           ? plugin.outputs.map((port) => t(port.label || port.name)).join('、')
-          : plugin.capabilities.join('、')}</dd></div>
+          : plugin.capabilities.map((capability) => t(capability)).join('、')}</dd></div>
       </dl>
       {project ? (
         <>
-          <p className="agent-project-boundary">{t("资源由本项目管理，不调用其他 Agent。当前 Harness 使用宿主提供的执行器。")}</p>
+          <p className="agent-project-boundary">{harness?.kind === 'app-workflow'
+            ? t("该 Agent 编排应用内已有模型能力；所需模型由用户独立安装和选择。")
+            : t("资源由本项目管理，不调用其他 Agent。当前 Harness 使用宿主提供的执行器。")}</p>
           {([
             [t("输入要求"), project.usage.inputRequirements],
             [t("使用示例"), project.usage.examples],
