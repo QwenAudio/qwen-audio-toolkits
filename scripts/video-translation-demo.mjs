@@ -14,12 +14,34 @@ const speechEdgeThreshold = '-55dB'
 const speechEdgeSafetySeconds = 0.08
 const inputPath = path.resolve(process.argv[2] ?? '')
 const outputDir = path.resolve(process.argv[3] ?? 'artifacts/video-translation-demo')
+const userInstruction = String(process.env.VIDEO_TRANSLATION_PROMPT ?? '').trim()
+const progressPrefix = '@@QWEN_VIDEO_TRANSLATION@@'
+const textGenerationTimeoutMs = 12 * 60_000
+let latestStage = 'preparing'
+let latestProgress = 0
+
+function reportProgress(stage, progress, message, extra = {}) {
+  latestStage = stage
+  latestProgress = progress
+  process.stdout.write(`${progressPrefix}${JSON.stringify({ stage, progress, message, ...extra })}\n`)
+}
+
+function reportFatal(error) {
+  const message = error instanceof Error ? error.message : String(error)
+  reportProgress('failed', 100, '视频翻译失败', { status: 'failed', error: message })
+  process.stderr.write(`${message}\n`)
+  process.exit(1)
+}
+
+process.on('uncaughtException', reportFatal)
+process.on('unhandledRejection', reportFatal)
 
 if (!inputPath || !fs.existsSync(inputPath)) {
   throw new Error('Usage: node scripts/video-translation-demo.mjs <video> [output-directory]')
 }
 
 fs.mkdirSync(outputDir, { recursive: true })
+reportProgress('preparing', 3, '正在准备视频素材')
 
 function run(command, args) {
   const result = spawnSync(command, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
@@ -85,7 +107,11 @@ async function requestJson(url, options) {
   return response.json()
 }
 
-async function execute(request, timeoutMs = 10 * 60_000) {
+function retryableApiError(message) {
+  return /error sending request|timed? out|connection|temporar|网络|连接|超时/iu.test(String(message))
+}
+
+async function execute(request, timeoutMs = 10 * 60_000, attempt = 1) {
   const runRecord = await requestJson(`${api}/runs`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -93,6 +119,8 @@ async function execute(request, timeoutMs = 10 * 60_000) {
   })
   process.stdout.write(`${request.title}: started (${runRecord.id})\n`)
   const deadline = Date.now() + timeoutMs
+  const startedAt = Date.now()
+  let nextHeartbeat = startedAt + 15_000
   while (Date.now() < deadline) {
     const current = await requestJson(`${api}/runs/${runRecord.id}`)
     if (current.status === 'completed') {
@@ -101,10 +129,27 @@ async function execute(request, timeoutMs = 10 * 60_000) {
       return result.output ?? result
     }
     if (current.status === 'failed' || current.status === 'canceled') {
-      throw new Error(current.error ?? `${request.title}: ${current.status}`)
+      const message = current.error ?? `${request.title}: ${current.status}`
+      if (current.status === 'failed' && attempt < 3 && retryableApiError(message)) {
+        reportProgress(
+          latestStage,
+          latestProgress,
+          `API 网络波动，正在自动重试 ${attempt + 1}/3`,
+          { retryAttempt: attempt + 1, retryLimit: 3 },
+        )
+        await new Promise((resolve) => setTimeout(resolve, attempt * 1200))
+        return execute(request, timeoutMs, attempt + 1)
+      }
+      throw new Error(message)
+    }
+    if (Date.now() >= nextHeartbeat) {
+      const waitedSeconds = Math.round((Date.now() - startedAt) / 1000)
+      reportProgress(latestStage, latestProgress, `API 正在处理，已等待 ${waitedSeconds} 秒`)
+      nextHeartbeat = Date.now() + 15_000
     }
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
+  await fetch(`${api}/runs/${runRecord.id}/cancel`, { method: 'POST' }).catch(() => {})
   throw new Error(`${request.title}: timeout`)
 }
 
@@ -307,27 +352,75 @@ function renderSubtitleImage(turn, index) {
 
 const sourceAudioPath = path.join(outputDir, 'source-audio.wav')
 run('ffmpeg', ['-y', '-i', inputPath, '-vn', '-ac', '2', '-ar', '44100', sourceAudioPath])
+reportProgress('separating', 8, '正在检测是否需要分离背景声')
 
 const vocalsPath = path.join(outputDir, 'vocals.wav')
 const backgroundPath = path.join(outputDir, 'background.wav')
+const analysisSamplePath = path.join(outputDir, 'background-analysis-sample.wav')
+if (!fs.existsSync(analysisSamplePath)) {
+  const duration = probeDuration(sourceAudioPath)
+  const sampleDuration = Math.min(10, duration)
+  const sampleStart = Math.max(0, (duration - sampleDuration) / 2)
+  run('ffmpeg', [
+    '-y', '-ss', sampleStart.toFixed(3), '-i', sourceAudioPath,
+    '-t', sampleDuration.toFixed(3), '-ac', '1', '-ar', '16000',
+    analysisSamplePath,
+  ])
+}
+const backgroundAnalysis = await cachedJson('00-background-analysis.json', async () => {
+  try {
+    const classification = await execute({
+      capability: 'audio.classify',
+      providerId: 'plugin.k2-fsa.audio-tagging',
+      routing: 'local',
+      title: 'Video translation · detect music and background sound',
+      input: audioInput(analysisSamplePath),
+      parameters: {},
+    })
+    const tags = classification.tags ?? []
+    const musicTags = tags.filter((tag) => /music|musical|song|singing|instrument|guitar|piano|drum|orchestra/iu.test(tag.label ?? ''))
+    const musicScore = Math.max(0, ...musicTags.map((tag) => Number(tag.probability) || 0))
+    const shouldSeparate = musicScore >= 0.18
+    return {
+      version: 1,
+      engine: classification.engine,
+      samplePath: analysisSamplePath,
+      sampleDurationSeconds: probeDuration(analysisSamplePath),
+      tags,
+      musicTags,
+      musicScore,
+      decision: shouldSeparate ? 'separate_and_mix' : 'skip_separation_mix',
+      reason: shouldSeparate
+        ? 'Confident music or instrumental background detected.'
+        : 'No confident music background detected; preserving the clean source speech avoids separation artifacts.',
+    }
+  } catch (error) {
+    return {
+      version: 1,
+      engine: 'fallback',
+      tags: [],
+      musicTags: [],
+      musicScore: 0,
+      decision: 'skip_separation_mix',
+      reason: `Background classifier unavailable; conservatively skipped separation: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
+})
+const shouldSeparate = backgroundAnalysis.decision === 'separate_and_mix'
+reportProgress(
+  'separating',
+  12,
+  shouldSeparate ? '检测到音乐背景，正在分离对白与背景声' : '未检测到明显音乐背景，保留原始音轨',
+  { audioAnalysis: backgroundAnalysis },
+)
+
 let separated
-if (cloudMode) {
+if (!shouldSeparate) {
   fs.copyFileSync(sourceAudioPath, vocalsPath)
   const duration = probeDuration(sourceAudioPath)
   run('ffmpeg', ['-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', duration.toFixed(6), backgroundPath])
-  separated = { engine: 'skipped after low-noise analysis', tracks: [] }
+  separated = { engine: 'skipped after real background analysis', tracks: [] }
   saveJson('01-separation.json', separated)
-  saveJson('09-background-analysis.json', {
-    sampleSource: 'non-speech regions from the original audio',
-    sampleDurationSeconds: 3.51,
-    meanVolumeDb: -50.9,
-    maxVolumeDb: -36.7,
-    semanticTagThreshold: 0.45,
-    highestTagProbability: 0.246,
-    meaningfulBackgroundEvents: [],
-    decision: 'skip_separation_mix',
-    reason: 'Low-level background with no confidently detected semantic event.',
-  })
 } else {
   separated = await cachedJson('01-separation.json', () => execute({
     capability: 'audio.separate',
@@ -343,7 +436,9 @@ if (cloudMode) {
   fs.copyFileSync(vocals.filePath, vocalsPath)
   fs.copyFileSync(background.filePath, backgroundPath)
 }
+saveJson('09-background-analysis.json', backgroundAnalysis)
 
+reportProgress('diarizing', 24, '正在区分说话人')
 const diarization = await cachedJson('02-diarization.json', () => execute({
   capability: 'speaker.diarize',
   providerId: 'plugin.k2-fsa.speaker-diarization',
@@ -353,6 +448,7 @@ const diarization = await cachedJson('02-diarization.json', () => execute({
   parameters: {},
 }))
 
+reportProgress('transcribing', 35, '正在识别原始对白')
 const transcription = await cachedJson('03-transcription.json', () => execute({
   capability: 'speech.transcribe',
   providerId: cloudMode ? 'api.bailian' : 'plugin.nvidia.parakeet-tdt-0.6b-v3',
@@ -370,38 +466,84 @@ const sourceTurns = buildUtterances(transcription, diarization)
 if (!sourceTurns.length) throw new Error('No timestamped speech turns were produced')
 saveJson('04-source-turns.json', sourceTurns)
 
+reportProgress('translating', 48, '正在翻译并适配中文口播', {
+  turns: sourceTurns.map((turn) => ({ ...turn, sourceText: turn.text, text: '' })),
+})
 const translated = await cachedJson('05-translated-turns.json', async () => {
-  const response = await execute({
-    capability: 'text.generate',
-    providerId: 'api.bailian',
-    routing: 'quality',
-    title: `Video translation · Bailian translate speaker turns to Chinese`,
-    input: {
-      messages: [
-        {
-          role: 'system',
-          content: [
-            '你是视频配音翻译编辑。把英文口播翻译成自然、准确、适合朗读的简体中文。',
-            '保持每个 id、speaker、start、end 不变。删除无意义的口吃，但不要遗漏事实。',
-            '每段必须语义完整，禁止以“并且与”“以及”“因为”等未完成连接词结尾。',
-            '每段中文要尽量适配该段时长，正常语速按每秒约 3.5 至 4.5 个汉字控制。',
-            '只返回 JSON：{"turns":[{"id":"...","speaker":"...","start":0,"end":1,"text":"..."}]}。',
-          ].join(''),
-        },
-        { role: 'user', content: JSON.stringify({ turns: sourceTurns }) },
-      ],
-    },
-    parameters: { modelId: cloudMode ? 'qwen3.7-plus' : 'qwen3.6-plus', temperature: 0.1, maxTokens: 2400 },
-  }, 3 * 60_000)
-  const parsed = parseJsonText(response.text)
-  const byId = new Map((parsed.turns ?? []).map((turn) => [turn.id, turn]))
+  const translationPrompt = [
+    '你是视频配音翻译编辑。把英文口播翻译成自然、准确、适合朗读的简体中文。',
+    '保持每个 id、speaker、start、end 不变。删除无意义的口吃，但不要遗漏事实。',
+    '每段必须语义完整，禁止以“并且与”“以及”“因为”等未完成连接词结尾。',
+    '每段中文要尽量适配该段时长，正常语速按每秒约 3.5 至 4.5 个汉字控制。',
+    userInstruction ? `用户额外要求：${userInstruction}` : '',
+    '只返回 JSON：{"turns":[{"id":"...","speaker":"...","start":0,"end":1,"text":"..."}]}。',
+  ].filter(Boolean).join('')
+  const batches = []
+  let currentBatch = []
+  let currentSize = 0
+  for (const turn of sourceTurns) {
+    const turnSize = JSON.stringify(turn).length
+    if (currentBatch.length && (currentBatch.length >= 3 || currentSize + turnSize > 2200)) {
+      batches.push(currentBatch)
+      currentBatch = []
+      currentSize = 0
+    }
+    currentBatch.push(turn)
+    currentSize += turnSize
+  }
+  if (currentBatch.length) batches.push(currentBatch)
+
+  const translatedTurns = []
+  const engines = new Set()
+  for (const [batchIndex, batch] of batches.entries()) {
+    const signature = shortHash(JSON.stringify({ version: 2, translationPrompt, batch }))
+    const batchResult = await cachedJson(
+      `05-translated-turns-batch-${batchIndex + 1}.json`,
+      async () => {
+        const response = await execute({
+          capability: 'text.generate',
+          providerId: 'api.bailian',
+          routing: 'quality',
+          title: `Video translation · translate batch ${batchIndex + 1}/${batches.length}`,
+          input: {
+            messages: [
+              { role: 'system', content: translationPrompt },
+              { role: 'user', content: JSON.stringify({ turns: batch }) },
+            ],
+          },
+          parameters: {
+            modelId: cloudMode ? 'qwen3.7-plus' : 'qwen3.6-plus',
+            temperature: 0.1,
+            maxTokens: Math.max(600, Math.min(1200, batch.length * 400)),
+            enableThinking: false,
+          },
+        }, textGenerationTimeoutMs)
+        const parsed = parseJsonText(response.text)
+        const byId = new Map((parsed.turns ?? []).map((turn) => [turn.id, turn]))
+        return {
+          signature,
+          engine: response.engine,
+          turns: batch.map((sourceTurn) => {
+            const translation = byId.get(sourceTurn.id)
+            if (!translation?.text?.trim()) throw new Error(`Missing translation for ${sourceTurn.id}`)
+            return { ...sourceTurn, text: translation.text.trim(), sourceText: sourceTurn.text }
+          }),
+        }
+      },
+      (cached) => cached?.signature === signature && cached.turns?.length === batch.length,
+    )
+    if (batchResult.engine) engines.add(batchResult.engine)
+    translatedTurns.push(...batchResult.turns)
+    reportProgress(
+      'translating',
+      48 + Math.round(((batchIndex + 1) / batches.length) * 8),
+      `已完成翻译 ${batchIndex + 1}/${batches.length} 批`,
+      { turns: translatedTurns },
+    )
+  }
   return {
-    engine: response.engine,
-    turns: sourceTurns.map((sourceTurn) => {
-      const translation = byId.get(sourceTurn.id)
-      if (!translation?.text?.trim()) throw new Error(`Missing translation for ${sourceTurn.id}`)
-      return { ...sourceTurn, text: translation.text.trim(), sourceText: sourceTurn.text }
-    }),
+    engine: [...engines].join(' · '),
+    turns: translatedTurns,
   }
 })
 
@@ -435,6 +577,7 @@ function rhythmSignatureFor(turns) {
 
 const rhythmSignature = rhythmSignatureFor(translated.turns)
 const turnsWithInternalPauses = translated.turns.filter((turn) => turn.rhythmSegments.length > 1)
+reportProgress('aligning', 58, '正在对齐译文与原始讲话节奏', { turns: translated.turns })
 const rhythmPlan = await cachedJson('05-rhythm-plan.json', async () => {
   let plannedTurns = []
   let engine = 'deterministic-single-segment'
@@ -472,8 +615,13 @@ const rhythmPlan = await cachedJson('05-rhythm-plan.json', async () => {
           },
         ],
       },
-      parameters: { modelId: 'qwen3.7-plus', temperature: 0.1, maxTokens: 1200 },
-    }, 3 * 60_000)
+      parameters: {
+        modelId: 'qwen3.7-plus',
+        temperature: 0.1,
+        maxTokens: 1200,
+        enableThinking: false,
+      },
+    }, textGenerationTimeoutMs)
     plannedTurns = parseJsonText(response.text).turns ?? []
     engine = response.engine
   }
@@ -515,6 +663,7 @@ for (const turn of translated.turns) {
 }
 
 const speakers = [...new Set(translated.turns.map((turn) => turn.speaker))]
+reportProgress('voices', 66, `正在准备 ${speakers.length} 位说话人的音色`, { turns: translated.turns })
 const references = new Map()
 for (const speaker of speakers) {
   const candidates = sourceTurns
@@ -554,6 +703,12 @@ const speechUnits = translated.turns.flatMap((turn) =>
 )
 const dubbedSegments = []
 for (let index = 0; index < speechUnits.length; index += 1) {
+  reportProgress(
+    'dubbing',
+    68 + Math.round((index / Math.max(1, speechUnits.length)) * 20),
+    `正在生成中文配音 ${index + 1}/${speechUnits.length}`,
+    { completedUnits: index, totalUnits: speechUnits.length },
+  )
   const { turn, segment } = speechUnits[index]
   const reference = references.get(turn.speaker)
   const unitNumber = String(index + 1).padStart(2, '0')
@@ -651,8 +806,13 @@ for (let index = 0; index < speechUnits.length; index += 1) {
           },
         ],
       },
-      parameters: { modelId: 'qwen3.7-plus', temperature: 0.1, maxTokens: 500 },
-    }, 3 * 60_000)
+      parameters: {
+        modelId: 'qwen3.7-plus',
+        temperature: 0.1,
+        maxTokens: 500,
+        enableThinking: false,
+      },
+    }, textGenerationTimeoutMs)
     const rewritten = parseJsonText(response.text).text?.trim()
     if (!rewritten) throw new Error(`Duration rewrite returned no text for ${segment.id}`)
     saveJson(path.basename(cachePath), { text: rewritten })
@@ -773,6 +933,7 @@ saveJson('05-translated-turns.json', translated)
 saveJson('05-rhythm-plan.json', rhythmPlan)
 saveJson('07-dubbed-segments.json', dubbedSegments.map(({ alignedPath: _alignedPath, ...segment }) => segment))
 
+reportProgress('mixing', 90, '正在混合配音与背景声')
 const videoDuration = probeDuration(inputPath)
 const dubbedTrackPath = path.join(outputDir, 'dubbed-voice-zh.wav')
 const mixInputs = dubbedSegments.flatMap((segment) => ['-i', segment.alignedPath])
@@ -785,6 +946,7 @@ run('ffmpeg', [
 ])
 
 const subtitlePath = path.join(outputDir, 'translated-bilingual.srt')
+reportProgress('subtitles', 93, '正在生成双语字幕')
 fs.writeFileSync(subtitlePath, `${translated.turns.map((turn, index) => [
   index + 1,
   `${srtTimestamp(turn.start)} --> ${srtTimestamp(turn.end)}`,
@@ -803,19 +965,16 @@ const videoFilters = translated.turns.map((turn, index) => {
   return filter
 })
 
-const backgroundAnalysisPath = path.join(outputDir, '09-background-analysis.json')
-const backgroundAnalysis = fs.existsSync(backgroundAnalysisPath)
-  ? JSON.parse(fs.readFileSync(backgroundAnalysisPath, 'utf8'))
-  : null
 const backgroundMix = backgroundAnalysis?.decision === 'skip_separation_mix' ? 0 : 0.35
 
 const outputVideoPath = path.join(
   outputDir,
   cloudMode
-    ? 'friedel-interview-zh-bailian-voice-clone.mp4'
-    : 'friedel-interview-zh-voice-clone.mp4',
+    ? `${path.basename(inputPath, path.extname(inputPath))}-zh-bailian-voice-clone.mp4`
+    : `${path.basename(inputPath, path.extname(inputPath))}-zh-voice-clone.mp4`,
 )
 const stagingVideoPath = `${outputVideoPath}.next.mp4`
+reportProgress('rendering', 96, '正在渲染最终视频')
 run('ffmpeg', [
   '-y', '-i', inputPath, '-i', dubbedTrackPath, '-i', backgroundPath, '-i', subtitlePath, ...subtitleImageInputs,
   '-filter_complex', `[1:a]volume=1[dub];[2:a]volume=${backgroundMix}[bg];[dub][bg]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration=${videoDuration.toFixed(6)}[mix];${videoFilters.join(';')}`,
@@ -846,6 +1005,18 @@ saveJson('08-report.json', {
   backgroundMix,
   backgroundDecision: backgroundAnalysis?.decision ?? 'separate_and_mix',
   backgroundAnalysis,
+})
+
+reportProgress('completed', 100, '视频翻译已完成', {
+  status: 'completed',
+  outputDir,
+  outputVideoPath,
+  subtitlePath,
+  reportPath: path.join(outputDir, '08-report.json'),
+  turns: translated.turns,
+  sourceTurnsPath: path.join(outputDir, '04-source-turns.json'),
+  translatedTurnsPath: path.join(outputDir, '05-translated-turns.json'),
+  rhythmPlanPath: path.join(outputDir, '05-rhythm-plan.json'),
 })
 
 process.stdout.write(`${JSON.stringify({

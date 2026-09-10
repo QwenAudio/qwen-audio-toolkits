@@ -16,6 +16,7 @@ mod system_audio;
 mod tts;
 mod vad;
 mod video_editor;
+mod video_translation;
 mod wetext;
 
 use asr::AsrRuntime;
@@ -68,12 +69,15 @@ use system_audio::{
     system_audio_flush_playback, system_audio_play_chunk, system_audio_start, system_audio_stop,
     SystemAudioRuntime,
 };
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 #[cfg(target_os = "macos")]
-use tauri::{Emitter, RunEvent, WindowEvent};
+use tauri::{RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
 use video_editor::{
     analyze_cut_boundaries, export_smart_cut, prepare_video_media, video_editor_status,
+};
+use video_translation::{
+    cancel_video_translation, start_video_translation, VideoTranslationRuntime,
 };
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
@@ -705,6 +709,7 @@ pub fn run() {
         .manage(harness_runtime)
         .manage(CloseBehavior(AtomicBool::new(false)))
         .manage(SystemAudioRuntime::new())
+        .manage(VideoTranslationRuntime::default())
         .setup(|app| {
             if let Err(error) = downloads::clear_completed_downloads(app.handle()) {
                 log::warn!("could not clear completed model downloads: {error}");
@@ -780,6 +785,8 @@ pub fn run() {
             prepare_video_media,
             analyze_cut_boundaries,
             export_smart_cut,
+            start_video_translation,
+            cancel_video_translation,
             plugin_runtime_catalog,
             audio_processor_status,
             process_audio,

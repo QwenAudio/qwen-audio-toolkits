@@ -140,6 +140,16 @@ const AgentHomeView = lazy(() =>
     default: module.AgentHomeView,
   })),
 )
+const MeetingNotesView = lazy(() =>
+  import('./views/MeetingNotesView').then((module) => ({
+    default: module.MeetingNotesView,
+  })),
+)
+const VideoTranslationView = lazy(() =>
+  import('./views/VideoTranslationView').then((module) => ({
+    default: module.VideoTranslationView,
+  })),
+)
 
 type AppView = 'workspace' | 'agents' | AgentCreationMode | 'workflows'
 type AgentConversation = {
@@ -1475,7 +1485,9 @@ function App() {
       ? t('视频剪辑')
       : mode === 'ai-podcast'
         ? t('AI 播客')
-        : t('视频翻译')
+        : mode === 'video-translation'
+          ? t('视频翻译')
+          : t('会议纪要')
     const normalizedPrompt = prompt.replace(/\s+/gu, ' ').trim()
     const promptTitle = normalizedPrompt.length > 22
       ? `${normalizedPrompt.slice(0, 22)}…`
@@ -2480,7 +2492,9 @@ function App() {
             <div className="sidebar-agent-conversations" aria-label={t('Agent 对话')}>
               {agentConversations.map((conversation) => {
                 const active = selectedAgentConversationId === conversation.id && view === conversation.mode
-                const fileName = conversation.sourcePath.split(/[\\/]/u).at(-1) ?? conversation.sourcePath
+                const fileName = conversation.sourcePath
+                  ? conversation.sourcePath.split(/[\\/]/u).at(-1) ?? conversation.sourcePath
+                  : t('实时会议')
                 return (
                   <button
                     className={`installed-model-button agent-conversation-button${active ? ' active' : ''}`}
@@ -2649,7 +2663,7 @@ function App() {
                   ? t("设置 · {0}", [activeSettingsSection.label])
                   : view === 'agents'
                     ? 'Agents'
-                    : view === 'smart-cut' || view === 'ai-podcast' || view === 'video-translation'
+                    : view === 'smart-cut' || view === 'ai-podcast' || view === 'video-translation' || view === 'meeting-notes'
                       ? selectedAgentConversation?.title ?? t('Agent 对话')
                     : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
@@ -2808,32 +2822,40 @@ function App() {
             ))}
           {agentConversations
             .filter((conversation) => conversation.mode === 'video-translation')
-            .map((conversation) => {
-              const fileName = conversation.sourcePath.split(/[\\/]/u).at(-1) ?? conversation.sourcePath
-              return (
+            .map((conversation) => (
                 <div
                   key={conversation.id}
                   className="agent-workspace-session"
                   hidden={view !== 'video-translation' || selectedAgentConversationId !== conversation.id}
                   inert={view !== 'video-translation' || selectedAgentConversationId !== conversation.id}
                 >
-                  <main className="agent-conversation-placeholder">
-                    <header>
-                      <span>{t('视频翻译')}</span>
-                      <h1>{conversation.title}</h1>
-                    </header>
-                    <section className="agent-conversation-message user">
-                      <strong>{fileName}</strong>
-                      <p>{conversation.prompt}</p>
-                    </section>
-                    <section className="agent-conversation-message assistant">
-                      <strong>{t('任务已创建')}</strong>
-                      <p>{t('视频翻译执行链路仍处于实验阶段，当前会话已保留素材和 Prompt。')}</p>
-                    </section>
-                  </main>
+                  <VideoTranslationView
+                    initialInstruction={conversation.prompt}
+                    initialSourcePath={conversation.sourcePath}
+                    initialLaunchId={1}
+                    onAction={notify}
+                  />
                 </div>
-              )
-            })}
+            ))}
+          {agentConversations
+            .filter((conversation) => conversation.mode === 'meeting-notes')
+            .map((conversation) => (
+              <div
+                key={conversation.id}
+                className="agent-workspace-session"
+                hidden={view !== 'meeting-notes' || selectedAgentConversationId !== conversation.id}
+                inert={view !== 'meeting-notes' || selectedAgentConversationId !== conversation.id}
+              >
+                <MeetingNotesView
+                  initialInstruction={conversation.prompt}
+                  models={orderedRunnablePlugins}
+                  onRunText={runText}
+                  onRunAudio={runAudio}
+                  onOpenStore={openExtensions}
+                  onAction={notify}
+                />
+              </div>
+            ))}
           {WORKFLOWS_ENABLED && view === 'workflows' && (
             <WorkflowsView
               key={editingWorkflowId ?? 'new-workflow'}

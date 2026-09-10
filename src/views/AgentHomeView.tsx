@@ -4,6 +4,7 @@ import {
   Check,
   Languages,
   MessageSquareText,
+  Mic2,
   Paperclip,
   Radio,
   Scissors,
@@ -14,7 +15,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { t, useLocale } from '../i18n'
 import './AgentHomeView.css'
 
-export type AgentCreationMode = 'smart-cut' | 'ai-podcast' | 'video-translation'
+export type AgentCreationMode = 'smart-cut' | 'ai-podcast' | 'video-translation' | 'meeting-notes'
 
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v', 'webm', 'mkv'] as const
 const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'markdown'] as const
@@ -47,7 +48,13 @@ const MODES = [
     description: '翻译对白、克隆音色，并保留原讲话节奏',
     icon: Languages,
     tone: 'blue',
-    experimental: true,
+  },
+  {
+    id: 'meeting-notes',
+    name: '会议纪要',
+    description: '实时转写并滚动识别说话人，延迟生成结构化纪要',
+    icon: Mic2,
+    tone: 'coral',
   },
 ] as const
 
@@ -67,11 +74,18 @@ const PROMPTS: Record<AgentCreationMode, ReadonlyArray<{ title: string; detail: 
     { title: '忠实双语版', detail: '忠实翻译对白，生成中文配音和中英双语字幕' },
     { title: '适配时长', detail: '翻译并调整措辞，使中文配音自然贴合每段原始时长' },
   ],
+  'meeting-notes': [
+    { title: '项目周会', detail: '重点整理项目进展、风险、决策和带负责人的行动项' },
+    { title: '需求评审', detail: '记录需求共识、争议点、最终结论和仍待确认的问题' },
+    { title: '客户访谈', detail: '提炼客户痛点、原话证据、需求优先级和后续跟进事项' },
+  ],
 }
 
 function attachmentMatchesMode(path: string, mode: AgentCreationMode): boolean {
   const extension = path.split('.').at(-1)?.toLowerCase() ?? ''
-  return mode === 'ai-podcast'
+  return mode === 'meeting-notes'
+    ? false
+    : mode === 'ai-podcast'
     ? DOCUMENT_EXTENSIONS.includes(extension as (typeof DOCUMENT_EXTENSIONS)[number])
     : VIDEO_EXTENSIONS.includes(extension as (typeof VIDEO_EXTENSIONS)[number])
 }
@@ -95,10 +109,11 @@ export function AgentHomeView({
     ? smartCutAvailable
     : mode === 'ai-podcast'
       ? podcastAvailable
-      : mode === 'video-translation'
+      : mode === 'video-translation' || mode === 'meeting-notes'
   const attachmentCompatible = !attachment || !mode || attachmentMatchesMode(attachment.path, mode)
 
   const chooseMode = (nextMode: AgentCreationMode) => {
+    if (nextMode === 'meeting-notes') setAttachment(null)
     setMode(nextMode)
   }
 
@@ -162,17 +177,16 @@ export function AgentHomeView({
               event.preventDefault()
               if (
                 selectedMode &&
-                attachment &&
-                attachmentCompatible &&
+                (selectedMode.id === 'meeting-notes' || (attachment && attachmentCompatible)) &&
                 prompt.trim() &&
                 available
               ) {
-                onLaunch(selectedMode.id, prompt.trim(), attachment.path)
+                onLaunch(selectedMode.id, prompt.trim(), attachment?.path ?? '')
               }
             }}
           />
           <div className="agent-home-composer-toolbar">
-            <button type="button" className="agent-attach-button" onClick={() => void chooseAttachment()}>
+            <button type="button" className="agent-attach-button" disabled={mode === 'meeting-notes'} onClick={() => void chooseAttachment()}>
               <Paperclip size={14} />
               {t('添加文件')}
             </button>
@@ -183,6 +197,8 @@ export function AgentHomeView({
                   ? t('此任务仅支持视频文件，请更换附件')
                   : attachment
                     ? t('文件将与 Prompt 一起提交')
+                    : mode === 'meeting-notes'
+                      ? t('实时会议无需添加文件')
                     : mode === 'ai-podcast'
                       ? t('支持 PDF、DOCX、TXT 和 Markdown')
                       : mode
@@ -199,15 +215,14 @@ export function AgentHomeView({
               type="button"
               disabled={
                 !selectedMode ||
-                !attachment ||
-                !attachmentCompatible ||
+                (selectedMode?.id !== 'meeting-notes' && (!attachment || !attachmentCompatible)) ||
                 !prompt.trim() ||
                 !available
               }
               aria-label={t('进入 Agent 工作区')}
               onClick={() => {
-                if (selectedMode && attachment && attachmentCompatible) {
-                  onLaunch(selectedMode.id, prompt.trim(), attachment.path)
+                if (selectedMode && (selectedMode.id === 'meeting-notes' || (attachment && attachmentCompatible))) {
+                  onLaunch(selectedMode.id, prompt.trim(), attachment?.path ?? '')
                 }
               }}
             >
@@ -234,9 +249,6 @@ export function AgentHomeView({
                   <strong>{t(item.name)}</strong>
                   <small>{t(item.description)}</small>
                 </span>
-                {'experimental' in item && item.experimental && (
-                  <em>{t('实验')}</em>
-                )}
                 {active && <Check className="agent-mode-check" size={16} />}
               </button>
             )

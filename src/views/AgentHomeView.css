@@ -39,7 +39,7 @@
 .agent-home-heading p { max-width: 660px; margin: 0; color: var(--agent-muted); font-size: 14px; line-height: 1.7; }
 
 .agent-mode-heading { margin: 22px 0 10px; color: var(--agent-muted); font-size: 11px; font-weight: 650; }
-.agent-mode-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; }
+.agent-mode-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .agent-mode-card {
   --mode-accent: var(--accent, #4c7e6c);
   position: relative;
@@ -59,6 +59,7 @@
 }
 .agent-mode-card.violet { --mode-accent: #7967ad; }
 .agent-mode-card.blue { --mode-accent: #4d7fa7; }
+.agent-mode-card.coral { --mode-accent: #b96d57; }
 .agent-mode-card:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--mode-accent) 38%, var(--agent-border)); box-shadow: 0 9px 24px rgba(25, 35, 31, .06); }
 .agent-mode-card.active { border-color: color-mix(in srgb, var(--mode-accent) 58%, var(--agent-border)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--mode-accent) 9%, transparent), 0 9px 24px rgba(25, 35, 31, .06); }
 .agent-mode-icon { display: grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; color: var(--mode-accent); background: color-mix(in srgb, var(--mode-accent) 11%, transparent); border-radius: 10px; }
@@ -108,6 +109,7 @@
 .agent-home-composer-toolbar > span.invalid { color: #b84f4f; }
 .agent-attach-button { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 9px; color: var(--agent-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; }
 .agent-attach-button:hover { color: var(--text-primary, #202422); background: color-mix(in srgb, var(--text-primary, #202422) 5%, transparent); }
+.agent-attach-button:disabled { opacity: .38; cursor: default; }
 .agent-install-link { margin-left: auto; padding: 5px 8px; color: var(--accent, #4c7e6c); background: transparent; border: 0; font-size: 11px; cursor: pointer; }
 .agent-home-submit { display: grid; width: 31px; height: 31px; margin-left: auto; padding: 0; place-items: center; color: #fff; background: var(--accent, #4c7e6c); border: 0; border-radius: 50%; cursor: pointer; }
 .agent-install-link + .agent-home-submit { margin-left: 0; }

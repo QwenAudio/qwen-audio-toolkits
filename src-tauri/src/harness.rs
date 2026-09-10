@@ -6042,7 +6042,9 @@ async fn execute_api_text(
         .as_ref()
         .map(|config| config.llm_path.as_str())
         .unwrap_or("/chat/completions");
-    let builder = api_client()?.post(api_endpoint(&base_url, path));
+    let builder = api_client()?
+        .post(api_endpoint(&base_url, path))
+        .timeout(Duration::from_secs(120));
     let builder = if let Some(config) = api_config.as_ref() {
         apply_api_request_headers(
             builder,
@@ -6054,16 +6056,26 @@ async fn execute_api_text(
     } else {
         with_api_auth(builder, &api_key)
     };
+    let mut payload = json!({
+        "model": provider.model_id,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens
+    });
+    if provider.id == BAILIAN_PROVIDER_ID {
+        if let Some(enable_thinking) = request
+            .parameters
+            .get("enableThinking")
+            .and_then(Value::as_bool)
+        {
+            payload["enable_thinking"] = json!(enable_thinking);
+        }
+    }
     let response = builder
-        .json(&json!({
-            "model": provider.model_id,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens
-        }))
+        .json(&payload)
         .send()
         .await
-        .map_err(|error| format!("文本生成 API 请求失败: {error}"))?;
+        .map_err(|error| format!("文本生成 API 请求失败: {}", reqwest_error_details(&error)))?;
     if cancel.load(Ordering::Relaxed) {
         return Err("任务已取消".to_string());
     }
@@ -6110,8 +6122,31 @@ async fn checked_response(
 fn api_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(180))
+        .connect_timeout(Duration::from_secs(15))
         .build()
         .map_err(|error| format!("无法创建 API 客户端: {error}"))
+}
+
+fn reqwest_error_details(error: &reqwest::Error) -> String {
+    use std::error::Error as _;
+
+    let mut details = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        let cause = cause.to_string();
+        if !cause.is_empty() && !details.contains(&cause) {
+            details.push_str(": ");
+            details.push_str(&cause);
+        }
+        source = source.and_then(std::error::Error::source);
+    }
+    if error.is_timeout() {
+        details.push_str(" [timeout]");
+    }
+    if error.is_connect() {
+        details.push_str(" [connect]");
+    }
+    details
 }
 
 fn api_endpoint(base_url: &str, path: &str) -> String {
