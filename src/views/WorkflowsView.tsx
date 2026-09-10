@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n"
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   addEdge,
@@ -116,35 +117,35 @@ const paletteItems: PaletteItem[] = [
   {
     id: 'audio-input',
     kind: 'input',
-    label: '音频输入',
-    description: '文件或麦克风',
-    category: '输入输出',
+    get label() { return t("音频输入") },
+    get description() { return t("文件或麦克风") },
+    category: "输入输出",
     inputTypes: [],
     outputType: 'audio',
   },
   {
     id: 'audio-output',
     kind: 'output',
-    label: '播放输出',
-    description: '播放与导出音频',
-    category: '输入输出',
+    get label() { return t("播放输出") },
+    get description() { return t("播放与导出音频") },
+    category: "输入输出",
     inputTypes: ['audio'],
   },
   {
     id: 'caption-output',
     kind: 'output',
-    label: '字幕输出',
-    description: '悬浮显示实时字幕',
-    category: '输入输出',
+    get label() { return t("字幕输出") },
+    get description() { return t("悬浮显示实时字幕") },
+    category: "输入输出",
     inputTypes: ['transcript', 'text'],
     parameters: { outputMode: 'captions' },
   },
   {
     id: 'result-output',
     kind: 'output',
-    label: '结果输出',
-    description: '在详情中暴露节点结果',
-    category: '输入输出',
+    get label() { return t("结果输出") },
+    get description() { return t("在详情中暴露节点结果") },
+    category: "输入输出",
     inputTypes: [
       'audio',
       'speech-segments',
@@ -164,8 +165,8 @@ const paletteItems: PaletteItem[] = [
     id: 'local-deepfilternet3',
     kind: 'enhance',
     label: 'DeepFilterNet3',
-    description: '降噪与响度处理',
-    category: '音频处理',
+    get description() { return t("降噪与响度处理") },
+    category: "音频处理",
     capability: 'audio.enhance',
     providerId: 'plugin.rikorose.deepfilternet3',
     inputTypes: ['audio'],
@@ -176,8 +177,8 @@ const paletteItems: PaletteItem[] = [
     id: 'local-silero-vad',
     kind: 'vad',
     label: 'Silero VAD',
-    description: '检测语音区间',
-    category: '音频处理',
+    get description() { return t("检测语音区间") },
+    category: "音频处理",
     capability: 'speech.detect',
     providerId: 'local.silero-vad',
     inputTypes: ['audio'],
@@ -192,8 +193,8 @@ const paletteItems: PaletteItem[] = [
     id: 'local-sensevoice',
     kind: 'asr',
     label: 'SenseVoice Small GGUF',
-    description: '语音转写与时间戳',
-    category: '音频理解',
+    get description() { return t("语音转写与时间戳") },
+    category: "音频理解",
     capability: 'speech.transcribe',
     providerId: 'plugin.funaudiollm.sensevoice-small-gguf',
     inputTypes: ['audio', 'speech-segments'],
@@ -202,9 +203,9 @@ const paletteItems: PaletteItem[] = [
   {
     id: 'compatible-llm-placeholder',
     kind: 'llm',
-    label: '文本 LLM',
-    description: '理解并生成回复',
-    category: '文本智能',
+    get label() { return t("文本 LLM") },
+    get description() { return t("理解并生成回复") },
+    category: "文本智能",
     capability: 'text.generate',
     providerId: 'api.openai-compatible',
     inputTypes: ['transcript', 'text'],
@@ -220,8 +221,8 @@ const paletteItems: PaletteItem[] = [
     id: 'local-vits-aishell3',
     kind: 'tts',
     label: 'VITS AISHELL3 中文',
-    description: '文字生成语音',
-    category: '音频生成',
+    get description() { return t("文字生成语音") },
+    category: "音频生成",
     capability: 'speech.synthesize',
     providerId: 'plugin.k2-fsa.vits-aishell3',
     inputTypes: ['text', 'transcript'],
@@ -369,6 +370,8 @@ function iconForKind(
 }
 
 function VisualNode({ id, data, selected }: NodeProps<WorkflowNode>) {
+  useLocale()
+
   const Icon = iconForKind(data.kind, data.parameters)
   const structuralNode = data.kind === 'input' || data.kind === 'output'
   const showStatusIcon =
@@ -379,14 +382,14 @@ function VisualNode({ id, data, selected }: NodeProps<WorkflowNode>) {
   const { deleteElements } = useReactFlow<WorkflowNode, WorkflowEdge>()
   const status =
     data.state === 'running'
-      ? '运行中'
+      ? t("运行中")
       : data.state === 'completed'
-        ? '完成'
+        ? t("完成")
       : data.state === 'failed'
-          ? '失败'
+          ? t("失败")
           : data.capability
-            ? '待运行'
-            : '就绪'
+            ? t("待运行")
+            : t("就绪")
 
   return (
     <article
@@ -421,8 +424,8 @@ function VisualNode({ id, data, selected }: NodeProps<WorkflowNode>) {
         <button
           className="visual-node-delete"
           type="button"
-          title="删除节点"
-          aria-label={`删除 ${data.label}`}
+          title={t("删除节点")}
+          aria-label={t("删除 {0}", [data.label])}
           onClick={(event) => {
             event.stopPropagation()
             void deleteElements({ nodes: [{ id }] })
@@ -435,12 +438,12 @@ function VisualNode({ id, data, selected }: NodeProps<WorkflowNode>) {
         <span>
           {data.modelName ??
             (data.kind === 'input'
-              ? '文件 / 麦克风'
+              ? t("文件 / 麦克风")
               : data.parameters.outputMode === 'captions'
-                ? '悬浮字幕窗口'
+                ? t("悬浮字幕窗口")
                 : data.parameters.outputMode === 'result'
-                  ? '流程结果'
-                : '音频设备')}
+                  ? t("流程结果")
+                : t("音频设备"))}
         </span>
         <b>{status}</b>
       </footer>
@@ -497,6 +500,8 @@ function WorkflowEditor({
   onWorkflowsChanged,
   onAction,
 }: WorkflowsViewProps) {
+  useLocale()
+
   const availablePaletteItems = useMemo(
     () => [
       ...paletteItems.filter(
@@ -583,15 +588,15 @@ function WorkflowEditor({
   const saveWorkflow = () => {
     const name = workflowName.trim()
     if (!name) {
-      onAction('请先填写流程名称')
+      onAction(t("请先填写流程名称"))
       return
     }
     if (!nodes.some((node) => node.data.kind === 'input')) {
-      onAction('流程需要一个输入节点')
+      onAction(t("流程需要一个输入节点"))
       return
     }
     if (!nodes.some((node) => node.data.kind === 'output')) {
-      onAction('流程需要一个输出节点')
+      onAction(t("流程需要一个输出节点"))
       return
     }
     const validationError = validateStoredWorkflow({ nodes, edges })
@@ -611,7 +616,7 @@ function WorkflowEditor({
       edges,
     })
     onWorkflowsChanged(next, id)
-    onAction(editingWorkflow ? `${name} 已更新` : `${name} 已保存并添加到左栏`)
+    onAction(editingWorkflow ? t("{0} 已更新", [name]) : t("{0} 已保存并添加到左栏", [name]))
   }
 
   const resetTemplate = () => {
@@ -620,7 +625,7 @@ function WorkflowEditor({
     setEdges(next.edges)
     setSelectedNodeId(null)
     window.setTimeout(() => void fitView({ padding: 0.16 }), 0)
-    onAction('已恢复语音对话模板')
+    onAction(t("已恢复语音对话模板"))
   }
 
   const onConnect = useCallback(
@@ -630,7 +635,7 @@ function WorkflowEditor({
       if (!source || !target) return
       if (!compatible(source, target)) {
         onAction(
-          `无法连接：${source.data.outputType ?? '无输出'} 不能输入到 ${target.data.label}`,
+          t("无法连接：{0} 不能输入到 {1}", [source.data.outputType ?? t("无输出"), target.data.label]),
         )
         return
       }
@@ -644,7 +649,7 @@ function WorkflowEditor({
         return existingTarget?.data.kind === 'output'
       })
       if (createsCycle(connection.source, connection.target, remaining)) {
-        onAction('流程不能形成循环')
+        onAction(t("流程不能形成循环"))
         return
       }
       setEdges(
@@ -682,7 +687,7 @@ function WorkflowEditor({
         nodeFromPalette(item, id, nextPosition),
       ])
       setSelectedNodeId(id)
-      onAction(`${item.label} 已添加到画布`)
+      onAction(t("{0} 已添加到画布", [item.label]))
     },
     [nodes, onAction, setNodes],
   )
@@ -850,7 +855,7 @@ function WorkflowEditor({
         }
       }),
     )
-    onAction(`已替换为 ${item.label}`)
+    onAction(t("已替换为 {0}", [item.label]))
   }
 
   const renderInspector = () => {
@@ -858,8 +863,8 @@ function WorkflowEditor({
       return (
         <div className="visual-inspector-empty">
           <Settings2 size={19} />
-          <strong>选择一个节点</strong>
-          <p>查看节点状态并调整本次流程的运行参数。</p>
+          <strong>{t("选择一个节点")}</strong>
+          <p>{t("查看节点状态并调整本次流程的运行参数。")}</p>
         </div>
       )
     }
@@ -910,9 +915,9 @@ function WorkflowEditor({
         </div>
         {selectedNode.data.capability && (
           <div className="visual-node-runtime">
-            <span>执行模型</span>
+            <span>{t("执行模型")}</span>
             <select
-              aria-label="执行模型"
+              aria-label={t("执行模型")}
               value={selectedModelOption?.id ?? ''}
               onChange={(event) => {
                 const item = modelOptions.find(
@@ -929,7 +934,7 @@ function WorkflowEditor({
               {modelOptions.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.label}
-                  {item.streamingMode === 'streaming' ? ' · 流式' : ''}
+                  {item.streamingMode === 'streaming' ? t(" · 流式") : ''}
                 </option>
               ))}
             </select>
@@ -938,14 +943,14 @@ function WorkflowEditor({
             >
               {(selectedNode.data.local ??
               !selectedNode.data.providerId?.startsWith('api.'))
-                ? '本地模型'
-                : '云端模型'}
+                ? t("本地模型")
+                : t("云端模型")}
             </small>
           </div>
         )}
         {selectedNode.data.kind === 'output' && (
           <label className="visual-field">
-            <span>输出名称</span>
+            <span>{t("输出名称")}</span>
             <input
               type="text"
               maxLength={24}
@@ -969,14 +974,14 @@ function WorkflowEditor({
                     updateParameter(parameter.name, event.target.checked)
                   }
                 />
-                <span>{parameter.label}</span>
+                <span>{t(parameter.label)}</span>
               </label>
             )
           }
           if (parameter.type === 'enum') {
             return (
               <label className="visual-field" key={parameter.name}>
-                <span>{parameter.label}</span>
+                <span>{t(parameter.label)}</span>
                 <select
                   value={String(value)}
                   onChange={(event) =>
@@ -988,7 +993,7 @@ function WorkflowEditor({
                       key={String(option.value)}
                       value={String(option.value)}
                     >
-                      {option.label}
+                      {t(option.label)}
                     </option>
                   ))}
                 </select>
@@ -999,7 +1004,7 @@ function WorkflowEditor({
             return (
               <label className="visual-field" key={parameter.name}>
                 <span>
-                  {parameter.label}
+                  {t(parameter.label)}
                   <b>{Number(value)}</b>
                 </span>
                 <input
@@ -1020,7 +1025,7 @@ function WorkflowEditor({
           }
           return (
             <label className="visual-field" key={parameter.name}>
-              <span>{parameter.label}</span>
+              <span>{t(parameter.label)}</span>
               {parameter.multiline ? (
                 <textarea
                   rows={parameter.name === 'systemPrompt' ? 5 : 3}
@@ -1043,12 +1048,10 @@ function WorkflowEditor({
         })}
         <div className="visual-node-contract">
           <span>
-            输入
-            <b>{selectedNode.data.inputTypes.join(' / ') || '无'}</b>
+            {t("输入")}<b>{selectedNode.data.inputTypes.join(' / ') || t("无")}</b>
           </span>
           <span>
-            输出
-            <b>{selectedNode.data.outputType ?? '无'}</b>
+            {t("输出")}<b>{selectedNode.data.outputType ?? t("无")}</b>
           </span>
         </div>
         <button
@@ -1060,8 +1063,7 @@ function WorkflowEditor({
           }}
         >
           <Trash2 size={14} />
-          删除节点
-        </button>
+          {t("删除节点")}</button>
       </>
     )
   }
@@ -1071,20 +1073,20 @@ function WorkflowEditor({
       <section className="visual-editor">
         <aside className="visual-palette">
           <header>
-            <strong>节点</strong>
-            <span>拖动或点击</span>
+            <strong>{t("节点")}</strong>
+            <span>{t("拖动或点击")}</span>
           </header>
           {(
             [
-              '输入输出',
-              '音频处理',
-              '音频理解',
-              '文本智能',
-              '音频生成',
+              "输入输出",
+              "音频处理",
+              "音频理解",
+              "文本智能",
+              "音频生成",
             ] as const
           ).map((category) => (
             <div className="visual-palette-group" key={category}>
-              <span>{category}</span>
+              <span>{t(category)}</span>
               {availablePaletteItems
                 .filter((item) => item.category === category)
                 .map((item) => {
@@ -1095,7 +1097,7 @@ function WorkflowEditor({
                       role="button"
                       tabIndex={0}
                       key={item.id}
-                      title={`将 ${item.label} 添加到画布`}
+                      title={t("将 {0} 添加到画布", [item.label])}
                       onMouseDown={(event) => beginPaletteDrag(event, item)}
                       onClick={() => {
                         if (suppressPaletteClickRef.current) return
@@ -1116,7 +1118,7 @@ function WorkflowEditor({
                       )}
                       <span>
                         <strong>{item.label}</strong>
-                        <small>{item.description}</small>
+                        <small>{t(item.description)}</small>
                       </span>
                     </div>
                   )
@@ -1159,7 +1161,7 @@ function WorkflowEditor({
                 <input
                   value={workflowName}
                   maxLength={40}
-                  placeholder="流程名称"
+                  placeholder={t("流程名称")}
                   onChange={(event) => setWorkflowName(event.target.value)}
                 />
               </label>
@@ -1169,17 +1171,16 @@ function WorkflowEditor({
                 onClick={saveWorkflow}
               >
                 <Save size={13} />
-                {editingWorkflow ? '更新流程' : '保存流程'}
+                {editingWorkflow ? t("更新流程") : t("保存流程")}
               </button>
               <button
                 className="secondary-action"
                 type="button"
-                title="恢复默认流程模板"
+                title={t("恢复默认流程模板")}
                 onClick={resetTemplate}
               >
                 <RotateCcw size={13} />
-                恢复模板
-              </button>
+                {t("恢复模板")}</button>
             </Panel>
             <Background
               variant={BackgroundVariant.Dots}
@@ -1193,7 +1194,7 @@ function WorkflowEditor({
 
         <aside className="visual-inspector">
           <header>
-            <strong>节点设置</strong>
+            <strong>{t("节点设置")}</strong>
             <span>PARAMETERS</span>
           </header>
           <div>{renderInspector()}</div>
@@ -1213,6 +1214,8 @@ function WorkflowEditor({
 }
 
 export function WorkflowsView(props: WorkflowsViewProps) {
+  useLocale()
+
   return (
     <ReactFlowProvider>
       <WorkflowEditor {...props} />

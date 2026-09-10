@@ -25,3 +25,7 @@
 ## 来源与许可
 - 发布方 · 许可 · 运行时 · 精度 / 体积 / 版本
 ```
+
+English versions live under `en/` with the same filenames. Keep both versions
+aligned when updating an in-app model note. The selected interface language
+controls which version is displayed; model IDs and technical names stay intact.

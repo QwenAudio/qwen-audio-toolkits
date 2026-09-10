@@ -1,5 +1,6 @@
 mod advanced_models;
 mod agents;
+mod app_language;
 mod asr;
 mod audio_io;
 mod audio_processing;
@@ -64,10 +65,7 @@ use system_audio::{
 };
 use tauri::Manager;
 #[cfg(target_os = "macos")]
-use tauri::{
-    menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem},
-    Emitter, RunEvent, WindowEvent,
-};
+use tauri::{Emitter, RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
@@ -121,23 +119,7 @@ fn restore_main_window(app: &tauri::AppHandle) {
 
 #[cfg(target_os = "macos")]
 fn configure_macos_application_menu(app: &mut tauri::App) -> tauri::Result<()> {
-    let menu = Menu::default(app.handle())?;
-    let check_update = MenuItem::with_id(
-        app.handle(),
-        "check-update",
-        "检查更新…",
-        true,
-        None::<&str>,
-    )?;
-    let separator = PredefinedMenuItem::separator(app.handle())?;
-
-    if let Some(MenuItemKind::Submenu(application_menu)) = menu.items()?.into_iter().next() {
-        application_menu.insert_items(&[&check_update, &separator], 2)?;
-    } else {
-        log::warn!("could not find the macOS application menu");
-    }
-
-    app.set_menu(menu)?;
+    app_language::set_menu(app.handle(), app_language::UiLanguage::Chinese)?;
     app.on_menu_event(|app, event| {
         if event.id().as_ref() == "check-update" {
             restore_main_window(app);
@@ -778,6 +760,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             set_close_behavior,
+            app_language::set_ui_language,
             app_data_directory,
             reveal_in_file_manager,
             cleanup_download_cache,

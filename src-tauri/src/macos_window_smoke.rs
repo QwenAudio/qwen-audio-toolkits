@@ -44,6 +44,26 @@ fn reopen(app: &tauri::AppHandle) -> Result<(), String> {
 fn check(app: &tauri::AppHandle) -> Result<(), String> {
     // Let the frontend finish applying persisted settings before controlling them.
     thread::sleep(Duration::from_secs(3));
+    for (language, expected_file_menu) in [
+        (super::app_language::UiLanguage::English, "File"),
+        (super::app_language::UiLanguage::Chinese, "文件"),
+    ] {
+        super::app_language::set_ui_language(app.clone(), language)?;
+        let menu = app.menu().ok_or("application menu is missing")?;
+        let titles: Vec<String> = menu
+            .items()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .filter_map(|item| match item {
+                tauri::menu::MenuItemKind::Submenu(submenu) => submenu.text().ok(),
+                _ => None,
+            })
+            .collect();
+        if !titles.iter().any(|title| title == expected_file_menu) {
+            return Err(format!("menu was not localized: {titles:?}"));
+        }
+    }
+    eprintln!("WINDOW_SMOKE: native menu language switching passed");
     app.state::<super::CloseBehavior>()
         .0
         .store(false, Ordering::Relaxed);

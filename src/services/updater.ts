@@ -1,3 +1,4 @@
+import { t } from "../i18n"
 import { getIdentifier } from '@tauri-apps/api/app'
 import { relaunch } from '@tauri-apps/plugin-process'
 import {
@@ -24,13 +25,13 @@ let updateDownloaded = false
 
 export async function checkForAppUpdate(): Promise<AppUpdateCheck> {
   if (!isTauriRuntime()) {
-    return { status: 'unavailable', message: '仅桌面版支持软件更新' }
+    return { status: 'unavailable', message: t("仅桌面版支持软件更新") }
   }
   if (import.meta.env.DEV) {
-    return { status: 'unavailable', message: '开发版本不检查软件更新' }
+    return { status: 'unavailable', message: t("开发版本不检查软件更新") }
   }
   if ((await getIdentifier()) !== 'org.qwenaudio.toolkits') {
-    return { status: 'unavailable', message: '预览版本不接收正式版更新' }
+    return { status: 'unavailable', message: t("预览版本不接收正式版更新") }
   }
 
   await pendingUpdate?.close()
@@ -51,7 +52,7 @@ export async function checkForAppUpdate(): Promise<AppUpdateCheck> {
 export async function downloadAppUpdate(
   onProgress: (downloaded: number, total?: number) => void,
 ): Promise<void> {
-  if (!pendingUpdate) throw new Error('没有可安装的软件更新')
+  if (!pendingUpdate) throw new Error(t("没有可安装的软件更新"))
   if (updateDownloaded) return
   let downloaded = 0
   let total: number | undefined
@@ -73,7 +74,7 @@ export async function downloadAppUpdate(
 export async function installAppUpdate(
   onProgress: (downloaded: number, total?: number) => void,
 ): Promise<void> {
-  if (!pendingUpdate) throw new Error('没有可安装的软件更新')
+  if (!pendingUpdate) throw new Error(t("没有可安装的软件更新"))
   await downloadAppUpdate(onProgress)
   await pendingUpdate.install()
   await relaunch()

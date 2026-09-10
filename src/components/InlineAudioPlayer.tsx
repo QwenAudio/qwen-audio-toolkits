@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n"
 import { useEffect, useRef, useState } from 'react'
 import { Pause, Play, Volume2, VolumeX } from 'lucide-react'
 
@@ -25,14 +26,16 @@ function formatPlayerTime(seconds: number, roundUp = false): string {
 export function InlineAudioPlayer({
   src,
   comparisonSrc,
-  primaryLabel = '增强',
-  comparisonLabel = '原声',
+  primaryLabel = t("增强"),
+  comparisonLabel = t("原声"),
   duration = 0,
   startTime = 0,
   endTime,
   onTimeChange,
   onAbsoluteTimeChange,
 }: InlineAudioPlayerProps) {
+  useLocale()
+
   const audioRef = useRef<HTMLAudioElement>(null)
   const animationFrameRef = useRef<number | null>(null)
   const lastProgressUpdateRef = useRef(0)
@@ -182,14 +185,14 @@ export function InlineAudioPlayer({
       />
       <button
         type="button"
-        title={playing ? '暂停' : '播放'}
-        aria-label={playing ? '暂停' : '播放'}
+        title={playing ? t("暂停") : t("播放")}
+        aria-label={playing ? t("暂停") : t("播放")}
         onClick={togglePlayback}
       >
         {playing ? <Pause size={14} /> : <Play size={14} />}
       </button>
       {comparisonSrc && (
-        <div className="audio-comparison-switch" aria-label="音频对比">
+        <div className="audio-comparison-switch" aria-label={t("音频对比")}>
           {(
             [
               ['primary', primaryLabel],
@@ -223,7 +226,7 @@ export function InlineAudioPlayer({
         max={Math.max(0.01, totalDuration)}
         step={0.01}
         value={Math.min(relativeCurrentTime, Math.max(0.01, totalDuration))}
-        aria-label="播放进度"
+        aria-label={t("播放进度")}
         style={{
           background: `linear-gradient(90deg, var(--primary) ${progress}%, var(--line) ${progress}%)`,
         }}
@@ -239,8 +242,8 @@ export function InlineAudioPlayer({
       <span>{formatPlayerTime(totalDuration, true)}</span>
       <button
         type="button"
-        title={muted ? '取消静音' : '静音'}
-        aria-label={muted ? '取消静音' : '静音'}
+        title={muted ? t("取消静音") : t("静音")}
+        aria-label={muted ? t("取消静音") : t("静音")}
         onClick={() => setMuted((value) => !value)}
       >
         {muted ? <VolumeX size={15} /> : <Volume2 size={15} />}

@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from "../i18n"
 import {
   useCallback,
   useEffect,
@@ -106,7 +107,7 @@ interface WorkflowChatViewProps {
 }
 
 function formatCreatedAt(timestamp: number): string {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(getLocale(), {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(timestamp))
@@ -214,18 +215,18 @@ function resultFallbackText(output: Record<string, unknown>): string {
       .join(' · ')
   }
   if (typeof output.detected === 'boolean') {
-    return output.detected ? '检测到目标事件' : '未检测到目标事件'
+    return output.detected ? t("检测到目标事件") : t("未检测到目标事件")
   }
   if (typeof output.language === 'string') {
-    return `语言：${output.language}`
+    return t("语言：{0}", [output.language])
   }
   if (typeof output.speakerCount === 'number') {
-    return `${output.speakerCount} 位说话人`
+    return t("{0} 位说话人", [output.speakerCount])
   }
   if (typeof output.dimension === 'number') {
-    return `${output.dimension} 维向量`
+    return t("{0} 维向量", [output.dimension])
   }
-  return '结果已生成'
+  return t("结果已生成")
 }
 
 function WorkflowNodeResultCard({
@@ -233,6 +234,8 @@ function WorkflowNodeResultCard({
 }: {
   result: WorkflowNodeResult
 }) {
+  useLocale()
+
   const normalized = normalizeHarnessResult(result.output)
   return (
     <article
@@ -276,7 +279,7 @@ function WorkflowNodeResultCard({
             </div>
           ))}
           {normalized.segments.length > 12 && (
-            <small>另有 {normalized.segments.length - 12} 个片段</small>
+            <small>{t("另有 ")}{normalized.segments.length - 12} {t(" 个片段")}</small>
           )}
         </div>
       )}
@@ -309,6 +312,8 @@ export function WorkflowChatView({
   onRunUpdate,
   onAction,
 }: WorkflowChatViewProps) {
+  useLocale()
+
   const [busy, setBusy] = useState(false)
   const [recording, setRecording] = useState(false)
   const [audioSource, setAudioSource] = useState<'microphone' | 'system'>(
@@ -374,7 +379,7 @@ export function WorkflowChatView({
         ? 'Streaming Paraformer'
         : streamingAsrConfig?.adapter === 'bailian-funasr'
           ? streamingAsrConfig.label
-          : '流式 ASR'
+          : t("流式 ASR")
   const transcriptExportEnabled =
     workflowSupportsTranscriptExport(workflowId)
   const captionOutputEnabled = workflowUsesCaptionOutput(workflowId)
@@ -483,7 +488,7 @@ export function WorkflowChatView({
       const file = pcm16ChunksToWavFile(
         enhancementAudioChunksRef.current,
         48_000,
-        `实时增强-${Date.now()}.wav`,
+        t("实时增强-{0}.wav", [Date.now()]),
       )
       enhancementAudioChunksRef.current = []
       const clip = await audioFileToClip(file)
@@ -584,7 +589,7 @@ export function WorkflowChatView({
             transcript: captionFinalizedTextRef.current,
             reply: captionFinalizedTextRef.current,
             currentStep:
-              status === 'stopped' ? '字幕已停止' : 'VAD · 等待声音',
+              status === 'stopped' ? t("字幕已停止") : t("VAD · 等待声音"),
           })
           await publishCaptionOutput(finalized, true, status)
         })
@@ -646,7 +651,7 @@ export function WorkflowChatView({
       }
       const { turnId, generation } = turn
       if (event.kind === 'audio' && event.pcmBase64) {
-        updateTurn(turnId, { currentStep: '正在播放合成语音' })
+        updateTurn(turnId, { currentStep: t("正在播放合成语音") })
         void playPcmChunk(event.pcmBase64, event.sampleRate, generation)
         return
       }
@@ -654,12 +659,12 @@ export function WorkflowChatView({
       if (event.kind === 'error') {
         updateTurn(turnId, {
           status: 'failed',
-          currentStep: '合成失败',
-          error: event.error || '流式语音合成失败',
+          currentStep: t("合成失败"),
+          error: event.error || t("流式语音合成失败"),
         })
         clearActiveTurn(turnId)
         setBusy(false)
-        onActionRef.current(event.error || '流式语音合成失败')
+        onActionRef.current(event.error || t("流式语音合成失败"))
         return
       }
       void getHarnessRunOutput<TtsGenerateResult>(event.runId)
@@ -674,17 +679,17 @@ export function WorkflowChatView({
           if (nodeResult) updateNodeResult(turnId, nodeResult)
           updateTurn(turnId, {
             status: 'completed',
-            currentStep: '处理完成',
+            currentStep: t("处理完成"),
             audio: result.output,
           })
           setSelectedTurnId(turnId)
-          onActionRef.current('语音对话完成')
+          onActionRef.current(t("语音对话完成"))
         })
         .catch(() => {
           if (!realtimeSessionRef.current.isCurrent(generation)) return
           updateTurn(turnId, {
             status: 'completed',
-            currentStep: '处理完成',
+            currentStep: t("处理完成"),
           })
         })
         .finally(() => {
@@ -765,8 +770,8 @@ export function WorkflowChatView({
         updateTurn(turnId, {
           transcript,
           currentStep: captionOnlyWorkflow
-            ? '字幕输出 · 实时更新'
-            : `${streamingAsrLabel} · 流式识别`,
+            ? t("字幕输出 · 实时更新")
+            : t("{0} · 流式识别", [streamingAsrLabel]),
         })
         return
       }
@@ -790,20 +795,20 @@ export function WorkflowChatView({
         setRecording(false)
         if (captionOutputEnabled) {
           void publishCaptionOutput(
-            event.error || '流式识别失败',
+            event.error || t("流式识别失败"),
             false,
             'error',
           )
         }
         updateTurn(turnId, {
           status: 'failed',
-          currentStep: '识别失败',
-          error: event.error || '流式 ASR 识别失败',
+          currentStep: t("识别失败"),
+          error: event.error || t("流式 ASR 识别失败"),
         })
         asrGenerationsRef.current.delete(event.sessionId)
         clearActiveTurn(turnId)
         setBusy(false)
-        onActionRef.current(event.error || '流式 ASR 识别失败')
+        onActionRef.current(event.error || t("流式 ASR 识别失败"))
         return
       }
 
@@ -814,8 +819,8 @@ export function WorkflowChatView({
           ? captionTranscriptRef.current || event.text
           : event.text,
         currentStep: captionOnlyWorkflow
-          ? '字幕输出 · 正在结束'
-          : '正在生成回复',
+          ? t("字幕输出 · 正在结束")
+          : t("正在生成回复"),
       })
       void getHarnessRunOutput<AsrTranscriptionResult>(event.runId)
         .then((result) => {
@@ -843,7 +848,7 @@ export function WorkflowChatView({
               transcript: finalText,
               reply: finalText,
               status: 'completed',
-              currentStep: '字幕已停止',
+              currentStep: t("字幕已停止"),
               steps: workflowStepLabels,
             })
             await stopCaptionOutput()
@@ -856,7 +861,7 @@ export function WorkflowChatView({
               error instanceof Error ? error.message : String(error)
             updateTurn(turnId, {
               status: 'failed',
-              currentStep: '字幕处理失败',
+              currentStep: t("字幕处理失败"),
               error: message,
             })
             if (captionOutputEnabled) {
@@ -864,7 +869,7 @@ export function WorkflowChatView({
             }
             clearActiveTurn(turnId)
             setBusy(false)
-            onActionRef.current(`字幕处理失败：${message}`)
+            onActionRef.current(t("字幕处理失败：{0}", [message]))
           })
         return
       }
@@ -894,8 +899,8 @@ export function WorkflowChatView({
             steps: output.steps,
             status: output.ttsStream ? 'running' : 'completed',
             currentStep: output.ttsStream
-              ? '正在流式合成'
-              : '处理完成',
+              ? t("正在流式合成")
+              : t("处理完成"),
           })
           if (output.ttsStream) {
             ttsTurnsRef.current.set(output.ttsStream.sessionId, {
@@ -922,12 +927,12 @@ export function WorkflowChatView({
           const message = error instanceof Error ? error.message : String(error)
           updateTurn(turnId, {
             status: 'failed',
-            currentStep: '运行失败',
+            currentStep: t("运行失败"),
             error: message,
           })
           clearActiveTurn(turnId)
           setBusy(false)
-          onActionRef.current(`流程失败：${message}`)
+          onActionRef.current(t("流程失败：{0}", [message]))
         })
     }).then((remove) => {
       if (disposed) remove()
@@ -1003,7 +1008,7 @@ export function WorkflowChatView({
       fileName: file.name,
       createdAt: Date.now(),
       status: 'running',
-      currentStep: '准备音频',
+      currentStep: t("准备音频"),
       transcript: '',
       reply: '',
       inputAudio: null,
@@ -1036,7 +1041,7 @@ export function WorkflowChatView({
       }
       updateTurn(id, {
         status: 'completed',
-        currentStep: '处理完成',
+        currentStep: t("处理完成"),
         transcript: output.transcript,
         transcription: output.transcription,
         reply: output.reply,
@@ -1046,7 +1051,7 @@ export function WorkflowChatView({
       })
       if (!captionOnlyWorkflow) setSelectedTurnId(id)
       onAction(
-        captionOnlyWorkflow ? '字幕流程执行完成' : '语音对话流程执行完成',
+        captionOnlyWorkflow ? t("字幕流程执行完成") : t("语音对话流程执行完成"),
       )
     } catch (error) {
       if (!realtimeSessionRef.current.isCurrent(generation)) return
@@ -1054,11 +1059,11 @@ export function WorkflowChatView({
         error instanceof Error ? error.message : String(error)
       updateTurn(id, {
         status: 'failed',
-        currentStep: '运行失败',
+        currentStep: t("运行失败"),
         error: message,
       })
       setSelectedTurnId(id)
-      onAction(`流程失败：${message}`)
+      onAction(t("流程失败：{0}", [message]))
     } finally {
       if (realtimeSessionRef.current.isCurrent(generation)) {
         clearActiveTurn(id)
@@ -1079,8 +1084,8 @@ export function WorkflowChatView({
     if (turnId) {
       updateTurn(turnId, {
         currentStep: captionOnlyWorkflow
-          ? '字幕输出 · 正在结束'
-          : `${streamingAsrLabel} · 正在完成识别`,
+          ? t("字幕输出 · 正在结束")
+          : t("{0} · 正在完成识别", [streamingAsrLabel]),
       })
     }
     try {
@@ -1099,19 +1104,19 @@ export function WorkflowChatView({
       if (turnId) {
         updateTurn(turnId, {
           status: 'failed',
-          currentStep: '结束识别失败',
+          currentStep: t("结束识别失败"),
           error: message,
         })
         clearActiveTurn(turnId)
       }
       setBusy(false)
-      onAction(`无法结束实时识别：${message}`)
+      onAction(t("无法结束实时识别：{0}", [message]))
     }
   }
 
   const startStreamingSystemRecording = async () => {
     if (!streamingAsrConfig) {
-      onAction('当前编排没有流式 ASR')
+      onAction(t("当前编排没有流式 ASR"))
       return
     }
     const generation = realtimeSessionRef.current.beginTurn()
@@ -1121,13 +1126,13 @@ export function WorkflowChatView({
       {
         id: turnId,
         fileName: captionOnlyWorkflow
-          ? '实时字幕 · 电脑音频'
-          : '实时电脑音频',
+          ? t("实时字幕 · 电脑音频")
+          : t("实时电脑音频"),
         createdAt: Date.now(),
         status: 'running',
         currentStep: streamingVadConfig
-          ? 'VAD · 等待声音'
-          : `${streamingAsrLabel} · 等待声音`,
+          ? t("VAD · 等待声音")
+          : t("{0} · 等待声音", [streamingAsrLabel]),
         transcript: '',
         reply: '',
         inputAudio: null,
@@ -1156,9 +1161,7 @@ export function WorkflowChatView({
     try {
       if (captionOutputEnabled) await showCaptionOutput()
       const asr = await startFunAsrStream({
-        clipName: `${
-          captionOnlyWorkflow ? '实时字幕' : '实时对话'
-        }-电脑音频-${Date.now()}`,
+        clipName: t("{0}-电脑音频-{1}", [captionOnlyWorkflow ? t("实时字幕") : t("实时对话"), Date.now()]),
         providerId: streamingAsrConfig.providerId,
         modelId: streamingAsrConfig.modelId,
         sampleRate: 48_000,
@@ -1237,7 +1240,7 @@ export function WorkflowChatView({
             if (!vadSession) {
               await pushFunAsrStream(asrSession, asrPcm)
               updateTurn(turnId, {
-                currentStep: `${streamingAsrLabel} · 流式识别`,
+                currentStep: t("{0} · 流式识别", [streamingAsrLabel]),
               })
               return
             }
@@ -1257,8 +1260,8 @@ export function WorkflowChatView({
               speechStartedRef.current = true
               updateTurn(turnId, {
                 currentStep: captionOnlyWorkflow
-                  ? '字幕输出 · 实时更新'
-                  : `${streamingAsrLabel} · 流式识别`,
+                  ? t("字幕输出 · 实时更新")
+                  : t("{0} · 流式识别", [streamingAsrLabel]),
               })
               if (captionOnlyWorkflow) {
                 await updateCaptionOutputStatus('speech')
@@ -1270,7 +1273,7 @@ export function WorkflowChatView({
               if (captionOnlyWorkflow) {
                 speechStartedRef.current = false
                 updateTurn(turnId, {
-                  currentStep: 'VAD · 等待声音',
+                  currentStep: t("VAD · 等待声音"),
                 })
                 void finalizeCaptionSegment(turnId, generation)
                 await updateCaptionOutputStatus('listening')
@@ -1300,7 +1303,7 @@ export function WorkflowChatView({
             }
             updateTurn(turnId, {
               status: 'failed',
-              currentStep: '电脑音频流失败',
+              currentStep: t("电脑音频流失败"),
               error: message,
             })
             if (captionOutputEnabled) {
@@ -1309,7 +1312,7 @@ export function WorkflowChatView({
             clearActiveTurn(turnId)
             setRecording(false)
             setBusy(false)
-            onActionRef.current(`电脑音频流失败：${message}`)
+            onActionRef.current(t("电脑音频流失败：{0}", [message]))
           })
       })
       const session = await startSystemAudio(false)
@@ -1317,8 +1320,8 @@ export function WorkflowChatView({
       setRecording(true)
       onAction(
         captionOnlyWorkflow
-          ? '实时字幕已开始'
-          : '电脑音频实时对话已开始',
+          ? t("实时字幕已开始")
+          : t("电脑音频实时对话已开始"),
       )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -1341,12 +1344,12 @@ export function WorkflowChatView({
       }
       updateTurn(turnId, {
         status: 'failed',
-        currentStep: '无法启动电脑音频流',
+        currentStep: t("无法启动电脑音频流"),
         error: message,
       })
       clearActiveTurn(turnId)
       setBusy(false)
-      onAction(`无法启动电脑音频流：${message}`)
+      onAction(t("无法启动电脑音频流：{0}", [message]))
     }
   }
 
@@ -1368,15 +1371,13 @@ export function WorkflowChatView({
         const file = pcm16ChunksToWavFile(
           systemAudioChunksRef.current,
           48_000,
-          `实时电脑音频-${Date.now()}.wav`,
+          t("实时电脑音频-{0}.wav", [Date.now()]),
         )
         void audioFileToClip(file)
           .then((inputAudio) => updateTurn(turnId, { inputAudio }))
           .catch((error) =>
             onActionRef.current(
-              `无法准备电脑音频回放：${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              t("无法准备电脑音频回放：{0}", [error instanceof Error ? error.message : String(error)]),
             ),
           )
       }
@@ -1393,7 +1394,7 @@ export function WorkflowChatView({
       if (turnId) {
         updateTurn(turnId, {
           status: 'failed',
-          currentStep: '结束电脑音频流失败',
+          currentStep: t("结束电脑音频流失败"),
           error: message,
         })
         clearActiveTurn(turnId)
@@ -1402,7 +1403,7 @@ export function WorkflowChatView({
         void publishCaptionOutput(message, false, 'error')
       }
       setBusy(false)
-      onAction(`无法结束电脑音频流：${message}`)
+      onAction(t("无法结束电脑音频流：{0}", [message]))
     }
   }
 
@@ -1422,14 +1423,12 @@ export function WorkflowChatView({
       const session = await startSystemAudio()
       systemAudioSessionRef.current = session.sessionId
       setRecording(true)
-      onAction('电脑音频采集已开始')
+      onAction(t("电脑音频采集已开始"))
     } catch (error) {
       systemAudioUnlistenRef.current?.()
       systemAudioUnlistenRef.current = null
       onAction(
-        `无法采集电脑音频：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("无法采集电脑音频：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -1447,17 +1446,15 @@ export function WorkflowChatView({
       const file = pcm16ChunksToWavFile(
         systemAudioChunksRef.current,
         48_000,
-        `电脑音频-${Date.now()}.wav`,
+        t("电脑音频-{0}.wav", [Date.now()]),
       )
       if (file.size <= 44) {
-        throw new Error('没有捕获到可用音频，请确认 Chrome 正在播放声音')
+        throw new Error(t("没有捕获到可用音频，请确认 Chrome 正在播放声音"))
       }
       await submitAudio(file)
     } catch (error) {
       onAction(
-        `电脑音频处理失败：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("电脑音频处理失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       systemAudioSessionRef.current = null
@@ -1470,14 +1467,14 @@ export function WorkflowChatView({
   const startRecording = async () => {
     if (busy && asrSessionRef.current) return
     if (!streamingAsrConfig) {
-      onAction('当前编排没有流式 ASR，请上传音频或换用流式识别模型')
+      onAction(t("当前编排没有流式 ASR，请上传音频或换用流式识别模型"))
       return
     }
     const interruptedTurnId = activeTurnRef.current
     if (interruptedTurnId) {
       updateTurn(interruptedTurnId, {
         status: 'canceled',
-        currentStep: '已被新一轮对话打断',
+        currentStep: t("已被新一轮对话打断"),
       })
     }
     const generation = realtimeSessionRef.current.beginTurn()
@@ -1486,12 +1483,12 @@ export function WorkflowChatView({
     const turnId = `workflow-turn-${crypto.randomUUID()}`
     const turn: WorkflowChatTurn = {
       id: turnId,
-      fileName: captionOnlyWorkflow ? '实时字幕 · 麦克风' : '实时麦克风',
+      fileName: captionOnlyWorkflow ? t("实时字幕 · 麦克风") : t("实时麦克风"),
       createdAt: Date.now(),
       status: 'running',
       currentStep: streamingVadConfig
-        ? 'VAD · 等待说话'
-        : `${streamingAsrLabel} · 等待说话`,
+        ? t("VAD · 等待说话")
+        : t("{0} · 等待说话", [streamingAsrLabel]),
       transcript: '',
       reply: '',
       inputAudio: null,
@@ -1526,7 +1523,7 @@ export function WorkflowChatView({
       })
       recordingStreamRef.current = stream
       const asr = await startFunAsrStream({
-        clipName: `实时对话-${Date.now()}`,
+        clipName: t("实时对话-{0}", [Date.now()]),
         providerId: streamingAsrConfig?.providerId,
         modelId: streamingAsrConfig?.modelId,
         sampleRate: streamingEnhancementConfig ? 48_000 : 16_000,
@@ -1579,7 +1576,7 @@ export function WorkflowChatView({
         const blob = new Blob(recordingChunksRef.current, {
           type: recorder.mimeType || 'audio/webm',
         })
-        const file = new File([blob], `实时对话-${Date.now()}.webm`, {
+        const file = new File([blob], t("实时对话-{0}.webm", [Date.now()]), {
           type: blob.type,
         })
         recorderRef.current = null
@@ -1587,9 +1584,7 @@ export function WorkflowChatView({
           .then((inputAudio) => updateTurn(turnId, { inputAudio }))
           .catch((error) => {
             onActionRef.current(
-              `无法准备发言回放：${
-                error instanceof Error ? error.message : String(error)
-              }`,
+              t("无法准备发言回放：{0}", [error instanceof Error ? error.message : String(error)]),
             )
           })
       }
@@ -1635,7 +1630,7 @@ export function WorkflowChatView({
             if (!vadSession) {
               await pushFunAsrStream(asrSession, asrPcm)
               updateTurn(turnId, {
-                currentStep: `${streamingAsrLabel} · 流式识别`,
+                currentStep: t("{0} · 流式识别", [streamingAsrLabel]),
               })
               return
             }
@@ -1655,8 +1650,8 @@ export function WorkflowChatView({
               speechStartedRef.current = true
               updateTurn(turnId, {
                 currentStep: captionOnlyWorkflow
-                  ? '字幕输出 · 实时更新'
-                  : `${streamingAsrLabel} · 流式识别`,
+                  ? t("字幕输出 · 实时更新")
+                  : t("{0} · 流式识别", [streamingAsrLabel]),
               })
               if (captionOnlyWorkflow) {
                 await updateCaptionOutputStatus('speech')
@@ -1666,7 +1661,7 @@ export function WorkflowChatView({
               if (captionOnlyWorkflow) {
                 speechStartedRef.current = false
                 updateTurn(turnId, {
-                  currentStep: 'VAD · 等待说话',
+                  currentStep: t("VAD · 等待说话"),
                 })
                 void finalizeCaptionSegment(turnId, generation)
                 await updateCaptionOutputStatus('listening')
@@ -1686,7 +1681,7 @@ export function WorkflowChatView({
             const message = error instanceof Error ? error.message : String(error)
             updateTurn(turnId, {
               status: 'failed',
-              currentStep: '实时音频失败',
+              currentStep: t("实时音频失败"),
               error: message,
             })
             clearActiveTurn(turnId)
@@ -1695,7 +1690,7 @@ export function WorkflowChatView({
             if (captionOutputEnabled) {
               void publishCaptionOutput(message, false, 'error')
             }
-            onAction(`实时音频失败：${message}`)
+            onAction(t("实时音频失败：{0}", [message]))
           })
       }
       source.connect(processor)
@@ -1723,7 +1718,7 @@ export function WorkflowChatView({
       const message = error instanceof Error ? error.message : String(error)
       updateTurn(turnId, {
         status: 'failed',
-        currentStep: '无法开始实时对话',
+        currentStep: t("无法开始实时对话"),
         error: message,
       })
       clearActiveTurn(turnId)
@@ -1731,7 +1726,7 @@ export function WorkflowChatView({
       if (captionOutputEnabled) {
         void publishCaptionOutput(message, false, 'error')
       }
-      onAction(`无法开始实时对话：${message}`)
+      onAction(t("无法开始实时对话：{0}", [message]))
     }
   }
 
@@ -1747,24 +1742,23 @@ export function WorkflowChatView({
       <section className="model-conversation">
         <header className="model-workspace-heading">
           <div>
-            <h1>{captionOnlyWorkflow ? '实时字幕' : '语音对话流程'}</h1>
-            <p>虚拟模型 · {workflowSummary}</p>
+            <h1>{captionOnlyWorkflow ? t("实时字幕") : t("语音对话流程")}</h1>
+            <p>{t("虚拟模型 · ")}{workflowSummary}</p>
           </div>
           <span className="model-ready-state ready">
             <i />
-            可运行
-          </span>
+            {t("可运行")}</span>
         </header>
 
         {turns.length > 0 && (
-          <nav className="conversation-index" aria-label="对话记录导航">
+          <nav className="conversation-index" aria-label={t("对话记录导航")}>
             {turns.map((turn) => (
               <button
                 type="button"
                 key={turn.id}
                 data-preview={turn.fileName}
                 title={turn.fileName}
-                aria-label={`跳转到 ${turn.fileName}`}
+                aria-label={t("跳转到 {0}", [turn.fileName])}
                 onClick={() => {
                   document
                     .getElementById(`workflow-exchange-${turn.id}`)
@@ -1782,12 +1776,12 @@ export function WorkflowChatView({
                 <GitBranch size={22} />
               </span>
               <h2>
-                {captionOnlyWorkflow ? '开始实时字幕' : '开始语音对话'}
+                {captionOnlyWorkflow ? t("开始实时字幕") : t("开始语音对话")}
               </h2>
               <p>
                 {captionOnlyWorkflow
-                  ? '选择麦克风或电脑音频，识别结果会显示在独立字幕窗口。'
-                  : '上传音频或直接录音，输入会交给当前保存的编排流程。'}
+                  ? t("选择麦克风或电脑音频，识别结果会显示在独立字幕窗口。")
+                  : t("上传音频或直接录音，输入会交给当前保存的编排流程。")}
               </p>
             </div>
           )}
@@ -1831,7 +1825,7 @@ export function WorkflowChatView({
                         <p>
                           {turn.reply ||
                             turn.transcript ||
-                            '流程已生成结果'}
+                            t("流程已生成结果")}
                         </p>
                         <small>{turn.steps.join(' → ')}</small>
                       </>
@@ -1839,10 +1833,10 @@ export function WorkflowChatView({
                       <>
                         <strong>
                           {turn.status === 'running'
-                            ? '正在执行流程'
+                            ? t("正在执行流程")
                             : turn.status === 'canceled'
-                              ? '已打断'
-                              : '运行失败'}
+                              ? t("已打断")
+                              : t("运行失败")}
                         </strong>
                         <small>{turn.error || turn.currentStep}</small>
                       </>
@@ -1856,7 +1850,7 @@ export function WorkflowChatView({
                 </button>
                 {turn.status === 'running' && turn.transcript && (
                   <div className="workflow-inline-reply">
-                    <span>实时识别</span>
+                    <span>{t("实时识别")}</span>
                     <p>{turn.transcript}</p>
                   </div>
                 )}
@@ -1872,8 +1866,8 @@ export function WorkflowChatView({
                   <button
                     className="model-result-caption-button"
                     type="button"
-                    title="弹出字幕"
-                    aria-label="弹出字幕"
+                    title={t("弹出字幕")}
+                    aria-label={t("弹出字幕")}
                     onClick={() => {
                       void showCaptionOutput()
                       if (turn.transcript) {
@@ -1916,24 +1910,24 @@ export function WorkflowChatView({
                 {recording
                     ? captionOnlyWorkflow
                       ? audioSource === 'system'
-                        ? '正在为电脑音频生成字幕'
+                        ? t("正在为电脑音频生成字幕")
                         : speechStartedRef.current
-                          ? '正在识别你的声音'
-                          : '正在等待你说话'
+                          ? t("正在识别你的声音")
+                          : t("正在等待你说话")
                       : audioSource === 'system'
                         ? streamingAsrConfig
-                          ? '正在实时识别电脑音频'
-                          : '正在采集电脑音频'
+                          ? t("正在实时识别电脑音频")
+                          : t("正在采集电脑音频")
                         : speechStartedRef.current
-                          ? '正在聆听，停顿后自动提交'
-                          : '正在等待你说话'
+                          ? t("正在聆听，停顿后自动提交")
+                          : t("正在等待你说话")
                   : busy
                     ? captionOnlyWorkflow
-                      ? '正在结束字幕'
-                      : '正在执行语音对话流程'
+                      ? t("正在结束字幕")
+                      : t("正在执行语音对话流程")
                     : captionOnlyWorkflow
-                      ? '打开实时字幕'
-                      : '说点什么，或上传一段音频'}
+                      ? t("打开实时字幕")
+                      : t("说点什么，或上传一段音频")}
               </strong>
               <small>
                 {workflowSummary}
@@ -1943,7 +1937,7 @@ export function WorkflowChatView({
               active={recording}
               stream={recordingStreamRef.current}
               label={
-                audioSource === 'system' ? '电脑音频采集中' : '麦克风录音中'
+                audioSource === 'system' ? t("电脑音频采集中") : t("麦克风录音中")
               }
             />
             <div className="audio-composer-toolbar">
@@ -1951,7 +1945,7 @@ export function WorkflowChatView({
                 <button
                   className="composer-tool-button"
                   type="button"
-                  title="上传音频"
+                  title={t("上传音频")}
                   disabled={busy || recording}
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -1965,8 +1959,7 @@ export function WorkflowChatView({
                     onClick={() => setAudioSource('microphone')}
                   >
                     <Mic size={13} />
-                    麦克风
-                  </button>
+                    {t("麦克风")}</button>
                   <button
                     className={audioSource === 'system' ? 'active' : ''}
                     type="button"
@@ -1974,8 +1967,7 @@ export function WorkflowChatView({
                     onClick={() => setAudioSource('system')}
                   >
                     <MonitorSpeaker size={13} />
-                    电脑音频
-                  </button>
+                    {t("电脑音频")}</button>
                 </div>
               </div>
               <button
@@ -1983,16 +1975,16 @@ export function WorkflowChatView({
                 type="button"
                 title={
                   recording
-                    ? '结束录音'
+                    ? t("结束录音")
                     : audioSource === 'system'
                       ? captionOnlyWorkflow
-                        ? '开始电脑音频字幕'
+                        ? t("开始电脑音频字幕")
                         : streamingAsrConfig
-                          ? '开始电脑音频实时对话'
-                          : '采集电脑音频'
+                          ? t("开始电脑音频实时对话")
+                          : t("采集电脑音频")
                       : captionOnlyWorkflow
-                        ? '开始麦克风字幕'
-                        : '开始实时对话'
+                        ? t("开始麦克风字幕")
+                        : t("开始实时对话")
                 }
                 disabled={
                   busy && Boolean(asrSessionRef.current) && !recording
@@ -2028,8 +2020,8 @@ export function WorkflowChatView({
             <button
               className="icon-button"
               type="button"
-              title="关闭详情"
-              aria-label="关闭详情"
+              title={t("关闭详情")}
+              aria-label={t("关闭详情")}
               onClick={() => setSelectedTurnId(null)}
             >
               <X size={16} />
@@ -2049,7 +2041,7 @@ export function WorkflowChatView({
             {selectedTurn.nodeResults?.length > 0 ? (
               <section className="workflow-node-results">
                 <header>
-                  <strong>流程结果</strong>
+                  <strong>{t("流程结果")}</strong>
                   {transcriptExportEnabled &&
                     Boolean(selectedTurn.transcription?.segments.length) && (
                       <button
@@ -2061,12 +2053,11 @@ export function WorkflowChatView({
                             'srt',
                             selectedTurn.fileName,
                           )
-                          onAction(`${fileName} 已导出`)
+                          onAction(t("{0} 已导出", [fileName]))
                         }}
                       >
                         <Download size={14} />
-                        下载字幕
-                      </button>
+                        {t("下载字幕")}</button>
                     )}
                 </header>
                 <div>
@@ -2083,7 +2074,7 @@ export function WorkflowChatView({
             {selectedTurn.transcript && (
               <section className="workflow-text-result">
                 <header>
-                  <strong>识别文本</strong>
+                  <strong>{t("识别文本")}</strong>
                   {transcriptExportEnabled &&
                     Boolean(selectedTurn.transcription?.segments.length) && (
                       <button
@@ -2095,12 +2086,11 @@ export function WorkflowChatView({
                             'srt',
                             selectedTurn.fileName,
                           )
-                          onAction(`${fileName} 已导出`)
+                          onAction(t("{0} 已导出", [fileName]))
                         }}
                       >
                         <Download size={14} />
-                        下载字幕
-                      </button>
+                        {t("下载字幕")}</button>
                     )}
                 </header>
                 <p>{selectedTurn.transcript}</p>
@@ -2109,7 +2099,7 @@ export function WorkflowChatView({
             {selectedTurn.reply && (
               <section className="workflow-text-result assistant">
                 <header>
-                  <strong>模型回复</strong>
+                  <strong>{t("模型回复")}</strong>
                   <span>LLM</span>
                 </header>
                 <p>{selectedTurn.reply}</p>

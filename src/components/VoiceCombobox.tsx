@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n"
 import { Check, ChevronDown, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { VoiceOption } from '../domain/voices'
@@ -19,21 +20,23 @@ export function VoiceCombobox({
   onCreate,
   onDelete,
 }: VoiceComboboxProps) {
+  const locale = useLocale()
+
   const listId = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [open, setOpen] = useState(false)
-  const normalizedQuery = value.trim().toLocaleLowerCase()
+  const normalizedQuery = value.trim().toLocaleLowerCase(locale)
   const filteredOptions = useMemo(() => {
     if (!normalizedQuery || options.some((option) => option.id === value)) {
       return options
     }
     return options.filter((option) =>
       `${option.name} ${option.id} ${option.description}`
-        .toLocaleLowerCase()
+        .toLocaleLowerCase(locale)
         .includes(normalizedQuery),
     )
-  }, [normalizedQuery, options, value])
+  }, [locale, normalizedQuery, options, value])
 
   useEffect(() => {
     const close = (event: PointerEvent) => {
@@ -81,7 +84,7 @@ export function VoiceCombobox({
       {(options.length > 0 || onCreate) && (
         <button
           type="button"
-          aria-label={open ? '收起音色列表' : '展开音色列表'}
+          aria-label={open ? t("收起音色列表") : t("展开音色列表")}
           onClick={() => {
             setOpen((current) => !current)
             inputRef.current?.focus()
@@ -104,8 +107,8 @@ export function VoiceCombobox({
             >
               <Plus size={14} />
               <span>
-                <strong>新建音色</strong>
-                <small>声音复刻或声音设计</small>
+                <strong>{t("新建音色")}</strong>
+                <small>{t("声音复刻或声音设计")}</small>
               </span>
             </button>
           )}
@@ -137,8 +140,8 @@ export function VoiceCombobox({
                     <button
                       className="voice-option-delete"
                       type="button"
-                      title="删除音色"
-                      aria-label={`删除音色 ${option.name}`}
+                      title={t("删除音色")}
+                      aria-label={t("删除音色 {0}", [option.name])}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={(event) => {
                         event.stopPropagation()
@@ -152,7 +155,7 @@ export function VoiceCombobox({
               </div>
             ))
           ) : (
-            <p>未找到预置音色，可直接使用当前自定义 ID</p>
+            <p>{t("未找到预置音色，可直接使用当前自定义 ID")}</p>
           )}
         </div>
       )}

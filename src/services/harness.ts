@@ -1,3 +1,4 @@
+import { t } from "../i18n"
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
@@ -50,7 +51,7 @@ class HarnessRunError extends Error {
   run: HarnessRun
 
   constructor(run: HarnessRun) {
-    super(run.error || (run.status === 'canceled' ? '任务已取消' : '任务执行失败'))
+    super(run.error || (run.status === 'canceled' ? t("任务已取消") : t("任务执行失败")))
     this.name = 'HarnessRunError'
     this.run = run
   }
@@ -105,7 +106,7 @@ export async function executeHarnessTask<T>(
   onUpdate?: (run: HarnessRun) => void,
 ): Promise<HarnessExecution<T>> {
   if (!isTauriRuntime()) {
-    throw new Error('真实模型任务需要在 QwenAudio Toolkits 桌面端运行')
+    throw new Error(t("真实模型任务需要在 QwenAudio Toolkits 桌面端运行"))
   }
 
   const runId = request.runId ?? `run-${crypto.randomUUID()}`
@@ -121,7 +122,7 @@ export async function executeHarnessTask<T>(
       conversationVisible: request.conversationVisible ?? true,
       dependencyRunIds: request.dependencyRunIds ?? [],
       capability: request.capability,
-      title: request.title ?? '音频任务',
+      title: request.title ?? t("音频任务"),
       inputSummary: '',
       providerId: request.providerId ?? 'auto',
       providerName: '',
@@ -130,7 +131,7 @@ export async function executeHarnessTask<T>(
       progress: 100,
       createdAt: Date.now(),
       artifacts: [],
-      error: '任务等待超时，请在运行记录中检查最终状态',
+      error: t("任务等待超时，请在运行记录中检查最终状态"),
       retryable: true,
     })
   }, runTimeoutMs(request))

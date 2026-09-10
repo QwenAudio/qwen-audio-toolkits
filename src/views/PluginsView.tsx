@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from "../i18n"
 import {
   useEffect,
   useMemo,
@@ -115,7 +116,7 @@ function displayPluginVersion(plugin: ModelPlugin, apiPlugin: boolean): string {
 }
 
 function compareCatalogModels(left: ModelPlugin, right: ModelPlugin): number {
-  return left.name.localeCompare(right.name, 'zh-CN', {
+  return left.name.localeCompare(right.name, getLocale(), {
     numeric: true,
     sensitivity: 'base',
   })
@@ -148,19 +149,21 @@ export function PluginsView({
   onAction,
   taxonomyHost,
 }: PluginsViewProps) {
+  const locale = useLocale()
+
   const [importingAgent, setImportingAgent] = useState(false)
   const importAgent = async (directory = true) => {
     if (!isTauriRuntime()) {
-      onAction('请在桌面端导入 Agent 项目')
+      onAction(t("请在桌面端导入 Agent 项目"))
       return
     }
     setImportingAgent(true)
     try {
       const path = await open({
-        title: directory ? '选择包含 agent.json 的项目文件夹' : '导入 Agent 安装包',
+        title: directory ? t("选择包含 agent.json 的项目文件夹") : t("导入 Agent 安装包"),
         multiple: false,
         directory,
-        ...(directory ? {} : { filters: [{ name: 'Agent 安装包', extensions: ['zip', 'cspkg'] }] }),
+        ...(directory ? {} : { filters: [{ name: t("Agent 安装包"), extensions: ['zip', 'cspkg'] }] }),
       })
       if (!path) return
       const installed = await installAgentProject(path)
@@ -172,9 +175,9 @@ export function PluginsView({
       setSecondaryFilter('all')
       setRuntimeFilter('all')
       setSelectedId(installed.id)
-      onAction(`${installed.name} 已安装`)
+      onAction(t("{0} 已安装", [installed.name]))
     } catch (error) {
-      onAction(`Agent 导入失败：${error instanceof Error ? error.message : String(error)}`)
+      onAction(t("Agent 导入失败：{0}", [error instanceof Error ? error.message : String(error)]))
     } finally {
       setImportingAgent(false)
     }
@@ -369,6 +372,7 @@ export function PluginsView({
         const searchMatch =
           plugin.name.toLowerCase().includes(search.toLowerCase()) ||
           plugin.description.toLowerCase().includes(search.toLowerCase()) ||
+          t(plugin.description, [], locale).toLowerCase().includes(search.toLowerCase()) ||
           plugin.version.toLowerCase().includes(search.toLowerCase()) ||
           (plugin.apiAliases ?? []).some((alias) =>
             alias.toLowerCase().includes(search.toLowerCase()),
@@ -387,6 +391,7 @@ export function PluginsView({
         return searchMatch && filterMatch && runtimeMatch
       }),
     [
+      locale,
       allModels,
       primaryFilter,
       runtimeFilter,
@@ -504,7 +509,7 @@ export function PluginsView({
         setInstallProgress(0)
         setInstallSpeed('')
         setInstallStage('preparing')
-        setInstallDetail('正在准备依赖模型')
+        setInstallDetail(t("正在准备依赖模型"))
         installProgressScopeRef.current = 'dependency'
         optionalDependencyFailures = await ensureSelectedDependencies(plugin)
         setInstallProgress(100)
@@ -513,12 +518,12 @@ export function PluginsView({
       await refreshPlugins()
       onAction(
         installed
-          ? `${plugin.name} 已添加到工作台${optionalDependencyNotice(optionalDependencyFailures)}`
-          : `${plugin.name} 已从工作台移除`,
+          ? t("{0} 已添加到工作台{1}", [plugin.name, optionalDependencyNotice(optionalDependencyFailures)])
+          : t("{0} 已从工作台移除", [plugin.name]),
       )
     } catch (error) {
       onAction(
-        `操作失败：${error instanceof Error ? error.message : String(error)}`,
+        t("操作失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       cloudBusyIdsRef.current.delete(plugin.id)
@@ -576,7 +581,7 @@ export function PluginsView({
   const optionalDependencyNotice = (failures: string[]) => {
     const labels = [...new Set(failures)]
     return labels.length
-      ? `；可选组件“${labels.join('、')}”未安装，不影响模型运行`
+      ? t("；可选组件“{0}”未安装，不影响模型运行", [labels.join('、')])
       : ''
   }
 
@@ -612,7 +617,7 @@ export function PluginsView({
       setInstallStage('preparing')
       setInstallSpeed('')
       installProgressScopeRef.current = 'model'
-      setInstallDetail('正在准备模型下载')
+      setInstallDetail(t("正在准备模型下载"))
       try {
         const latestPlugins = await listModelPlugins()
         const latestPlugin = latestPlugins.find(
@@ -622,7 +627,7 @@ export function PluginsView({
           await refreshPlugins()
           setSelectedId(latestPlugin.id)
           setInstallProgress(100)
-          onAction(`${job.name} 已安装，跳过重复下载`)
+          onAction(t("{0} 已安装，跳过重复下载", [job.name]))
           return
         }
 
@@ -637,14 +642,14 @@ export function PluginsView({
         await refreshPlugins()
         setSelectedId(installed.id)
         onAction(
-          `${installed.name} 已安装并注册到 Harness${optionalDependencyNotice(optionalDependencyFailures)}`,
+          t("{0} 已安装并注册到 Harness{1}", [installed.name, optionalDependencyNotice(optionalDependencyFailures)]),
         )
       } catch (error) {
         if (canceledInstallIdsRef.current.has(job.pluginId)) {
-          onAction(`${job.name} 下载已取消，已保留断点`)
+          onAction(t("{0} 下载已取消，已保留断点", [job.name]))
         } else {
           onAction(
-            `安装失败：${error instanceof Error ? error.message : String(error)}`,
+            t("安装失败：{0}", [error instanceof Error ? error.message : String(error)]),
           )
         }
       } finally {
@@ -677,12 +682,10 @@ export function PluginsView({
         ...jobs,
         [pluginId]: paused ? 'paused' : 'running',
       }))
-      setInstallDetail(paused ? '下载已暂停' : '正在继续下载')
+      setInstallDetail(paused ? t("下载已暂停") : t("正在继续下载"))
     } catch (error) {
       onAction(
-        `无法${paused ? '暂停' : '继续'}下载：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("无法{0}下载：{1}", [paused ? t("暂停") : t("继续"), error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -697,18 +700,16 @@ export function PluginsView({
         delete next[pluginId]
         return next
       })
-      onAction('已取消排队安装')
+      onAction(t("已取消排队安装"))
       return
     }
     setInstallJobs((jobs) => ({ ...jobs, [pluginId]: 'canceling' }))
-    setInstallDetail('正在取消下载')
+    setInstallDetail(t("正在取消下载"))
     try {
       await cancelModelDownload()
     } catch (error) {
       onAction(
-        `无法取消下载：${
-          error instanceof Error ? error.message : String(error)
-        }`,
+        t("无法取消下载：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     }
   }
@@ -718,7 +719,7 @@ export function PluginsView({
       if (plugin.catalogManaged) {
         enqueueCatalogInstall(plugin)
       } else if (!busyId) {
-        onAction(`${plugin.name} 不是可下载安装的目录模型，请安装 ModelScope 中的对应模型版本`)
+        onAction(t("{0} 不是可下载安装的目录模型，请安装 ModelScope 中的对应模型版本", [plugin.name]))
       }
       return
     }
@@ -729,7 +730,7 @@ export function PluginsView({
     setInstallProgress(0)
     setInstallStage('preparing')
     setInstallSpeed('')
-    setInstallDetail('正在准备依赖模型')
+    setInstallDetail(t("正在准备依赖模型"))
     try {
       const optionalDependencyFailures =
         await ensureSelectedDependencies(plugin)
@@ -738,11 +739,11 @@ export function PluginsView({
       onPluginsChanged(next)
       onCatalogChanged(await getHarnessCatalog())
       onAction(
-        `${plugin.name} 已添加到工作台${optionalDependencyNotice(optionalDependencyFailures)}`,
+        t("{0} 已添加到工作台{1}", [plugin.name, optionalDependencyNotice(optionalDependencyFailures)]),
       )
     } catch (error) {
       onAction(
-        `操作失败：${error instanceof Error ? error.message : String(error)}`,
+        t("操作失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       setBusyId(null)
@@ -758,7 +759,7 @@ export function PluginsView({
     if (plugin.adapter === 'web-audio' || busyId) return
     if (pendingDeleteId !== plugin.id) {
       setPendingDeleteId(plugin.id)
-      onAction(`再次点击删除 ${plugin.name}`)
+      onAction(t("再次点击删除 {0}", [plugin.name]))
       return
     }
     setPendingDeleteId(null)
@@ -779,12 +780,12 @@ export function PluginsView({
       )
       onAction(
         removal.retained
-          ? `${plugin.name} 已隐藏；共享权重仍被 ${removal.referencedBy.length} 个模型引用`
-          : `${plugin.name} 的模型权重已从本机删除`,
+          ? t("{0} 已隐藏；共享权重仍被 {1} 个模型引用", [plugin.name, removal.referencedBy.length])
+          : t("{0} 的模型权重已从本机删除", [plugin.name]),
       )
     } catch (error) {
       onAction(
-        `删除失败：${error instanceof Error ? error.message : String(error)}`,
+        t("删除失败：{0}", [error instanceof Error ? error.message : String(error)]),
       )
     } finally {
       setBusyId(null)
@@ -794,10 +795,10 @@ export function PluginsView({
   const taxonomy = (
     <aside
       className="catalog-taxonomy"
-      aria-label="Agent 分类"
+      aria-label={t("Agent 分类")}
     >
       <div className="taxonomy-heading">
-        <span>Agent 分类</span>
+        <span>{t("Agent 分类")}</span>
         <small>{allModels.length}</small>
       </div>
       <nav className="taxonomy-tree" role="tree">
@@ -811,7 +812,7 @@ export function PluginsView({
               setSecondaryFilter('all')
             }}
           >
-            <span>全部 Agents</span>
+            <span>{t("全部 Agents")}</span>
             <small>{allModels.length}</small>
           </button>
           {categoryTree.map((category) => {
@@ -847,7 +848,7 @@ export function PluginsView({
                       }
                       onClick={() => setSecondaryFilter('all')}
                     >
-                      <span>全部</span>
+                      <span>{t("全部")}</span>
                       <small>{category.count}</small>
                     </button>
                     {category.secondary.map((secondary) => (
@@ -892,14 +893,14 @@ export function PluginsView({
       >
         <main className="plugin-catalog">
           <div className="agent-catalog-heading">
-            <div><h1>Agents</h1><p>模型、使用知识与 Harness，组成完整的数据处理项目。</p></div>
+            <div><h1>Agents</h1><p>{t("模型、使用知识与 Harness，组成完整的数据处理项目。")}</p></div>
             <div className="agent-import-actions">
             <button type="button" className="secondary-action" onClick={() => void importAgent()}
               disabled={importingAgent || Boolean(busyId) || Object.keys(installJobs).length > 0}>
               {importingAgent ? <RefreshCw size={15} className="model-spin" /> : <CirclePlus size={15} />}
-              {importingAgent ? '正在导入' : '导入 Agent'}
+              {importingAgent ? t("正在导入") : t("导入 Agent")}
             </button>
-            <button type="button" className="icon-button" title="导入 ZIP 安装包" aria-label="导入 ZIP 安装包"
+            <button type="button" className="icon-button" title={t("导入 ZIP 安装包")} aria-label={t("导入 ZIP 安装包")}
               onClick={() => void importAgent(false)}
               disabled={importingAgent || Boolean(busyId) || Object.keys(installJobs).length > 0}>
               <Boxes size={17} />
@@ -912,8 +913,8 @@ export function PluginsView({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索 Agent、模型、能力或作者"
-                aria-label="搜索 Agent"
+                placeholder={t("搜索 Agent、模型、能力或作者")}
+                aria-label={t("搜索 Agent")}
               />
             </label>
             {Object.keys(installJobs).length > 0 && (
@@ -922,17 +923,16 @@ export function PluginsView({
                   {Object.values(installJobs).filter(
                     (state) => state === 'running',
                   ).length > 0
-                    ? '正在安装'
-                    : '等待安装'}{' '}
-                  · {Object.values(installJobs).length} 个任务
-                </span>
+                    ? t("正在安装")
+                    : t("等待安装")}{' '}
+                  · {Object.values(installJobs).length} {t(" 个任务")}</span>
               )}
-            <div className="runtime-scope" aria-label="按运行方式筛选">
+            <div className="runtime-scope" aria-label={t("按运行方式筛选")}>
                 <button
                   className={runtimeFilter === 'offline' ? 'active' : ''}
                   type="button"
                   aria-pressed={runtimeFilter === 'offline'}
-                  title="仅显示离线模型；再次点击恢复全部"
+                  title={t("仅显示离线模型；再次点击恢复全部")}
                   onClick={() =>
                     setRuntimeFilter((current) =>
                       current === 'offline' ? 'all' : 'offline',
@@ -940,14 +940,13 @@ export function PluginsView({
                   }
                 >
                   <HardDrive size={13} />
-                  离线
-                </button>
+                  {t("离线")}</button>
                 <i />
                 <button
                   className={runtimeFilter === 'api' ? 'active' : ''}
                   type="button"
                   aria-pressed={runtimeFilter === 'api'}
-                  title="仅显示云端 API；再次点击恢复全部"
+                  title={t("仅显示云端 API；再次点击恢复全部")}
                   onClick={() =>
                     setRuntimeFilter((current) =>
                       current === 'api' ? 'all' : 'api',
@@ -955,8 +954,7 @@ export function PluginsView({
                   }
                 >
                   <Wifi size={13} />
-                  云端 API
-                </button>
+                  {t("云端 API")}</button>
               </div>
           </div>
 
@@ -966,11 +964,9 @@ export function PluginsView({
               <div className="plugin-empty-category">
                 <BrainCircuit size={22} />
                 <strong>
-                  这个分类暂时没有 Agent
-                </strong>
+                  {t("这个分类暂时没有 Agent")}</strong>
                 <p>
-                  尝试切换分类或搜索其他能力。
-                </p>
+                  {t("尝试切换分类或搜索其他能力。")}</p>
               </div>
             )}
             {filteredPlugins.map((plugin) => {
@@ -1009,11 +1005,11 @@ export function PluginsView({
                       >
                         <RefreshCw className="model-spin" size={14} />
                         {installState === 'queued'
-                          ? '排队中'
+                          ? t("排队中")
                           : installState === 'paused'
-                            ? '已暂停'
+                            ? t("已暂停")
                             : installState === 'canceling'
-                              ? '取消中'
+                              ? t("取消中")
                               : compactInstallProgress}
                       </button>
                     ) : apiPlugin ? (
@@ -1027,8 +1023,7 @@ export function PluginsView({
                           }}
                         >
                           <KeyRound size={14} />
-                          配置
-                        </button>
+                          {t("配置")}</button>
                       ) : (
                         <button
                           className={
@@ -1047,13 +1042,12 @@ export function PluginsView({
                           {plugin.installed ? (
                             <>
                               <Trash2 size={14} />
-                              {pendingDeleteId === plugin.id ? '确认' : '删除'}
+                              {pendingDeleteId === plugin.id ? t("确认") : t("删除")}
                             </>
                           ) : (
                             <>
                               <CirclePlus size={14} />
-                              添加
-                            </>
+                              {t("添加")}</>
                           )}
                         </button>
                       )
@@ -1063,7 +1057,7 @@ export function PluginsView({
                         type="button"
                         title={
                           retainedDependency
-                            ? `仍被 ${dependencyReferences.length} 个模型使用`
+                            ? t("仍被 {0} 个模型使用", [dependencyReferences.length])
                             : undefined
                         }
                         disabled={retainedDependency || Boolean(busyId)}
@@ -1075,12 +1069,11 @@ export function PluginsView({
                         {retainedDependency ? (
                           <>
                             <PackageCheck size={14} />
-                            依赖中
-                          </>
+                            {t("依赖中")}</>
                         ) : (
                           <>
                             <Trash2 size={14} />
-                            {pendingDeleteId === plugin.id ? '确认' : '删除'}
+                            {pendingDeleteId === plugin.id ? t("确认") : t("删除")}
                           </>
                         )}
                       </button>
@@ -1096,33 +1089,33 @@ export function PluginsView({
                       >
                         <Download size={14} />
                         {plugin.installable === false
-                          ? '适配中'
+                          ? t("适配中")
                           : plugin.catalogManaged
-                            ? '安装'
-                            : '导入资源'}
+                            ? t("安装")
+                            : t("导入资源")}
                       </button>
                     )}
                       </div>
                     </div>
                     <span className="plugin-author">
-                      {plugin.agent ? 'Agent' : '兼容扩展'} · {plugin.author} ·{' '}
+                      {plugin.agent ? 'Agent' : t("兼容扩展")} · {plugin.author} ·{' '}
                       {displayPluginVersion(plugin, apiPlugin)}
                     </span>
-                    <p>{plugin.description}</p>
+                    <p>{t(plugin.description)}</p>
                     <div className="plugin-capabilities">
                       <span
                         className={`execution-mode-tag ${apiPlugin ? 'api' : 'offline'}`}
                       >
                         {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
-                        {apiPlugin ? '云端 API' : '离线运行'}
+                        {apiPlugin ? t("云端 API") : t("离线运行")}
                       </span>
                       <span>
                         {plugin.streamingMode === 'streaming'
-                          ? '流式'
-                          : '整段处理'}
+                          ? t("流式")
+                          : t("整段处理")}
                       </span>
                       {plugin.capabilities.map((capability) => (
-                        <span key={capability}>{capability}</span>
+                        <span key={capability}>{t(capability)}</span>
                       ))}
                       <span>{plugin.runtime}</span>
                     </div>
@@ -1137,7 +1130,7 @@ export function PluginsView({
           className={`plugins-resize-handle${resizingDetails ? ' active' : ''}`}
           role="separator"
           aria-orientation="vertical"
-          aria-label="调整展示区宽度"
+          aria-label={t("调整展示区宽度")}
           onPointerDown={startDetailsResize}
         />
 
@@ -1145,8 +1138,8 @@ export function PluginsView({
           {!selectedPlugin && (
             <div className="plugin-empty-category plugin-details-empty">
               <BrainCircuit size={22} />
-              <strong>选择一个 Agent 查看详情</strong>
-              <p>选择一个数据处理项目，查看使用说明、运行资源与安装选项。</p>
+              <strong>{t("选择一个 Agent 查看详情")}</strong>
+              <p>{t("选择一个数据处理项目，查看使用说明、运行资源与安装选项。")}</p>
             </div>
           )}
 
@@ -1162,7 +1155,7 @@ export function PluginsView({
                 </div>
                 {selectedPlugin.description && (
                   <p className="plugin-project-description">
-                    {selectedPlugin.description}
+                    {t(selectedPlugin.description)}
                   </p>
                 )}
                 <div className="plugin-project-meta">
@@ -1173,11 +1166,11 @@ export function PluginsView({
                   {!selectedIsApi && (
                     <span>{selectedVariant?.size ?? selectedPlugin.size}</span>
                   )}
-                  <span>{selectedIsApi ? '云端 API' : '离线运行'}</span>
+                  <span>{selectedIsApi ? t("云端 API") : t("离线运行")}</span>
                 </div>
                 <div className="plugin-capabilities">
                   {selectedPlugin.capabilities.map((capability) => (
-                    <span key={capability}>{capability}</span>
+                    <span key={capability}>{t(capability)}</span>
                   ))}
                 </div>
               </div>
@@ -1186,7 +1179,7 @@ export function PluginsView({
                 !selectedPlugin.installed &&
                 Boolean(selectedPlugin.variants?.length) && (
                   <label className="plugin-variant-field">
-                    <span>模型精度</span>
+                    <span>{t("模型精度")}</span>
                     <select
                       value={variantIdFor(selectedPlugin)}
                       disabled={Boolean(busyId)}
@@ -1204,7 +1197,7 @@ export function PluginsView({
                       ))}
                     </select>
                     {selectedVariant?.precision.toLowerCase() === 'int8' && (
-                      <small>默认版本，体积更小，适合大多数设备</small>
+                      <small>{t("默认版本，体积更小，适合大多数设备")}</small>
                     )}
                   </label>
                 )}
@@ -1221,14 +1214,14 @@ export function PluginsView({
                 )}
                 <span>
                   <strong>
-                    {isApiPlugin(selectedPlugin) ? '云端 API' : '离线运行'}
+                    {isApiPlugin(selectedPlugin) ? t("云端 API") : t("离线运行")}
                   </strong>
                   <small>
                     {isApiPlugin(selectedPlugin)
                       ? selectedPlugin.enabled
-                        ? '添加到工作台即可使用'
-                        : '先配置 Provider，再添加到工作台'
-                      : '模型权重保存在本机，音频无需上传到云端'}
+                        ? t("添加到工作台即可使用")
+                        : t("先配置 Provider，再添加到工作台")
+                      : t("模型权重保存在本机，音频无需上传到云端")}
                   </small>
                 </span>
               </div>
@@ -1266,28 +1259,24 @@ export function PluginsView({
                   {selectedInstallState === 'queued' ? (
                     <>
                       <RefreshCw size={16} />
-                      排队中
-                    </>
+                      {t("排队中")}</>
                   ) : selectedInstallState === 'paused' ? (
                     <>
                       <Pause size={16} />
-                      下载已暂停
-                    </>
+                      {t("下载已暂停")}</>
                   ) : selectedInstallState === 'canceling' ? (
                     <>
                       <RefreshCw className="model-spin" size={16} />
-                      正在取消
-                    </>
+                      {t("正在取消")}</>
                   ) : selectedInstallState === 'running' ? (
                     <>
                       <RefreshCw className="model-spin" size={16} />
-                      下载中 {compactInstallProgress}
+                      {t("下载中 ")}{compactInstallProgress}
                     </>
                   ) : selectedCloudBusy ? (
                     <>
                       <RefreshCw className="model-spin" size={16} />
-                      处理中
-                    </>
+                      {t("处理中")}</>
                   ) : selectedIsApi ? (
                     <>
                       {selectedPlugin.installed || !selectedPlugin.enabled ? (
@@ -1296,24 +1285,23 @@ export function PluginsView({
                         <CirclePlus size={16} />
                       )}
                       {selectedPlugin.installed
-                        ? '管理 API 配置'
+                        ? t("管理 API 配置")
                         : selectedPlugin.enabled
-                          ? '添加到工作台'
-                          : '配置 Provider'}
+                          ? t("添加到工作台")
+                          : t("配置 Provider")}
                     </>
                   ) : selectedPlugin.installed ? (
                     <>
                       <CirclePlus size={16} />
-                      添加到工作台
-                    </>
+                      {t("添加到工作台")}</>
                   ) : (
                     <>
                       <Download size={16} />{' '}
                       {selectedPlugin.installable === false
-                        ? '运行适配中'
+                        ? t("运行适配中")
                         : selectedPlugin.catalogManaged
-                          ? '安装 Agent'
-                          : '需导入完整项目资源'}
+                          ? t("安装 Agent")
+                          : t("需导入完整项目资源")}
                     </>
                   )}
                   </button>
@@ -1327,13 +1315,13 @@ export function PluginsView({
                         type="button"
                         title={
                           selectedInstallState === 'paused'
-                            ? '继续下载'
-                            : '暂停下载'
+                            ? t("继续下载")
+                            : t("暂停下载")
                         }
                         aria-label={
                           selectedInstallState === 'paused'
-                            ? '继续下载'
-                            : '暂停下载'
+                            ? t("继续下载")
+                            : t("暂停下载")
                         }
                         disabled={
                           selectedInstallState === 'running' &&
@@ -1354,8 +1342,8 @@ export function PluginsView({
                       <button
                         className="icon-button danger"
                         type="button"
-                        title="取消下载"
-                        aria-label="取消下载"
+                        title={t("取消下载")}
+                        aria-label={t("取消下载")}
                         onClick={() => void cancelInstall(selectedPlugin.id)}
                       >
                         <X size={15} />
@@ -1374,7 +1362,7 @@ export function PluginsView({
                       type="button"
                       title={
                         selectedRetainedDependency
-                          ? `仍被 ${selectedDependencyReferences.length} 个模型使用`
+                          ? t("仍被 {0} 个模型使用", [selectedDependencyReferences.length])
                           : undefined
                       }
                       disabled={selectedRetainedDependency || Boolean(busyId)}
@@ -1383,16 +1371,15 @@ export function PluginsView({
                       {selectedRetainedDependency ? (
                         <>
                           <PackageCheck size={15} />
-                          依赖中
-                        </>
+                          {t("依赖中")}</>
                       ) : (
                         <>
                           <Trash2 size={15} />
                           {pendingDeleteId === selectedPlugin.id
-                            ? '再次点击确认删除'
+                            ? t("再次点击确认删除")
                             : selectedIsApi
-                              ? '从工作台移除'
-                              : '删除 Agent'}
+                              ? t("从工作台移除")
+                              : t("删除 Agent")}
                         </>
                       )}
                     </button>
@@ -1407,8 +1394,7 @@ export function PluginsView({
                   className={detailsTab === 'card' ? 'active' : ''}
                   onClick={() => setDetailsTab('card')}
                 >
-                  项目说明
-                </button>
+                  {t("项目说明")}</button>
                 {selectedHasFiles && (
                   <button
                     type="button"
@@ -1417,17 +1403,16 @@ export function PluginsView({
                     className={detailsTab === 'files' ? 'active' : ''}
                     onClick={() => setDetailsTab('files')}
                   >
-                    文件
-                  </button>
+                    {t("文件")}</button>
                 )}
               </div>
 
               {detailsTab === 'files' ? (
                 <section className="plugin-files-card">
                   {selectedFiles === null ? (
-                    <p className="plugin-files-empty">正在读取文件…</p>
+                    <p className="plugin-files-empty">{t("正在读取文件…")}</p>
                   ) : selectedFiles.length === 0 ? (
-                    <p className="plugin-files-empty">暂无文件</p>
+                    <p className="plugin-files-empty">{t("暂无文件")}</p>
                   ) : (
                     <ul className="plugin-files-list">
                       {selectedFiles.map((file) => (
@@ -1461,7 +1446,7 @@ export function PluginsView({
                         </Markdown>
                       </div>
                     ) : (
-                      <p>{selectedPlugin.description}</p>
+                      <p>{t(selectedPlugin.description)}</p>
                     )}
                   </div>
                 </section>
@@ -1471,7 +1456,7 @@ export function PluginsView({
                 <section className="runtime-card model-dependencies-card">
                   <header>
                     <PackageCheck size={14} />
-                    <strong>配套组件</strong>
+                    <strong>{t("配套组件")}</strong>
                   </header>
                   <div className="model-dependencies-body">
                     {selectedDependencies.map((dependency) => {
@@ -1513,13 +1498,13 @@ export function PluginsView({
                               ).catch((error) => {
                                 onModelBindingsChanged(modelBindings)
                                 onAction(
-                                  `无法保存配套组件：${error instanceof Error ? error.message : String(error)}`,
+                                  t("无法保存配套组件：{0}", [error instanceof Error ? error.message : String(error)]),
                                 )
                               })
                               setBindingRevision((value) => value + 1)
                             }}
                           >
-                            {dependency.optional && <option value="">无</option>}
+                            {dependency.optional && <option value="">{t("无")}</option>}
                             {candidates.map((candidate) => (
                               <option key={candidate.id} value={candidate.id}>
                                 {candidate.name}
@@ -1533,8 +1518,7 @@ export function PluginsView({
                                   (candidate) =>
                                     candidate.id === dependency.pluginId,
                                 )?.name ?? dependency.pluginId}{' '}
-                                · 安装时尝试下载
-                              </option>
+                                {t("· 安装时尝试下载")}</option>
                             )}
                           </select>
                         </label>
@@ -1542,8 +1526,7 @@ export function PluginsView({
                     })}
                     {!selectedPlugin.installed && (
                       <small>
-                        默认随模型尝试安装；可选组件失败不影响模型运行，之后也可在这里替换。
-                      </small>
+                        {t("默认随模型尝试安装；可选组件失败不影响模型运行，之后也可在这里替换。")}</small>
                     )}
                   </div>
                 </section>
@@ -1554,15 +1537,15 @@ export function PluginsView({
                   <span
                     className={`status-dot${selectedIsApi && !selectedPlugin.enabled ? ' pending' : ''}`}
                   />
-                  <strong>运行环境</strong>
+                  <strong>{t("运行环境")}</strong>
                   <small>
                     {selectedIsApi
                       ? selectedPlugin.enabled
-                        ? '配置就绪'
+                        ? t("配置就绪")
                         : selectedPlugin.providerId === 'api.bailian'
-                          ? '待配置 AK'
-                          : '待配置 Provider'
-                      : '运行正常'}
+                          ? t("待配置 AK")
+                          : t("待配置 Provider")
+                      : t("运行正常")}
                   </small>
                 </header>
                 <dl>
@@ -1573,7 +1556,7 @@ export function PluginsView({
                       ) : (
                         <TerminalSquare size={14} />
                       )}
-                      {selectedIsApi ? '服务商' : 'Runtime'}
+                      {selectedIsApi ? t("服务商") : 'Runtime'}
                     </dt>
                     <dd>
                       {selectedIsApi
@@ -1584,16 +1567,14 @@ export function PluginsView({
                   {!selectedIsApi && (
                     <div>
                       <dt>
-                        <Boxes size={14} /> 引擎作者
-                      </dt>
+                        <Boxes size={14} /> {t(" 引擎作者")}</dt>
                       <dd>{selectedPlugin.engineAuthor ?? selectedPlugin.runtime}</dd>
                     </div>
                   )}
                   {!selectedIsApi && (
                     <div>
                       <dt>
-                        <Boxes size={14} /> 核心
-                      </dt>
+                        <Boxes size={14} /> {t(" 核心")}</dt>
                       <dd>{runtime.backend}</dd>
                     </div>
                   )}
@@ -1604,7 +1585,7 @@ export function PluginsView({
                       ) : (
                         <HardDrive size={14} />
                       )}
-                      {selectedIsApi ? '模型 ID' : '模型大小'}
+                      {selectedIsApi ? t("模型 ID") : t("模型大小")}
                     </dt>
                     <dd>
                       {selectedIsApi
@@ -1616,28 +1597,25 @@ export function PluginsView({
                     (selectedPlugin.apiAliases?.length ?? 0) > 0 && (
                       <div>
                         <dt>
-                          <TerminalSquare size={14} /> 兼容别名
-                        </dt>
+                          <TerminalSquare size={14} /> {t(" 兼容别名")}</dt>
                         <dd>{selectedPlugin.apiAliases?.join(' / ')}</dd>
                       </div>
                     )}
                   {selectedPlugin.license && (
                     <div>
-                      <dt>许可证</dt>
+                      <dt>{t("许可证")}</dt>
                       <dd>{selectedPlugin.license}</dd>
                     </div>
                   )}
                   <div>
                     <dt>
-                      <Cpu size={14} /> 设备
-                    </dt>
-                    <dd>{selectedIsApi ? '云端执行' : runtime.device}</dd>
+                      <Cpu size={14} /> {t(" 设备")}</dt>
+                    <dd>{selectedIsApi ? t("云端执行") : runtime.device}</dd>
                   </div>
                   {!selectedIsApi && (
                     <div>
                       <dt>
-                        <Gauge size={14} /> 加速
-                      </dt>
+                        <Gauge size={14} /> {t(" 加速")}</dt>
                       <dd>{selectedPlugin.acceleration.join(' / ')}</dd>
                     </div>
                   )}

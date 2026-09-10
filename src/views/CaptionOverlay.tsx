@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import {
@@ -40,6 +41,8 @@ function removeCommittedPrefix(committed: string, candidate: string): string {
 }
 
 export function CaptionOverlay() {
+  useLocale()
+
   const [history, setHistory] = useState<string[]>([])
   const [current, setCurrent] = useState('')
   const [status, setStatus] =
@@ -216,8 +219,8 @@ export function CaptionOverlay() {
         <button
           className="caption-close"
           type="button"
-          title="关闭字幕"
-          aria-label="关闭字幕"
+          title={t("关闭字幕")}
+          aria-label={t("关闭字幕")}
           onClick={() => void getCurrentWindow().hide()}
         >
           <X size={9} strokeWidth={2.4} />
