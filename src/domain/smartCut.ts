@@ -31,6 +31,63 @@ export interface SubtitleCue {
   text: string
 }
 
+export interface SmartCutInstructionPreferences {
+  minimumSilence?: number
+  preserveLeadingSilence?: boolean
+  preserveTrailingSilence?: boolean
+  removeSilences?: boolean
+  includeSubtitles?: boolean
+}
+
+function clampedSilenceDuration(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const seconds = Number(value)
+  if (!Number.isFinite(seconds)) return undefined
+  return Math.min(2, Math.max(0.3, seconds))
+}
+
+/**
+ * Extract the small deterministic subset of editing intent that the current
+ * editor can apply without an LLM. The original instruction remains available
+ * for a future planner to interpret more complex requests.
+ */
+export function parseSmartCutInstruction(
+  instruction: string,
+): SmartCutInstructionPreferences {
+  const text = instruction.trim()
+  const chineseDuration = text.match(
+    /(?:超过|大于|至少|长于)?\s*(\d+(?:\.\d+)?)\s*秒(?:以上)?(?:的)?(?:静音|停顿)/u,
+  )?.[1]
+  const englishDuration =
+    text.match(/(?:silence|pauses?).{0,24}?(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b/iu)?.[1] ??
+    text.match(/(\d+(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b.{0,18}?(?:silence|pauses?)/iu)?.[1]
+  const preserveLeadingSilence =
+    /(?:保留|不要删除|别删).{0,8}(?:片头|开头)/u.test(text) ||
+    /(?:keep|preserve|do not (?:cut|remove)).{0,18}(?:intro|opening|leading silence)/iu.test(text)
+  const preserveTrailingSilence =
+    /(?:保留|不要删除|别删).{0,8}(?:片尾|结尾)/u.test(text) ||
+    /(?:keep|preserve|do not (?:cut|remove)).{0,18}(?:outro|ending|trailing silence)/iu.test(text)
+  const removeSilences =
+    /(?:保留|不要删除|别删).{0,8}(?:静音|停顿)/u.test(text) ||
+    /(?:keep|preserve|do not (?:cut|remove)).{0,18}(?:silence|pauses?)/iu.test(text)
+      ? false
+      : undefined
+  const includeSubtitles =
+    /(?:不要|不加|关闭|去掉|移除).{0,6}(?:字幕)/u.test(text) ||
+    /(?:without|no|disable|remove).{0,10}(?:captions?|subtitles?)/iu.test(text)
+      ? false
+      : /(?:字幕|captions?|subtitles?)/iu.test(text)
+        ? true
+        : undefined
+  return {
+    minimumSilence: clampedSilenceDuration(chineseDuration ?? englishDuration),
+    preserveLeadingSilence: preserveLeadingSilence || undefined,
+    preserveTrailingSilence: preserveTrailingSilence || undefined,
+    removeSilences,
+    includeSubtitles,
+  }
+}
+
 const STRONG_FILLERS = new Set([
   '嗯',
   '呃',

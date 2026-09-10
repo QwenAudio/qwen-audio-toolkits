@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import {
+  ArrowUp,
   Check,
   Captions,
   ChevronLeft,
@@ -16,14 +17,15 @@ import {
   Eye,
   FileVideo,
   LoaderCircle,
+  Paperclip,
   Pause,
   Play,
   RotateCcw,
   Scissors,
   ShieldCheck,
   Sparkles,
-  Upload,
   Volume2,
+  X,
 } from 'lucide-react'
 import {
   activeSmartCutWordId,
@@ -36,6 +38,7 @@ import {
   manualWordCandidate,
   modelSupportsSmartCutTimeline,
   normalizeSmartCutTranscription,
+  parseSmartCutInstruction,
   selectedDeleteRanges,
   smartCutWords,
   type SmartCutCandidate,
@@ -176,6 +179,7 @@ export function SmartCutView({
     deleting: boolean
     visited: Set<string>
   } | null>(null)
+  const autoAnalyzeRef = useRef(false)
   const [engine, setEngine] = useState<VideoEditorStatus | null>(null)
   const [stage, setStage] = useState<AnalysisStage>('empty')
   const [media, setMedia] = useState<PreparedVideoMedia | null>(null)
@@ -188,6 +192,11 @@ export function SmartCutView({
   const [minimumSilence, setMinimumSilence] = useState(0.65)
   const [edgePadding, setEdgePadding] = useState(0.12)
   const [selectedAsrModelId, setSelectedAsrModelId] = useState('')
+  const [instruction, setInstruction] = useState('')
+  const [draftVideo, setDraftVideo] = useState<{
+    path: string
+    name: string
+  } | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [error, setError] = useState('')
@@ -233,7 +242,7 @@ export function SmartCutView({
       .catch((reason) =>
         setEngine({
           available: false,
-          message: localizeVideoEditorMessage(reason),
+          message: reason instanceof Error ? reason.message : String(reason),
         }),
       )
   }, [])
@@ -416,6 +425,7 @@ export function SmartCutView({
 
   const resetProject = () => {
     videoRef.current?.pause()
+    autoAnalyzeRef.current = false
     setMedia(null)
     setAudioClip(null)
     setTranscription(null)
@@ -426,6 +436,8 @@ export function SmartCutView({
     setStage('empty')
     setCurrentTime(0)
     setActiveAudition(null)
+    setDraftVideo(null)
+    setInstruction('')
   }
 
   const chooseVideo = async () => {
@@ -443,10 +455,36 @@ export function SmartCutView({
     })
     const sourcePath = typeof selection === 'string' ? selection : null
     if (!sourcePath) return
-    resetProject()
+    setDraftVideo({
+      path: sourcePath,
+      name: sourcePath.split(/[\\/]/u).at(-1) || t('未命名视频'),
+    })
+    setError('')
+  }
+
+  const submitDraft = async () => {
+    if (!draftVideo) {
+      setError(t('请先上传一个视频'))
+      return
+    }
+    if (!instruction.trim()) {
+      setError(t('请输入剪辑指令'))
+      return
+    }
+    videoRef.current?.pause()
+    autoAnalyzeRef.current = true
+    setMedia(null)
+    setAudioClip(null)
+    setTranscription(null)
+    setVadResult(null)
+    setCandidates([])
+    setHistory([])
+    setCurrentTime(0)
+    setActiveAudition(null)
+    setError('')
     setStage('preparing')
     try {
-      const prepared = await prepareVideoMedia(sourcePath).catch((reason) => {
+      const prepared = await prepareVideoMedia(draftVideo.path).catch((reason) => {
         throw new Error(t('视频准备失败：{0}', [localizeVideoEditorMessage(reason)]))
       })
       const audioFile = await readDroppedAudioFile(prepared.audioPath).catch((reason) => {
@@ -458,16 +496,24 @@ export function SmartCutView({
       setMedia(prepared)
       setAudioClip({ ...clip, name: prepared.sourceName })
       setStage('ready')
-      onAction(t('视频已导入，选择识别模型后开始分析'))
     } catch (reason) {
+      autoAnalyzeRef.current = false
       setStage('empty')
       setError(localizeVideoEditorMessage(reason))
     }
   }
 
-  const analyze = async () => {
+  const analyze = useCallback(async () => {
     const asrModel = asrModels.find((model) => model.id === selectedAsrModelId)
     if (!media || !audioClip || !asrModel?.providerId) return
+    const preferences = parseSmartCutInstruction(instruction)
+    const effectiveMinimumSilence = preferences.minimumSilence ?? minimumSilence
+    if (preferences.minimumSilence !== undefined) {
+      setMinimumSilence(preferences.minimumSilence)
+    }
+    if (preferences.includeSubtitles !== undefined) {
+      setIncludeSubtitles(preferences.includeSubtitles)
+    }
     setStage('transcribing')
     setError('')
     try {
@@ -510,7 +556,7 @@ export function SmartCutView({
         }
       }
       let next = buildSmartCutCandidates(asr, vad, media.duration, {
-        minimumSilence,
+        minimumSilence: effectiveMinimumSilence,
         edgePadding,
       })
       const visualTargets = next
@@ -534,6 +580,15 @@ export function SmartCutView({
           }
         })
       }
+      next = next.map((candidate) => {
+        if (candidate.reason !== 'silence') return candidate
+        const preserveEdge =
+          (preferences.preserveLeadingSilence && candidate.label === '片头静音') ||
+          (preferences.preserveTrailingSilence && candidate.label === '片尾静音')
+        return preferences.removeSilences === false || preserveEdge
+          ? { ...candidate, selected: false }
+          : candidate
+      })
       setTranscription(asr)
       setVadResult(vad)
       setCandidates(next)
@@ -544,10 +599,33 @@ export function SmartCutView({
       setStage('ready')
       setError(localizeVideoEditorMessage(reason))
     }
-  }
+  }, [
+    asrModels,
+    audioClip,
+    edgePadding,
+    instruction,
+    media,
+    minimumSilence,
+    onAction,
+    onRunAudio,
+    selectedAsrModelId,
+    vadModel,
+  ])
+
+  useEffect(() => {
+    if (stage !== 'ready' || !autoAnalyzeRef.current || !media || !audioClip) return
+    autoAnalyzeRef.current = false
+    const asrModel = asrModels.find((model) => model.id === selectedAsrModelId)
+    if (!asrModel?.providerId) {
+      onAction(t('视频和剪辑指令已添加，请先安装或选择识别模型'))
+      return
+    }
+    void analyze()
+  }, [analyze, audioClip, asrModels, media, onAction, selectedAsrModelId, stage])
 
   const rebuildSilences = () => {
     if (!transcription || !media) return
+    const preferences = parseSmartCutInstruction(instruction)
     const rebuilt = buildSmartCutCandidates(
       transcription,
       vadResult,
@@ -575,9 +653,18 @@ export function SmartCutView({
               visualSimilarity: nearest.visualSimilarity,
               visualStable: nearest.visualStable,
               visualAvailable: nearest.visualAvailable,
-              selected: Boolean(nearest.visualStable && candidate.confidence === 'high'),
+              selected:
+                preferences.removeSilences === false ||
+                (preferences.preserveLeadingSilence && candidate.label === '片头静音') ||
+                (preferences.preserveTrailingSilence && candidate.label === '片尾静音')
+                  ? false
+                  : Boolean(nearest.visualStable && candidate.confidence === 'high'),
             }
-          : candidate
+          : preferences.removeSilences === false ||
+              (preferences.preserveLeadingSilence && candidate.label === '片头静音') ||
+              (preferences.preserveTrailingSilence && candidate.label === '片尾静音')
+            ? { ...candidate, selected: false }
+            : candidate
       }).map((candidate) => candidate.reason === 'silence'
         ? candidate
         : { ...candidate, selected: selectedById.get(candidate.id) ?? candidate.selected }), ...manual]
@@ -677,34 +764,104 @@ export function SmartCutView({
   }
 
   if (!media) {
+    const promptSuggestions = [
+      '删除口水词和超过 0.8 秒的静音，保留片头，并生成字幕',
+      '只删除明显的口水词，保留所有停顿',
+      '去掉长静音，不要字幕',
+    ]
     return (
       <main className="smart-cut-view empty">
         <section className="smart-cut-hero">
           <div className="smart-cut-hero-icon"><Scissors size={26} /></div>
-          <span className="smart-cut-kicker">AI VIDEO ROUGH CUT</span>
-          <h1>{t('先校对，再剪辑')}</h1>
+          <span className="smart-cut-kicker">TALKING-HEAD EDITOR</span>
+          <h1>{t('告诉我你想怎么剪')}</h1>
           <p>
-            {t('导入口播视频，使用现有语音模型找到停顿、口水词和重复词；你确认后才会生成跳剪预览，原视频始终不变。')}
+            {t('上传视频并输入剪辑要求。系统会先识别和分析，再让你逐项校对，原视频始终不变。')}
           </p>
-          <button
-            className="smart-cut-primary"
-            type="button"
-            disabled={stage === 'preparing' || engine?.available === false}
-            onClick={() => void chooseVideo()}
-          >
-            {stage === 'preparing' ? <LoaderCircle className="model-spin" size={17} /> : <Upload size={17} />}
-            {stage === 'preparing' ? t('正在准备视频') : t('导入视频')}
-          </button>
+        </section>
+        <section className="smart-cut-composer" aria-label={t('口播剪辑任务')}>
+          {draftVideo && (
+            <div className="smart-cut-video-attachment">
+              <FileVideo size={17} />
+              <span>
+                <strong>{draftVideo.name}</strong>
+                <small>{t('视频附件')}</small>
+              </span>
+              <button
+                type="button"
+                title={t('移除视频')}
+                aria-label={t('移除视频')}
+                disabled={stage === 'preparing'}
+                onClick={() => setDraftVideo(null)}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          <textarea
+            value={instruction}
+            rows={4}
+            maxLength={2000}
+            placeholder={t('例如：删除口水词和超过 0.8 秒的静音，保留片头，并生成字幕')}
+            disabled={stage === 'preparing'}
+            onChange={(event) => setInstruction(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+              event.preventDefault()
+              if (draftVideo && instruction.trim() && engine?.available) void submitDraft()
+            }}
+          />
+          <div className="smart-cut-composer-toolbar">
+            <button
+              className="smart-cut-attach-button"
+              type="button"
+              title={draftVideo ? t('更换视频') : t('上传视频')}
+              disabled={stage === 'preparing' || engine?.available !== true}
+              onClick={() => void chooseVideo()}
+            >
+              <Paperclip size={16} />
+              <span>{draftVideo ? t('更换视频') : t('上传视频')}</span>
+            </button>
+            <small>{t('支持 MP4、MOV、M4V、WebM 和 MKV')}</small>
+            <button
+              className="smart-cut-send"
+              type="button"
+              title={t('发送并开始分析')}
+              aria-label={t('发送并开始分析')}
+              disabled={
+                stage === 'preparing' ||
+                engine?.available !== true ||
+                !draftVideo ||
+                !instruction.trim()
+              }
+              onClick={() => void submitDraft()}
+            >
+              {stage === 'preparing' ? (
+                <LoaderCircle className="model-spin" size={17} />
+              ) : (
+                <ArrowUp size={17} strokeWidth={2.2} />
+              )}
+            </button>
+          </div>
+        </section>
+        <div className="smart-cut-prompt-suggestions" aria-label={t('示例指令')}>
+          {promptSuggestions.map((suggestion) => (
+            <button
+              key={suggestion}
+              type="button"
+              disabled={stage === 'preparing'}
+              onClick={() => setInstruction(suggestion)}
+            >
+              {t(suggestion)}
+            </button>
+          ))}
+        </div>
+        <section className="smart-cut-entry-status">
           <div className={`smart-cut-engine${engine?.available === false ? ' error' : ''}`}>
             <i />
             {engine?.message ? localizeVideoEditorMessage(engine.message) : t('正在检查视频引擎…')}
           </div>
           {error && <div className="smart-cut-error">{error}</div>}
-        </section>
-        <section className="smart-cut-flow" aria-label={t('口播剪辑流程')}>
-          <div><span>1</span><strong>{t('识别分析')}</strong><small>{t('ASR + VAD + 画面切口')}</small></div>
-          <div><span>2</span><strong>{t('人工校对')}</strong><small>{t('改文字、调阈值、勾选候选')}</small></div>
-          <div><span>3</span><strong>{t('预览导出')}</strong><small>{t('跳剪预览，不改原片')}</small></div>
         </section>
       </main>
     )
@@ -719,6 +876,7 @@ export function SmartCutView({
             <ChevronLeft size={15} /> {t('新建项目')}
           </button>
           <h1>{media.sourceName}</h1>
+          <p className="smart-cut-project-instruction">{t('剪辑要求：{0}', [instruction])}</p>
         </div>
         <div className="smart-cut-stage-indicator">
           {['识别分析', '人工校对', '预览导出'].map((label, index) => {

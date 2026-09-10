@@ -8,9 +8,31 @@ import {
   manualWordCandidate,
   modelSupportsSmartCutTimeline,
   normalizeSmartCutTranscription,
+  parseSmartCutInstruction,
   smartCutWords,
 } from '../src/domain/smartCut'
 import type { AsrTranscriptionResult } from '../src/types'
+
+assert.deepEqual(
+  parseSmartCutInstruction('删除口水词和超过 0.8 秒的静音，保留片头，并生成字幕'),
+  {
+    minimumSilence: 0.8,
+    preserveLeadingSilence: true,
+    preserveTrailingSilence: undefined,
+    removeSilences: undefined,
+    includeSubtitles: true,
+  },
+)
+assert.deepEqual(
+  parseSmartCutInstruction('Keep the outro, remove pauses longer than 1.2 seconds, without captions'),
+  {
+    minimumSilence: 1.2,
+    preserveLeadingSilence: undefined,
+    preserveTrailingSilence: true,
+    removeSilences: undefined,
+    includeSubtitles: false,
+  },
+)
 
 const transcription: AsrTranscriptionResult = {
   clipName: 'smoke.wav',

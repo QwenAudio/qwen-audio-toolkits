@@ -29,7 +29,6 @@ import {
   Pin,
   RefreshCw,
   Palette,
-  Scissors,
   Settings,
   Settings2,
   ShoppingBag,
@@ -2428,7 +2427,6 @@ function App() {
                           aria-current={active ? 'page' : undefined}
                           onClick={() => openWorkspaceAgent(agent)}
                         >
-                          <Scissors size={14} />
                           <span className="activity-model-name">
                             <span className="activity-model-name-text">{agentName}</span>
                           </span>

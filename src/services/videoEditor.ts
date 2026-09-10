@@ -75,7 +75,7 @@ export function videoEditorStatus(): Promise<VideoEditorStatus> {
   if (!isTauriRuntime()) {
     return Promise.resolve({
       available: false,
-      message: t('请在 QwenAudio Toolkits 桌面端使用口播剪辑'),
+      message: '请在 QwenAudio Toolkits 桌面端使用口播剪辑',
     })
   }
   return invoke<VideoEditorStatus>('video_editor_status')

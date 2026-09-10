@@ -15,7 +15,7 @@ const APP_AGENT_DEFINITIONS = [
     harnessCapabilities: [],
     runtime: 'QwenAudio Toolkits',
     acceleration: ['CPU', 'Apple Silicon'],
-    version: '1.0.0',
+    version: '1.1.0',
     size: '内置',
     enabled: true,
     sidebarVisible: true,
@@ -49,7 +49,10 @@ const APP_AGENT_DEFINITIONS = [
         entry: 'smart-cut',
       },
     },
-    inputs: [{ name: 'video', label: '视频', type: 'video', modes: ['batch'] }],
+    inputs: [
+      { name: 'video', label: '视频', type: 'video', modes: ['batch'] },
+      { name: 'instruction', label: '剪辑指令', type: 'text', modes: ['batch'] },
+    ],
     outputs: [
       { name: 'video', label: '剪辑视频', type: 'video', modes: ['batch'] },
       { name: 'subtitles', label: '字幕', type: 'transcript', modes: ['batch'] },
