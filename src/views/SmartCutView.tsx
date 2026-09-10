@@ -86,6 +86,9 @@ type AnalysisStage =
   | 'exporting'
 
 interface SmartCutViewProps {
+  initialInstruction?: string
+  initialSourcePath?: string
+  initialLaunchId?: number
   models: ModelPlugin[]
   catalog: HarnessCatalog | null
   onRunAudio: (
@@ -199,6 +202,9 @@ function statusCopy(stage: AnalysisStage): string {
 }
 
 export function SmartCutView({
+  initialInstruction,
+  initialSourcePath,
+  initialLaunchId,
   models,
   catalog,
   onRunAudio,
@@ -216,6 +222,8 @@ export function SmartCutView({
   } | null>(null)
   const autoAnalyzeRef = useRef(false)
   const plannerPreferencesRef = useRef<SmartCutInstructionPreferences | null>(null)
+  const appliedInitialLaunchRef = useRef(0)
+  const submittedInitialLaunchRef = useRef(0)
   const [engine, setEngine] = useState<VideoEditorStatus | null>(null)
   const [stage, setStage] = useState<AnalysisStage>('empty')
   const [media, setMedia] = useState<PreparedVideoMedia | null>(null)
@@ -230,11 +238,14 @@ export function SmartCutView({
   const [selectedAsrModelId, setSelectedAsrModelId] = useState('')
   const [selectedLlmModelId, setSelectedLlmModelId] = useState<string | null>(null)
   const [plannerName, setPlannerName] = useState('')
-  const [instruction, setInstruction] = useState('')
+  const [instruction, setInstruction] = useState(initialInstruction ?? '')
   const [draftVideo, setDraftVideo] = useState<{
     path: string
     name: string
-  } | null>(null)
+  } | null>(() => initialSourcePath ? {
+    path: initialSourcePath,
+    name: initialSourcePath.split(/[\\/]/u).at(-1) || t('未命名视频'),
+  } : null)
   const [currentTime, setCurrentTime] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [error, setError] = useState('')
@@ -243,6 +254,36 @@ export function SmartCutView({
     start: number
     end: number
   } | null>(null)
+
+  useEffect(() => {
+    if (
+      !initialLaunchId ||
+      !initialSourcePath ||
+      !initialInstruction?.trim() ||
+      appliedInitialLaunchRef.current === initialLaunchId
+    ) return
+    appliedInitialLaunchRef.current = initialLaunchId
+    submittedInitialLaunchRef.current = 0
+    videoRef.current?.pause()
+    autoAnalyzeRef.current = false
+    plannerPreferencesRef.current = null
+    setMedia(null)
+    setAudioClip(null)
+    setTranscription(null)
+    setVadResult(null)
+    setCandidates([])
+    setHistory([])
+    setCurrentTime(0)
+    setActiveAudition(null)
+    setDraftVideo({
+      path: initialSourcePath,
+      name: initialSourcePath.split(/[\\/]/u).at(-1) || t('未命名视频'),
+    })
+    setInstruction(initialInstruction)
+    setPlannerName('')
+    setStage('empty')
+    setError('')
+  }, [initialInstruction, initialLaunchId, initialSourcePath])
   const [auditionMode, setAuditionMode] = useState<'comparison' | 'removed'>('comparison')
   const [includeSubtitles, setIncludeSubtitles] = useState(true)
 
@@ -517,7 +558,7 @@ export function SmartCutView({
     setError('')
   }
 
-  const submitDraft = async () => {
+  const submitDraft = useCallback(async () => {
     if (!draftVideo) {
       setError(t('请先上传一个视频'))
       return
@@ -593,7 +634,37 @@ export function SmartCutView({
       setStage('empty')
       setError(localizeVideoEditorMessage(reason))
     }
-  }
+  }, [draftVideo, instruction, llmModels, onAction, onRunText, selectedLlmModelId])
+
+  useEffect(() => {
+    if (
+      !initialLaunchId ||
+      !initialSourcePath ||
+      !initialInstruction?.trim() ||
+      appliedInitialLaunchRef.current !== initialLaunchId ||
+      submittedInitialLaunchRef.current === initialLaunchId ||
+      stage !== 'empty' ||
+      draftVideo?.path !== initialSourcePath ||
+      instruction.trim() !== initialInstruction.trim()
+    ) return
+    if (engine?.available === false) {
+      submittedInitialLaunchRef.current = initialLaunchId
+      setError(engine.message || t('视频引擎尚未就绪'))
+      return
+    }
+    if (engine?.available !== true) return
+    submittedInitialLaunchRef.current = initialLaunchId
+    void submitDraft()
+  }, [
+    draftVideo,
+    engine,
+    initialInstruction,
+    initialLaunchId,
+    initialSourcePath,
+    instruction,
+    stage,
+    submitDraft,
+  ])
 
   const analyze = useCallback(async () => {
     const asrModel = asrModels.find((model) => model.id === selectedAsrModelId)
@@ -867,11 +938,61 @@ export function SmartCutView({
 
   if (!media) {
     const draftBusy = stage === 'planning' || stage === 'preparing'
+    const agentLaunchBusy = Boolean(
+      initialLaunchId &&
+      initialSourcePath &&
+      initialInstruction?.trim() &&
+      (submittedInitialLaunchRef.current !== initialLaunchId || draftBusy),
+    )
     const promptSuggestions = [
       '删除口水词和超过 0.8 秒的静音，保留片头，并生成字幕',
       '只删除明显的口水词，保留所有停顿',
       '去掉长静音，不要字幕',
     ]
+    if (initialLaunchId && initialSourcePath && initialInstruction?.trim()) {
+      return (
+        <main className="smart-cut-view project agent-cut-initializing">
+          <header className="smart-cut-project-header">
+            <div>
+              <span className="smart-cut-kicker">TALKING-HEAD EDITOR</span>
+              <h1>{draftVideo?.name ?? t('视频剪辑')}</h1>
+              <p className="smart-cut-project-instruction">{t('剪辑要求：{0}', [instruction])}</p>
+            </div>
+            <div className="smart-cut-stage-indicator">
+              <span className="active">1. {t('识别分析')}</span>
+              <span>2. {t('人工校对')}</span>
+              <span>3. {t('预览导出')}</span>
+            </div>
+          </header>
+          <div className="smart-cut-layout">
+            <section className="smart-cut-preview-panel">
+              <div className="smart-cut-video-shell">
+                <div className="smart-cut-busy-overlay">
+                  {agentLaunchBusy && <LoaderCircle className="model-spin" size={24} />}
+                  <strong>
+                    {error
+                      ? t('视频任务暂未开始')
+                      : t('正在载入视频并开始分析…')}
+                  </strong>
+                </div>
+              </div>
+            </section>
+            <aside className="smart-cut-review-panel agent-cut-submission">
+              <span className="smart-cut-kicker">{t('已提交的任务')}</span>
+              <div className="smart-cut-video-attachment">
+                <FileVideo size={17} />
+                <span>
+                  <strong>{draftVideo?.name ?? t('未命名视频')}</strong>
+                  <small>{t('视频附件')}</small>
+                </span>
+              </div>
+              <p>{instruction}</p>
+              {error && <div className="smart-cut-error">{error}</div>}
+            </aside>
+          </div>
+        </main>
+      )
+    }
     return (
       <main className="smart-cut-view empty">
         <section className="smart-cut-hero">

@@ -6198,6 +6198,84 @@ body.sidebar-resizing .model-app-frame {
   border: 0;
   border-radius: 8px;
 }
+.sidebar-agent-history-header {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 4px;
+}
+.sidebar-agents-entry {
+  display: inline-flex;
+  height: 30px;
+  min-height: 30px;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+.sidebar-agents-entry:hover,
+.sidebar-agents-entry.active { background: var(--list-hover); }
+.sidebar-new-agent-conversation {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  padding: 0;
+  place-items: center;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sidebar-new-agent-conversation:hover { color: var(--ink); background: var(--list-hover); }
+.sidebar-agent-conversations {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 6px 2px 12px;
+}
+.agent-conversation-button > span {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-conversation-placeholder {
+  width: min(760px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 54px 0;
+}
+.agent-conversation-placeholder header > span {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+}
+.agent-conversation-placeholder header h1 {
+  margin: 8px 0 28px;
+  font-size: 28px;
+}
+.agent-conversation-message {
+  max-width: 78%;
+  margin-bottom: 14px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-raised, #fff);
+}
+.agent-conversation-message.user { margin-left: auto; background: var(--list-active); }
+.agent-conversation-message strong { font-size: 12px; }
+.agent-conversation-message p { margin: 6px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.6; }
 .sidebar-model-dot {
   display: inline-flex;
   width: 5px;

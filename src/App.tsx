@@ -19,6 +19,7 @@ import {
   ArrowLeft,
   AudioLines,
   Check,
+  ChevronDown,
   Download,
   GitBranch,
   HardDrive,
@@ -32,6 +33,7 @@ import {
   Settings,
   Settings2,
   ShoppingBag,
+  SquarePen,
   Sun,
   Trash2,
   X,
@@ -43,7 +45,6 @@ import {
 import {
   appAgentsWithInstallState,
   INSTALLED_APP_AGENTS_STORAGE_KEY,
-  isWorkspaceAgent,
   sanitizeInstalledAppAgentIds,
 } from './appAgents'
 import { initialPlugins, fallbackRuntime } from './data'
@@ -101,6 +102,7 @@ import type {
   VadDetectionResult,
 } from './types'
 import type { WorkflowChatTurn } from './views/WorkflowChatView'
+import type { AgentCreationMode } from './views/AgentHomeView'
 import './App.css'
 
 const ModelWorkspaceView = lazy(() =>
@@ -133,9 +135,20 @@ const AiPodcastView = lazy(() =>
     default: module.AiPodcastView,
   })),
 )
+const AgentHomeView = lazy(() =>
+  import('./views/AgentHomeView').then((module) => ({
+    default: module.AgentHomeView,
+  })),
+)
 
-type AppView = 'workspace' | 'smart-cut' | 'ai-podcast' | 'workflows'
-type AgentView = Extract<AppView, 'smart-cut' | 'ai-podcast'>
+type AppView = 'workspace' | 'agents' | AgentCreationMode | 'workflows'
+type AgentConversation = {
+  id: string
+  mode: AgentCreationMode
+  title: string
+  prompt: string
+  sourcePath: string
+}
 type ThemePreference = 'system' | 'light' | 'dark'
 type AppUpdateState = {
   status:
@@ -525,9 +538,11 @@ function App() {
   }, [locale])
 
   const [view, setView] = useState<AppView>('workspace')
-  const [mountedAgentViews, setMountedAgentViews] = useState<Set<AgentView>>(
-    () => new Set(),
-  )
+  const [agentConversations, setAgentConversations] = useState<AgentConversation[]>([])
+  const [selectedAgentConversationId, setSelectedAgentConversationId] = useState<string | null>(null)
+  const selectedAgentConversation = agentConversations.find(
+    (conversation) => conversation.id === selectedAgentConversationId,
+  ) ?? null
   const [shellPage, setShellPage] = useState<ShellPage>('workspace')
   const [extensionsNavHost, setExtensionsNavHost] =
     useState<HTMLDivElement | null>(null)
@@ -1448,16 +1463,34 @@ function App() {
     handle.addEventListener('lostpointercapture', finish)
   }
   const changeView = (next: AppView) => {
-    if (next === 'smart-cut' || next === 'ai-podcast') {
-      setMountedAgentViews((current) => {
-        if (current.has(next)) return current
-        const updated = new Set(current)
-        updated.add(next)
-        return updated
-      })
-    }
     setView(next)
     setSidebarOpen(false)
+  }
+  const launchCreationAgent = (
+    mode: AgentCreationMode,
+    prompt: string,
+    sourcePath: string,
+  ) => {
+    const modeLabel = mode === 'smart-cut'
+      ? t('视频剪辑')
+      : mode === 'ai-podcast'
+        ? t('AI 播客')
+        : t('视频翻译')
+    const normalizedPrompt = prompt.replace(/\s+/gu, ' ').trim()
+    const promptTitle = normalizedPrompt.length > 22
+      ? `${normalizedPrompt.slice(0, 22)}…`
+      : normalizedPrompt
+    const conversation: AgentConversation = {
+      id: crypto.randomUUID(),
+      mode,
+      title: `${modeLabel} · ${promptTitle}`,
+      prompt,
+      sourcePath,
+    }
+    setAgentConversations((current) => [conversation, ...current])
+    setSelectedAgentConversationId(conversation.id)
+    setWorkflowSelected(false)
+    changeView(mode)
   }
   const syncExtensionsState = useCallback(async () => {
     try {
@@ -2028,12 +2061,6 @@ function App() {
     )
   }
 
-  const openWorkspaceAgent = (agent: ModelPlugin) => {
-    if (!isWorkspaceAgent(agent)) return
-    setWorkflowSelected(false)
-    changeView(agent.workspaceEntry)
-  }
-
   const settingsRows: Record<SettingsSection, ReactNode> = {
     general: (
       <>
@@ -2421,65 +2448,57 @@ function App() {
               </section>
             )
           })}
-          {installedAppAgents.length > 0 && (
-            <section
-              className="sidebar-model-group"
-              aria-label="Agents"
+          <div className="sidebar-agent-history-header">
+            <button
+              className={`sidebar-agents-entry${view === 'agents' ? ' active' : ''}`}
+              type="button"
+              aria-current={view === 'agents' ? 'page' : undefined}
+              onClick={() => {
+                setSelectedAgentConversationId(null)
+                setWorkflowSelected(false)
+                changeView('agents')
+              }}
             >
-              <button
-                className="sidebar-model-group-label"
-                type="button"
-                aria-expanded={!collapsedSidebarGroups.has('workspace-agents')}
-                onClick={() => toggleSidebarGroup('workspace-agents')}
-              >
-                <span>Agents</span>
-                <span className="sidebar-group-count">{installedAppAgents.length}</span>
-              </button>
-              {!collapsedSidebarGroups.has('workspace-agents') && (
-                <div className="sidebar-model-group-items">
-                  {installedAppAgents.map((agent) => {
-                    const active = agent.workspaceEntry === view
-                    const agentName = t(agent.name)
-                    return (
-                      <div className="installed-model-entry" key={agent.id}>
-                        <button
-                          className={`installed-model-button${active ? ' active' : ''}`}
-                          type="button"
-                          aria-label={agentName}
-                          aria-current={active ? 'page' : undefined}
-                          onClick={() => openWorkspaceAgent(agent)}
-                        >
-                          <span className="activity-model-name">
-                            <span className="activity-model-name-text">{agentName}</span>
-                          </span>
-                        </button>
-                        <div className="installed-model-actions">
-                          <button
-                            className={`installed-model-remove${pendingSidebarRemovalId === agent.id ? ' confirming' : ''}`}
-                            type="button"
-                            aria-label={t('卸载 {0}', [agentName])}
-                            title={pendingSidebarRemovalId === agent.id ? t('再次点击确认卸载') : t('卸载 Agent')}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              if (pendingSidebarRemovalId !== agent.id) {
-                                setPendingSidebarRemovalId(agent.id)
-                                notify(t('再次点击垃圾桶确认卸载 {0}', [agentName]))
-                                return
-                              }
-                              setPendingSidebarRemovalId(null)
-                              setAppAgentInstalled(agent.id, false)
-                              notify(t('{0} 已卸载', [agentName]))
-                            }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </section>
+              <span>{t('最近')}</span>
+              <ChevronDown size={14} />
+            </button>
+            <button
+              className="sidebar-new-agent-conversation"
+              type="button"
+              aria-label={t('新建会话')}
+              title={t('新建会话')}
+              onClick={() => {
+                setSelectedAgentConversationId(null)
+                setWorkflowSelected(false)
+                changeView('agents')
+              }}
+            >
+              <SquarePen size={16} />
+            </button>
+          </div>
+          {agentConversations.length > 0 && (
+            <div className="sidebar-agent-conversations" aria-label={t('Agent 对话')}>
+              {agentConversations.map((conversation) => {
+                const active = selectedAgentConversationId === conversation.id && view === conversation.mode
+                const fileName = conversation.sourcePath.split(/[\\/]/u).at(-1) ?? conversation.sourcePath
+                return (
+                  <button
+                    className={`installed-model-button agent-conversation-button${active ? ' active' : ''}`}
+                    type="button"
+                    key={conversation.id}
+                    title={`${conversation.title}\n${fileName}`}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => {
+                      setSelectedAgentConversationId(conversation.id)
+                      setWorkflowSelected(false)
+                      changeView(conversation.mode)
+                    }}
+                  >
+                    <span>{conversation.title}</span>
+                  </button>
+                )
+              })}
+            </div>
           )}
         </nav>
         )}
@@ -2507,9 +2526,9 @@ function App() {
             ref={extensionsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'extensions' ? ' active' : ''}`}
             type="button"
-            aria-label="Agents"
+            aria-label={t('Agent 商店')}
             aria-pressed={shellPage === 'extensions'}
-            data-tooltip="Agents"
+            data-tooltip={t('Agent 商店')}
             onClick={shellPage === 'extensions' ? leaveShellPage : openExtensions}
           >
             <ShoppingBag size={18} />
@@ -2628,10 +2647,10 @@ function App() {
                 ? 'Agents'
                 : shellPage === 'settings'
                   ? t("设置 · {0}", [activeSettingsSection.label])
-                  : view === 'smart-cut'
-                    ? t("口播剪辑")
-                    : view === 'ai-podcast'
-                      ? t('AI 播客')
+                  : view === 'agents'
+                    ? 'Agents'
+                    : view === 'smart-cut' || view === 'ai-podcast' || view === 'video-translation'
+                      ? selectedAgentConversation?.title ?? t('Agent 对话')
                     : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
                   ? workflows.find(
@@ -2698,6 +2717,18 @@ function App() {
             hidden={shellPage !== 'workspace'}
             inert={shellPage !== 'workspace'}
           >
+          {view === 'agents' && (
+            <AgentHomeView
+              smartCutAvailable={installedAppAgents.some(
+                (agent) => agent.workspaceEntry === 'smart-cut',
+              )}
+              podcastAvailable={installedAppAgents.some(
+                (agent) => agent.workspaceEntry === 'ai-podcast',
+              )}
+              onLaunch={launchCreationAgent}
+              onOpenStore={openExtensions}
+            />
+          )}
           {view === 'workspace' && (
             WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
               <WorkflowChatView
@@ -2732,14 +2763,19 @@ function App() {
               />
             )
           )}
-          {(view === 'smart-cut' || mountedAgentViews.has('smart-cut')) &&
-            installedAppAgents.some((agent) => agent.workspaceEntry === 'smart-cut') && (
+          {agentConversations
+            .filter((conversation) => conversation.mode === 'smart-cut')
+            .map((conversation) => (
               <div
+                key={conversation.id}
                 className="agent-workspace-session"
-                hidden={view !== 'smart-cut'}
-                inert={view !== 'smart-cut'}
+                hidden={view !== 'smart-cut' || selectedAgentConversationId !== conversation.id}
+                inert={view !== 'smart-cut' || selectedAgentConversationId !== conversation.id}
               >
                 <SmartCutView
+                  initialInstruction={conversation.prompt}
+                  initialSourcePath={conversation.sourcePath}
+                  initialLaunchId={1}
                   models={orderedRunnablePlugins}
                   catalog={catalog}
                   onRunAudio={runAudio}
@@ -2748,15 +2784,20 @@ function App() {
                   onAction={notify}
                 />
               </div>
-            )}
-          {(view === 'ai-podcast' || mountedAgentViews.has('ai-podcast')) &&
-            installedAppAgents.some((agent) => agent.workspaceEntry === 'ai-podcast') && (
+            ))}
+          {agentConversations
+            .filter((conversation) => conversation.mode === 'ai-podcast')
+            .map((conversation) => (
               <div
+                key={conversation.id}
                 className="agent-workspace-session"
-                hidden={view !== 'ai-podcast'}
-                inert={view !== 'ai-podcast'}
+                hidden={view !== 'ai-podcast' || selectedAgentConversationId !== conversation.id}
+                inert={view !== 'ai-podcast' || selectedAgentConversationId !== conversation.id}
               >
                 <AiPodcastView
+                  initialInstruction={conversation.prompt}
+                  initialSourcePath={conversation.sourcePath}
+                  initialLaunchId={1}
                   models={orderedRunnablePlugins}
                   catalog={catalog}
                   onRunText={runText}
@@ -2764,7 +2805,35 @@ function App() {
                   onAction={notify}
                 />
               </div>
-            )}
+            ))}
+          {agentConversations
+            .filter((conversation) => conversation.mode === 'video-translation')
+            .map((conversation) => {
+              const fileName = conversation.sourcePath.split(/[\\/]/u).at(-1) ?? conversation.sourcePath
+              return (
+                <div
+                  key={conversation.id}
+                  className="agent-workspace-session"
+                  hidden={view !== 'video-translation' || selectedAgentConversationId !== conversation.id}
+                  inert={view !== 'video-translation' || selectedAgentConversationId !== conversation.id}
+                >
+                  <main className="agent-conversation-placeholder">
+                    <header>
+                      <span>{t('视频翻译')}</span>
+                      <h1>{conversation.title}</h1>
+                    </header>
+                    <section className="agent-conversation-message user">
+                      <strong>{fileName}</strong>
+                      <p>{conversation.prompt}</p>
+                    </section>
+                    <section className="agent-conversation-message assistant">
+                      <strong>{t('任务已创建')}</strong>
+                      <p>{t('视频翻译执行链路仍处于实验阶段，当前会话已保留素材和 Prompt。')}</p>
+                    </section>
+                  </main>
+                </div>
+              )
+            })}
           {WORKFLOWS_ENABLED && view === 'workflows' && (
             <WorkflowsView
               key={editingWorkflowId ?? 'new-workflow'}

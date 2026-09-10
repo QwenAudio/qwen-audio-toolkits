@@ -11,6 +11,9 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Local media/demo outputs
+artifacts/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

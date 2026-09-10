@@ -16,8 +16,17 @@ const MAX_PODCAST_SEGMENTS: usize = 100;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PodcastAudioSegment {
+    turn_id: String,
     file_path: String,
     pause_after_ms: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PodcastAudioCue {
+    turn_id: String,
+    start: f32,
+    end: f32,
 }
 
 #[derive(Serialize)]
@@ -32,6 +41,7 @@ pub struct PodcastAudioResult {
     size_bytes: u64,
     waveform: Vec<f32>,
     segment_count: usize,
+    cues: Vec<PodcastAudioCue>,
 }
 
 fn append_with_fades(output: &mut Vec<f32>, samples: &[f32], sample_rate: u32) {
@@ -45,7 +55,9 @@ fn append_with_fades(output: &mut Vec<f32>, samples: &[f32], sample_rate: u32) {
     }
 }
 
-fn assemble_segments(segments: &[PodcastAudioSegment]) -> Result<PcmAudio, String> {
+fn assemble_segments(
+    segments: &[PodcastAudioSegment],
+) -> Result<(PcmAudio, Vec<PodcastAudioCue>), String> {
     if segments.is_empty() {
         return Err("PODCAST_NO_SEGMENTS".to_string());
     }
@@ -53,7 +65,9 @@ fn assemble_segments(segments: &[PodcastAudioSegment]) -> Result<PcmAudio, Strin
         return Err("PODCAST_TOO_MANY_SEGMENTS".to_string());
     }
     let mut samples = Vec::new();
+    let mut cues = Vec::with_capacity(segments.len());
     for (index, segment) in segments.iter().enumerate() {
+        let start = samples.len() as f32 / TARGET_SAMPLE_RATE as f32;
         let bytes = fs::read(&segment.file_path)
             .map_err(|error| format!("PODCAST_AUDIO_READ:{}:{error}", index + 1))?;
         let audio = decode_wav_bytes(&bytes)
@@ -66,6 +80,11 @@ fn assemble_segments(segments: &[PodcastAudioSegment]) -> Result<PcmAudio, Strin
                 / 1_000;
             samples.resize(samples.len() + pause_frames, 0.0);
         }
+        cues.push(PodcastAudioCue {
+            turn_id: segment.turn_id.clone(),
+            start,
+            end: samples.len() as f32 / TARGET_SAMPLE_RATE as f32,
+        });
     }
     let mut audio = PcmAudio {
         samples,
@@ -73,19 +92,13 @@ fn assemble_segments(segments: &[PodcastAudioSegment]) -> Result<PcmAudio, Strin
         channels: 1,
     };
     normalize_generated_speech(&mut audio);
-    Ok(audio)
+    Ok((audio, cues))
 }
 
 fn safe_file_stem(value: &str) -> String {
     let mut stem = value
         .chars()
-        .filter_map(|character| {
-            if character.is_alphanumeric() || matches!(character, '-' | '_' | ' ') {
-                Some(character)
-            } else {
-                None
-            }
-        })
+        .filter(|character| character.is_alphanumeric() || matches!(character, '-' | '_' | ' '))
         .take(60)
         .collect::<String>()
         .trim()
@@ -102,7 +115,7 @@ pub fn compose_podcast_audio(
     segments: Vec<PodcastAudioSegment>,
     title: String,
 ) -> Result<PodcastAudioResult, String> {
-    let audio = assemble_segments(&segments)?;
+    let (audio, cues) = assemble_segments(&segments)?;
     let bytes = encode_wav_bytes(&audio)?;
     let output_dir = app
         .path()
@@ -129,6 +142,7 @@ pub fn compose_podcast_audio(
         size_bytes: bytes.len() as u64,
         waveform: waveform_envelope(&audio, 360),
         segment_count: segments.len(),
+        cues,
     })
 }
 
@@ -178,18 +192,27 @@ mod tests {
         let second = write_fixture(vec![0.25; 24_000], 24_000);
         let result = assemble_segments(&[
             PodcastAudioSegment {
+                turn_id: "turn-1".to_string(),
                 file_path: first.to_string_lossy().into_owned(),
                 pause_after_ms: 250,
             },
             PodcastAudioSegment {
+                turn_id: "turn-2".to_string(),
                 file_path: second.to_string_lossy().into_owned(),
                 pause_after_ms: 0,
             },
         ])
         .expect("assemble podcast");
-        assert_eq!(result.sample_rate, TARGET_SAMPLE_RATE);
-        assert_eq!(result.channels, 1);
-        assert!((result.duration() - 2.25).abs() < 0.02);
+        assert_eq!(result.0.sample_rate, TARGET_SAMPLE_RATE);
+        assert_eq!(result.0.channels, 1);
+        assert!((result.0.duration() - 2.25).abs() < 0.02);
+        assert_eq!(result.1.len(), 2);
+        assert_eq!(result.1[0].turn_id, "turn-1");
+        assert!((result.1[0].start - 0.0).abs() < 0.01);
+        assert!((result.1[0].end - 1.25).abs() < 0.02);
+        assert_eq!(result.1[1].turn_id, "turn-2");
+        assert!((result.1[1].start - 1.25).abs() < 0.02);
+        assert!((result.1[1].end - 2.25).abs() < 0.02);
         fs::remove_file(first).expect("remove first fixture");
         fs::remove_file(second).expect("remove second fixture");
     }

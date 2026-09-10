@@ -9,8 +9,15 @@ export interface SourceDocument {
 }
 
 export interface PodcastAudioSegment {
+  turnId: string
   filePath: string
   pauseAfterMs: number
+}
+
+export interface PodcastAudioCue {
+  turnId: string
+  start: number
+  end: number
 }
 
 export interface PodcastAudioResult {
@@ -23,6 +30,7 @@ export interface PodcastAudioResult {
   sizeBytes: number
   waveform: number[]
   segmentCount: number
+  cues: PodcastAudioCue[]
 }
 
 export async function readSourceDocument(path: string): Promise<SourceDocument> {

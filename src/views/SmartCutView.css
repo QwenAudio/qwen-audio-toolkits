@@ -409,6 +409,14 @@
   border-left: 1px solid var(--cut-border);
   background: color-mix(in srgb, var(--surface-raised, #fff) 68%, transparent);
 }
+.agent-cut-submission > .smart-cut-video-attachment { margin-top: 14px; }
+.agent-cut-submission > p {
+  margin: 14px 0 0;
+  color: var(--text-primary, #202422);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
 
 .smart-cut-video-shell {
   position: relative;
@@ -433,6 +441,7 @@
   backdrop-filter: blur(8px);
   font-size: 12px;
 }
+.agent-cut-initializing .smart-cut-busy-overlay { background: rgba(10, 13, 12, .9); }
 
 .smart-cut-player-controls {
   display: flex;

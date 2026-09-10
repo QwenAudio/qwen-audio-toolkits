@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import {
@@ -60,6 +60,9 @@ type PodcastStage =
   | 'complete'
 
 interface AiPodcastViewProps {
+  initialInstruction?: string
+  initialSourcePath?: string
+  initialLaunchId?: number
   models: ModelPlugin[]
   catalog: HarnessCatalog | null
   onRunText: (
@@ -102,6 +105,9 @@ function stageMessage(stage: PodcastStage, completed: number, total: number): st
 }
 
 export function AiPodcastView({
+  initialInstruction,
+  initialSourcePath,
+  initialLaunchId,
   models,
   catalog,
   onRunText,
@@ -112,7 +118,7 @@ export function AiPodcastView({
   const [stage, setStage] = useState<PodcastStage>('empty')
   const [source, setSource] = useState<SourceDocument | null>(null)
   const [sourcePath, setSourcePath] = useState('')
-  const [instruction, setInstruction] = useState('')
+  const [instruction, setInstruction] = useState(initialInstruction ?? '')
   const [length, setLength] = useState<PodcastLength>('brief')
   const [language, setLanguage] = useState<'auto' | 'zh-CN' | 'en'>('auto')
   const [selectedLlmId, setSelectedLlmId] = useState('')
@@ -124,8 +130,12 @@ export function AiPodcastView({
   const [speed, setSpeed] = useState(1)
   const [script, setScript] = useState<PodcastScript | null>(null)
   const [output, setOutput] = useState<PodcastAudioResult | null>(null)
+  const [playbackTime, setPlaybackTime] = useState(0)
   const [progress, setProgress] = useState({ completed: 0, total: 0 })
   const [error, setError] = useState('')
+  const turnElementRefs = useRef(new Map<string, HTMLElement>())
+  const appliedInitialLaunchRef = useRef(0)
+  const submittedInitialLaunchRef = useRef(0)
 
   const llmModels = useMemo(
     () => models.filter((model) => modelReady(model, catalog) && model.harnessCapabilities.includes('text.generate')),
@@ -145,6 +155,21 @@ export function AiPodcastView({
   const ttsProfile = selectedTts ? modelInputProfile(selectedTts) : null
   const presetVoices = selectedTts ? cloudVoiceOptions(selectedTts) : []
   const busy = ['extracting', 'summarizing', 'scripting', 'synthesizing'].includes(stage)
+  const activeTurnId = useMemo(() => {
+    if (!output) return null
+    return output.cues.find((cue, index) =>
+      playbackTime >= cue.start &&
+      (playbackTime < cue.end || (index === output.cues.length - 1 && playbackTime <= cue.end)),
+    )?.turnId ?? null
+  }, [output, playbackTime])
+
+  useEffect(() => {
+    if (!activeTurnId) return
+    turnElementRefs.current.get(activeTurnId)?.scrollIntoView({
+      block: 'nearest',
+      behavior: 'smooth',
+    })
+  }, [activeTurnId])
 
   useEffect(() => {
     if (llmModels.some((model) => model.id === selectedLlmId)) return
@@ -173,15 +198,7 @@ export function AiPodcastView({
     }
   }, [selectedTts?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const chooseDocument = async () => {
-    const selection = await open({
-      title: t('选择论文或文档'),
-      multiple: false,
-      directory: false,
-      filters: [{ name: t('文档'), extensions: ['pdf', 'docx', 'txt', 'md', 'markdown'] }],
-    })
-    const path = typeof selection === 'string' ? selection : null
-    if (!path) return
+  const loadDocument = useCallback(async (path: string) => {
     setStage('extracting')
     setError('')
     setScript(null)
@@ -198,6 +215,37 @@ export function AiPodcastView({
       setStage('empty')
       setError(localizePodcastError(reason))
     }
+  }, [onAction])
+
+  useEffect(() => {
+    if (
+      !initialLaunchId ||
+      !initialSourcePath ||
+      !initialInstruction?.trim() ||
+      appliedInitialLaunchRef.current === initialLaunchId
+    ) return
+    appliedInitialLaunchRef.current = initialLaunchId
+    submittedInitialLaunchRef.current = 0
+    setInstruction(initialInstruction)
+    setSource(null)
+    setSourcePath('')
+    setScript(null)
+    setOutput(null)
+    setProgress({ completed: 0, total: 0 })
+    setError('')
+    void loadDocument(initialSourcePath)
+  }, [initialInstruction, initialLaunchId, initialSourcePath, loadDocument])
+
+  const chooseDocument = async () => {
+    const selection = await open({
+      title: t('选择论文或文档'),
+      multiple: false,
+      directory: false,
+      filters: [{ name: t('文档'), extensions: ['pdf', 'docx', 'txt', 'md', 'markdown'] }],
+    })
+    const path = typeof selection === 'string' ? selection : null
+    if (!path) return
+    await loadDocument(path)
   }
 
   const reset = () => {
@@ -211,7 +259,7 @@ export function AiPodcastView({
     setError('')
   }
 
-  const generateScript = async () => {
+  const generateScript = useCallback(async () => {
     if (!source || !sourcePath) {
       setError(t('请先上传论文或文档'))
       return
@@ -277,7 +325,40 @@ export function AiPodcastView({
         ? t('模型返回的脚本格式不完整，请重试或换一个文本生成模型')
         : localizePodcastError(reason))
     }
-  }
+  }, [instruction, language, length, onAction, onRunText, selectedLlm, source, sourcePath])
+
+  useEffect(() => {
+    if (
+      !initialLaunchId ||
+      !initialSourcePath ||
+      !initialInstruction?.trim() ||
+      appliedInitialLaunchRef.current !== initialLaunchId ||
+      submittedInitialLaunchRef.current === initialLaunchId ||
+      stage !== 'ready' ||
+      !source ||
+      sourcePath !== initialSourcePath ||
+      instruction.trim() !== initialInstruction.trim()
+    ) return
+    if (!selectedLlm) {
+      if (llmModels.length) return
+      submittedInitialLaunchRef.current = initialLaunchId
+      setError(t('请先安装并配置一个文本生成模型'))
+      return
+    }
+    submittedInitialLaunchRef.current = initialLaunchId
+    void generateScript()
+  }, [
+    initialInstruction,
+    initialLaunchId,
+    initialSourcePath,
+    instruction,
+    llmModels.length,
+    selectedLlm,
+    source,
+    sourcePath,
+    stage,
+    generateScript,
+  ])
 
   const updateTurn = (index: number, text: string) => {
     setScript((current) => current ? {
@@ -327,10 +408,11 @@ export function AiPodcastView({
     }
     setStage('synthesizing')
     setOutput(null)
+    setPlaybackTime(0)
     setError('')
     setProgress({ completed: 0, total: turns.length })
     try {
-      const audioSegments: Array<{ filePath: string; pauseAfterMs: number }> = []
+      const audioSegments: Array<{ turnId: string; filePath: string; pauseAfterMs: number }> = []
       for (let index = 0; index < turns.length; index += 1) {
         const turn = turns[index]
         const voice = turn.speaker === 'A' ? voiceA : voiceB
@@ -351,6 +433,7 @@ export function AiPodcastView({
         )
         if (!isTtsResult(execution.output)) throw new Error(t('语音合成模型没有返回有效音频'))
         audioSegments.push({
+          turnId: turn.id,
           filePath: execution.output.filePath,
           pauseAfterMs: index + 1 < turns.length && turns[index + 1].speaker !== turn.speaker ? 320 : 220,
         })
@@ -401,11 +484,60 @@ export function AiPodcastView({
   )
 
   if (!script) {
+    const agentLaunchBusy = Boolean(
+      !error &&
+      initialLaunchId &&
+      initialSourcePath &&
+      initialInstruction?.trim() &&
+      (submittedInitialLaunchRef.current !== initialLaunchId || busy),
+    )
     const promptSuggestions = [
       '主持人与专家访谈，讲清核心结论和研究局限',
       '面向大众，用轻松中文解释文档重点',
       '保留专业细节，讨论争议与启示',
     ]
+    if (initialLaunchId && initialSourcePath && initialInstruction?.trim()) {
+      const taskFileName = source?.fileName ?? initialSourcePath.split(/[\\/]/u).at(-1) ?? t('未命名文件')
+      const taskTitle = taskFileName.replace(/\.[^.]+$/u, '') || t('AI 播客')
+      return (
+        <main className="ai-podcast-view project podcast-task-initializing">
+          <header className="podcast-project-header">
+            <div>
+              <span className="podcast-kicker">AI PODCAST</span>
+              <h1 className="podcast-task-title">{taskTitle}</h1>
+              <p>{taskFileName}</p>
+            </div>
+          </header>
+          <section className="podcast-workspace">
+            <aside className="podcast-settings-card podcast-task-submission">
+              <div className="podcast-section-heading">
+                <FileText size={16} />
+                <div><strong>{t('已提交的任务')}</strong><small>{taskFileName}</small></div>
+              </div>
+              <p>{instruction}</p>
+              {error && <p className="podcast-error compact">{error}</p>}
+              {!llmModels.length && (
+                <button className="podcast-store-link full" type="button" onClick={onOpenStore}>
+                  {t('前往模型商店安装或配置 LLM')}
+                </button>
+              )}
+            </aside>
+            <section className="podcast-script-card">
+              <div className="podcast-script-heading">
+                <div><strong>{t('双人脚本')}</strong><small>{t('生成后可以继续修改台词、角色和顺序')}</small></div>
+              </div>
+              <div className="podcast-task-generating">
+                {agentLaunchBusy && <LoaderCircle className="podcast-spin" size={22} />}
+                <strong>{error ? t('播客任务暂未开始') : t('正在生成双人脚本…')}</strong>
+                {!error && (
+                  <small>{stageMessage(stage, progress.completed, progress.total) || t('正在读取文档…')}</small>
+                )}
+              </div>
+            </section>
+          </section>
+        </main>
+      )
+    }
     return (
       <main className="smart-cut-view ai-podcast-view empty">
         <section className="smart-cut-hero podcast-hero">
@@ -550,7 +682,15 @@ export function AiPodcastView({
           </div>
           <div className="podcast-turn-list">
             {script.turns.map((turn, index) => (
-              <article className={`podcast-turn speaker-${turn.speaker.toLowerCase()}`} key={turn.id}>
+              <article
+                className={`podcast-turn speaker-${turn.speaker.toLowerCase()}${activeTurnId === turn.id ? ' playing' : ''}`}
+                key={turn.id}
+                ref={(element) => {
+                  if (element) turnElementRefs.current.set(turn.id, element)
+                  else turnElementRefs.current.delete(turn.id)
+                }}
+                aria-current={activeTurnId === turn.id ? 'true' : undefined}
+              >
                 <header className="podcast-turn-header">
                   <div className="podcast-speaker-identity">
                     <span className="podcast-speaker-mark">{turn.speaker}</span>
@@ -591,6 +731,7 @@ export function AiPodcastView({
             role="output"
             size="compact"
             waveformHeight={54}
+            onTimeChange={setPlaybackTime}
           />
           <div className="podcast-player-actions">
             <div className="podcast-output-meta">

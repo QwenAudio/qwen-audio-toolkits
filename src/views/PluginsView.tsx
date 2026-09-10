@@ -844,7 +844,7 @@ export function PluginsView({
             <span>{t("全部 Agents")}</span>
             <small>{allModels.length}</small>
           </button>
-          {categoryTree.map((category) => {
+          {categoryTree.filter((category) => category.id !== 'agents').map((category) => {
             const expanded = primaryFilter === category.id
             return (
               <div
@@ -862,7 +862,7 @@ export function PluginsView({
                     setSecondaryFilter('all')
                   }}
                 >
-                  {category.id !== 'agents' && <ChevronRight size={13} />}
+                  <ChevronRight size={13} />
                   <span>{category.label}</span>
                   <small>{category.count}</small>
                 </button>
