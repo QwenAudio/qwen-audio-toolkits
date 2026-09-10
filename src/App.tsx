@@ -128,8 +128,14 @@ const SmartCutView = lazy(() =>
     default: module.SmartCutView,
   })),
 )
+const AiPodcastView = lazy(() =>
+  import('./views/AiPodcastView').then((module) => ({
+    default: module.AiPodcastView,
+  })),
+)
 
-type AppView = 'workspace' | 'smart-cut' | 'workflows'
+type AppView = 'workspace' | 'smart-cut' | 'ai-podcast' | 'workflows'
+type AgentView = Extract<AppView, 'smart-cut' | 'ai-podcast'>
 type ThemePreference = 'system' | 'light' | 'dark'
 type AppUpdateState = {
   status:
@@ -519,6 +525,9 @@ function App() {
   }, [locale])
 
   const [view, setView] = useState<AppView>('workspace')
+  const [mountedAgentViews, setMountedAgentViews] = useState<Set<AgentView>>(
+    () => new Set(),
+  )
   const [shellPage, setShellPage] = useState<ShellPage>('workspace')
   const [extensionsNavHost, setExtensionsNavHost] =
     useState<HTMLDivElement | null>(null)
@@ -1439,6 +1448,14 @@ function App() {
     handle.addEventListener('lostpointercapture', finish)
   }
   const changeView = (next: AppView) => {
+    if (next === 'smart-cut' || next === 'ai-podcast') {
+      setMountedAgentViews((current) => {
+        if (current.has(next)) return current
+        const updated = new Set(current)
+        updated.add(next)
+        return updated
+      })
+    }
     setView(next)
     setSidebarOpen(false)
   }
@@ -2613,6 +2630,8 @@ function App() {
                   ? t("设置 · {0}", [activeSettingsSection.label])
                   : view === 'smart-cut'
                     ? t("口播剪辑")
+                    : view === 'ai-podcast'
+                      ? t('AI 播客')
                     : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
                   ? workflows.find(
@@ -2713,16 +2732,39 @@ function App() {
               />
             )
           )}
-          {view === 'smart-cut' && (
-            <SmartCutView
-              models={orderedRunnablePlugins}
-              catalog={catalog}
-              onRunAudio={runAudio}
-              onRunText={runText}
-              onOpenStore={openExtensions}
-              onAction={notify}
-            />
-          )}
+          {(view === 'smart-cut' || mountedAgentViews.has('smart-cut')) &&
+            installedAppAgents.some((agent) => agent.workspaceEntry === 'smart-cut') && (
+              <div
+                className="agent-workspace-session"
+                hidden={view !== 'smart-cut'}
+                inert={view !== 'smart-cut'}
+              >
+                <SmartCutView
+                  models={orderedRunnablePlugins}
+                  catalog={catalog}
+                  onRunAudio={runAudio}
+                  onRunText={runText}
+                  onOpenStore={openExtensions}
+                  onAction={notify}
+                />
+              </div>
+            )}
+          {(view === 'ai-podcast' || mountedAgentViews.has('ai-podcast')) &&
+            installedAppAgents.some((agent) => agent.workspaceEntry === 'ai-podcast') && (
+              <div
+                className="agent-workspace-session"
+                hidden={view !== 'ai-podcast'}
+                inert={view !== 'ai-podcast'}
+              >
+                <AiPodcastView
+                  models={orderedRunnablePlugins}
+                  catalog={catalog}
+                  onRunText={runText}
+                  onOpenStore={openExtensions}
+                  onAction={notify}
+                />
+              </div>
+            )}
           {WORKFLOWS_ENABLED && view === 'workflows' && (
             <WorkflowsView
               key={editingWorkflowId ?? 'new-workflow'}

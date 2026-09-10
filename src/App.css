@@ -9925,3 +9925,11 @@ body.detail-resizing .model-workspace {
 .workspace-session[hidden] {
   display: none;
 }
+
+/* Keep each opened Agent mounted so drafts and review state survive navigation. */
+.agent-workspace-session {
+  display: contents;
+}
+.agent-workspace-session[hidden] {
+  display: none;
+}

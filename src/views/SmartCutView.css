@@ -130,13 +130,13 @@
 .smart-cut-video-attachment strong {
   overflow: hidden;
   color: var(--text-primary, #202422);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.smart-cut-video-attachment small { color: var(--cut-muted); font-size: 8px; }
+.smart-cut-video-attachment small { color: var(--cut-muted); font-size: 10px; }
 .smart-cut-video-attachment button {
   display: grid;
   place-items: center;
@@ -161,7 +161,7 @@
 .smart-cut-composer-toolbar > small {
   overflow: hidden;
   color: var(--cut-muted);
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -182,7 +182,7 @@
   color: var(--text-primary, #202422);
   background: color-mix(in srgb, var(--text-primary, #202422) 5%, transparent);
 }
-.smart-cut-attach-button span { font-size: 10px; }
+.smart-cut-attach-button span { font-size: 12px; }
 
 .smart-cut-planner-model {
   display: inline-flex;
@@ -202,7 +202,7 @@
   color: var(--cut-muted);
   background: transparent;
   cursor: pointer;
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
 }
 
@@ -244,7 +244,7 @@
   color: var(--cut-muted);
   background: color-mix(in srgb, var(--surface-raised, #fff) 74%, transparent);
   cursor: pointer;
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -283,7 +283,7 @@
   gap: 7px;
   margin-top: 15px;
   color: var(--cut-muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .smart-cut-engine i {
@@ -328,8 +328,8 @@
   font-size: 11px;
   font-weight: 700;
 }
-.smart-cut-flow strong { font-size: 12px; }
-.smart-cut-flow small { margin-top: 3px; color: var(--cut-muted); font-size: 10px; }
+.smart-cut-flow strong { font-size: 13px; }
+.smart-cut-flow small { margin-top: 3px; color: var(--cut-muted); font-size: 11px; }
 
 .smart-cut-error {
   margin-top: 14px;
@@ -365,7 +365,7 @@
   margin: 3px 0 0;
   overflow: hidden;
   color: var(--cut-muted);
-  font-size: 9px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -377,7 +377,7 @@
   border: 0;
   color: var(--cut-muted);
   background: transparent;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -387,7 +387,7 @@
   border-radius: 7px;
   color: var(--cut-muted);
   background: color-mix(in srgb, var(--text-primary, #202422) 4%, transparent);
-  font-size: 9px;
+  font-size: 12px;
 }
 .smart-cut-stage-indicator span.active {
   color: var(--accent, #4c7e6c);
@@ -440,7 +440,7 @@
   gap: 10px;
   height: 37px;
   color: var(--cut-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 .smart-cut-player-controls button {
   display: grid;
@@ -462,6 +462,14 @@
   font-style: normal;
 }
 
+.smart-cut-timeline-heading {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 3px;
+}
+
 .smart-cut-timeline {
   position: relative;
   height: 52px;
@@ -472,18 +480,9 @@
   cursor: pointer;
 }
 .smart-cut-timeline-meta {
-  position: absolute;
-  z-index: 3;
-  top: 5px;
-  right: 7px;
-  padding: 2px 5px;
-  border-radius: 5px;
   color: var(--cut-muted);
-  background: color-mix(in srgb, var(--surface-raised, #fff) 82%, transparent);
-  backdrop-filter: blur(4px);
-  pointer-events: none;
-  font-size: 9px;
-  line-height: 1.2;
+  font-size: 10px;
+  line-height: 1.4;
   white-space: nowrap;
 }
 .smart-cut-waveform {
@@ -518,8 +517,8 @@
   background: var(--surface-raised, #fff);
 }
 .smart-cut-setup-card h2, .smart-cut-section-heading h2 { font-size: 14px; }
-.smart-cut-setup-card p { margin: 7px 0 0; color: var(--cut-muted); font-size: 11px; line-height: 1.5; }
-.smart-cut-setup-card label { display: grid; gap: 6px; color: var(--cut-muted); font-size: 10px; }
+.smart-cut-setup-card p { margin: 7px 0 0; color: var(--cut-muted); font-size: 12px; line-height: 1.5; }
+.smart-cut-setup-card label { display: grid; gap: 6px; color: var(--cut-muted); font-size: 12px; }
 .smart-cut-setup-card select {
   min-width: 0;
   height: 37px;
@@ -534,13 +533,13 @@
 
 .smart-cut-transcript { margin-top: 18px; }
 .smart-cut-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.smart-cut-section-heading > span { color: var(--cut-muted); font-size: 9px; }
+.smart-cut-section-heading > span { color: var(--cut-muted); font-size: 12px; }
 .smart-cut-section-heading > strong {
   padding: 5px 8px;
   border-radius: 8px;
   color: var(--accent, #4c7e6c);
   background: color-mix(in srgb, var(--accent, #4c7e6c) 9%, transparent);
-  font-size: 10px;
+  font-size: 12px;
 }
 .smart-cut-word-toolbar {
   display: flex;
@@ -552,7 +551,7 @@
   border-radius: 9px;
   color: var(--cut-muted);
   background: color-mix(in srgb, var(--text-primary, #202422) 4%, transparent);
-  font-size: 9px;
+  font-size: 12px;
 }
 .smart-cut-word-toolbar p { margin: 0; }
 .smart-cut-word-toolbar div { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
@@ -593,7 +592,7 @@
   border: 0;
   color: var(--accent, #4c7e6c);
   background: transparent;
-  font-size: 10px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   cursor: pointer;
@@ -613,7 +612,7 @@
   padding: 2px 3px;
   border-radius: 5px;
   color: var(--text-primary, #202422);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.55;
   cursor: text;
   transition: color .12s ease, background .12s ease, box-shadow .12s ease;
@@ -633,7 +632,7 @@
 .smart-cut-word-line > span.deleted.manual { background: rgba(167, 104, 136, .24); }
 .smart-cut-word-line > span.current { box-shadow: inset 0 -2px #4c7e6c; }
 .smart-cut-word-line > span:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent, #4c7e6c) 48%, transparent); outline-offset: 1px; }
-.smart-cut-no-word-timeline { margin: 3px 0 8px; color: #b56a4f; font-size: 10px; line-height: 1.5; }
+.smart-cut-no-word-timeline { margin: 3px 0 8px; color: #b56a4f; font-size: 11px; line-height: 1.5; }
 
 .smart-cut-summary {
   display: grid;
@@ -648,8 +647,8 @@
   border-radius: 9px;
   background: color-mix(in srgb, var(--text-primary, #202422) 4%, transparent);
 }
-.smart-cut-summary small { color: var(--cut-muted); font-size: 8px; }
-.smart-cut-summary strong { font-size: 11px; }
+.smart-cut-summary small { color: var(--cut-muted); font-size: 10px; }
+.smart-cut-summary strong { font-size: 12px; }
 
 .smart-cut-tuning {
   display: grid;
@@ -660,7 +659,7 @@
   border: 1px solid var(--cut-border);
   border-radius: 10px;
 }
-.smart-cut-tuning label { display: grid; grid-template-columns: 1fr auto; gap: 5px; color: var(--cut-muted); font-size: 9px; }
+.smart-cut-tuning label { display: grid; grid-template-columns: 1fr auto; gap: 5px; color: var(--cut-muted); font-size: 12px; }
 .smart-cut-tuning input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent, #4c7e6c); }
 .smart-cut-tuning button,
 .smart-cut-batch-actions button,
@@ -676,7 +675,7 @@
   border-radius: 8px;
   color: var(--text-primary, #202422);
   background: transparent;
-  font-size: 9px;
+  font-size: 12px;
   cursor: pointer;
 }
 .smart-cut-batch-actions { display: flex; gap: 6px; margin: 10px 0; }
@@ -691,12 +690,12 @@
   border-radius: 9px;
   color: #8f5471;
   background: rgba(167, 104, 136, .08);
-  font-size: 9px;
+  font-size: 12px;
 }
 .smart-cut-manual-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .smart-cut-manual-heading > div { display: flex; align-items: center; gap: 6px; }
 .smart-cut-manual-heading button,
-.smart-cut-manual-row button { border: 0; color: inherit; background: transparent; font-size: 9px; cursor: pointer; }
+.smart-cut-manual-row button { border: 0; color: inherit; background: transparent; font-size: 10px; cursor: pointer; }
 .smart-cut-manual-list { display: grid; gap: 3px; max-height: 144px; overflow-y: auto; }
 .smart-cut-manual-row {
   display: grid;
@@ -708,7 +707,7 @@
   border-radius: 7px;
   background: color-mix(in srgb, var(--surface-raised, #fff) 72%, transparent);
 }
-.smart-cut-manual-row .smart-cut-manual-word { overflow: hidden; padding: 0; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; font-weight: 600; }
+.smart-cut-manual-row .smart-cut-manual-word { overflow: hidden; padding: 0; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
 .smart-cut-manual-row time { color: var(--cut-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .smart-cut-manual-row .smart-cut-manual-icon { display: grid; place-items: center; width: 25px; min-height: 25px; padding: 0; border-radius: 6px; }
 .smart-cut-manual-row .smart-cut-manual-icon:hover { background: rgba(167, 104, 136, .12); }
@@ -733,10 +732,10 @@
 }
 .smart-cut-candidate-choice { display: flex; align-items: center; min-width: 0; gap: 6px; }
 .smart-cut-candidates input { accent-color: var(--accent, #4c7e6c); }
-.smart-cut-candidates article strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
-.smart-cut-reason { padding: 3px 5px; border-radius: 5px; color: #9b6a17; background: rgba(198, 147, 60, .12); font-size: 8px; }
+.smart-cut-candidates article strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.smart-cut-reason { padding: 3px 5px; border-radius: 5px; color: #9b6a17; background: rgba(198, 147, 60, .12); font-size: 10px; }
 .smart-cut-reason.filler, .smart-cut-reason.repetition { color: #935473; background: rgba(167, 104, 136, .12); }
-.smart-cut-candidate-inline-meta { display: flex; align-items: center; gap: 4px; color: var(--cut-muted); font-size: 8px; }
+.smart-cut-candidate-inline-meta { display: flex; align-items: center; gap: 4px; color: var(--cut-muted); font-size: 10px; }
 .smart-cut-candidate-inline-meta time { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .smart-cut-candidate-inline-meta span { display: inline-flex; align-items: center; }
 .smart-cut-candidate-inline-meta .stable { color: #3d8b60; }
@@ -754,7 +753,7 @@
 .smart-cut-empty-candidates { padding: 28px; text-align: center; color: var(--cut-muted); }
 .smart-cut-placeholder { display: grid; place-items: center; align-content: center; min-height: 65%; text-align: center; color: var(--cut-muted); }
 .smart-cut-placeholder h2 { margin-top: 12px; font-size: 14px; color: var(--text-primary, #202422); }
-.smart-cut-placeholder p { max-width: 240px; font-size: 10px; line-height: 1.5; }
+.smart-cut-placeholder p { max-width: 240px; font-size: 12px; line-height: 1.5; }
 
 .smart-cut-review-footer {
   position: sticky;
@@ -774,7 +773,7 @@
   gap: 6px;
   margin-right: auto;
   color: var(--cut-muted);
-  font-size: 9px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .smart-cut-subtitle-toggle input { accent-color: var(--accent, #4c7e6c); }

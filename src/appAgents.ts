@@ -58,6 +58,60 @@ const APP_AGENT_DEFINITIONS = [
       { name: 'subtitles', label: '字幕', type: 'transcript', modes: ['batch'] },
     ],
   },
+  {
+    id: 'qwenaudio.ai-podcast',
+    name: 'AI 播客',
+    author: 'QwenAudio',
+    description:
+      '把论文或文档整理成可编辑的双人对话，并用两种音色合成为完整播客。',
+    license: 'Apache-2.0',
+    capabilities: ['文档解析', '双人脚本', '语音合成', '音频导出'],
+    harnessCapabilities: [],
+    runtime: 'QwenAudio Toolkits',
+    acceleration: ['CPU', 'Apple Silicon', '云端 API'],
+    version: '1.0.0',
+    size: '内置',
+    enabled: true,
+    sidebarVisible: true,
+    builtin: true,
+    featured: true,
+    tone: 'violet',
+    adapter: 'ai-podcast',
+    installPath: '',
+    catalogManaged: true,
+    installable: true,
+    extensionKind: 'workspace-agent',
+    workspaceEntry: 'ai-podcast',
+    agent: {
+      task: '从论文或文档中提炼事实，生成可人工复核的双人播客脚本，并合成为音频。',
+      usage: {
+        inputRequirements: [
+          '输入 PDF、DOCX、TXT 或 Markdown 文档。',
+          '至少配置一个文本生成模型和一个无需参考音频的语音合成模型。',
+        ],
+        limitations: [
+          '扫描版 PDF 暂不支持 OCR，需要先转换为可选择文本的 PDF。',
+          '生成脚本可能遗漏或误述原文信息，请在语音合成前复核。',
+        ],
+        examples: [
+          '把一篇论文做成五分钟的中文双人解读播客。',
+          '用主持人与专家访谈的方式解释技术报告。',
+        ],
+      },
+      harness: {
+        kind: 'app-workflow',
+        entry: 'ai-podcast',
+      },
+    },
+    inputs: [
+      { name: 'document', label: '论文或文档', type: 'text', modes: ['batch'] },
+      { name: 'instruction', label: '创作要求', type: 'text', modes: ['batch'], optional: true },
+    ],
+    outputs: [
+      { name: 'script', label: '双人播客脚本', type: 'text', modes: ['batch'] },
+      { name: 'audio', label: '播客音频', type: 'audio', modes: ['batch'] },
+    ],
+  },
 ] as const satisfies ReadonlyArray<Omit<ModelPlugin, 'installed'>>
 
 export function isWorkspaceAgent(

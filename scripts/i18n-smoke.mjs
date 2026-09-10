@@ -46,21 +46,22 @@ assert.equal(voices[0].name, '龙小淳', 'Voice names are identities, not UI tr
 assert.match(voices[0].description, /Chinese & English/)
 assert.equal(t('Audio-to-Text'), 'Audio-to-Text')
 assert.equal(t('Text-to-Audio'), 'Text-to-Audio')
-const [smartCutAgent] = appAgentsWithInstallState([])
-const smartCutMetadata = [
-  smartCutAgent.name,
-  smartCutAgent.description,
-  smartCutAgent.size,
-  ...smartCutAgent.capabilities,
-  smartCutAgent.agent.task,
-  ...smartCutAgent.agent.usage.inputRequirements,
-  ...smartCutAgent.agent.usage.examples,
-  ...smartCutAgent.agent.usage.limitations,
-  ...smartCutAgent.inputs.map(port => port.label),
-  ...smartCutAgent.outputs.map(port => port.label),
-]
-for (const source of smartCutMetadata) {
-  assert.notEqual(translate(source, [], 'en'), source, `Missing Talking-Head Editor translation: ${source}`)
+for (const agent of appAgentsWithInstallState([])) {
+  const metadata = [
+    agent.name,
+    agent.description,
+    agent.size,
+    ...agent.capabilities,
+    agent.agent.task,
+    ...agent.agent.usage.inputRequirements,
+    ...agent.agent.usage.examples,
+    ...agent.agent.usage.limitations,
+    ...agent.inputs.map(port => port.label),
+    ...agent.outputs.map(port => port.label),
+  ]
+  for (const source of metadata) {
+    assert.notEqual(translate(source, [], 'en'), source, `Missing ${agent.name} translation: ${source}`)
+  }
 }
 assert.equal(localizeVideoEditorMessage('视频导出失败: encoder unavailable'), 'Video export failed: encoder unavailable')
 assert.equal(localizeVideoEditorMessage('视频中没有音轨，无法进行口播剪辑'), 'The video has no audio track and cannot be edited as a talking-head video')

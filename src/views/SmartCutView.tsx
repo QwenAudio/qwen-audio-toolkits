@@ -1045,11 +1045,13 @@ export function SmartCutView({
             <span>{formatTime(currentTime, true)} / {formatTime(media.duration, true)}</span>
             {stage === 'preview' && <em><Sparkles size={13} /> {t('正在预览剪辑结果')}</em>}
           </div>
-          <div className="smart-cut-timeline" onClick={seekTimeline} role="slider" aria-label={t('视频时间线')} tabIndex={0}>
+          <div className="smart-cut-timeline-heading">
             <span className="smart-cut-timeline-meta">
               {formatTime(media.duration)} · {media.width}×{media.height}
               {media.fps > 0 ? ` · ${media.fps.toFixed(1)} fps` : ''} · {formatFileSize(media.sizeBytes)}
             </span>
+          </div>
+          <div className="smart-cut-timeline" onClick={seekTimeline} role="slider" aria-label={t('视频时间线')} tabIndex={0}>
             <div className="smart-cut-waveform" aria-hidden="true">
               {(audioClip?.samples ?? []).slice(0, 180).map((sample, index) => (
                 <i key={index} style={{ height: `${Math.max(8, sample * 86)}%` }} />

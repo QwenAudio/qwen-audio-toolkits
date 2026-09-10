@@ -4,12 +4,14 @@ mod app_language;
 mod asr;
 mod audio_io;
 mod audio_processing;
+mod document_reader;
 mod downloads;
 mod harness;
 #[cfg(all(target_os = "macos", debug_assertions))]
 mod macos_window_smoke;
 mod onnx_audio;
 mod plugins;
+mod podcast_audio;
 mod system_audio;
 mod tts;
 mod vad;
@@ -26,6 +28,7 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use document_reader::read_source_document;
 use harness::{
     harness_api_provider_settings, harness_bailian_provider_settings, harness_cancel_run,
     harness_catalog, harness_create_bailian_voice, harness_delete_api_provider,
@@ -48,6 +51,7 @@ use plugins::{
     plugin_set_download_paused, plugin_set_sidebar_visible, plugin_uninstall, DependencyBindings,
     PluginDescriptor, PluginInstallRequest,
 };
+use podcast_audio::compose_podcast_audio;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -769,7 +773,9 @@ pub fn run() {
             reveal_in_file_manager,
             cleanup_download_cache,
             read_dropped_audio_file,
+            read_source_document,
             export_audio_file,
+            compose_podcast_audio,
             video_editor_status,
             prepare_video_media,
             analyze_cut_boundaries,

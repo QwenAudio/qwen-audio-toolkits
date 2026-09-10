@@ -21,7 +21,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "tsx scripts/workflow-smoke.mjs && tsx scripts/result-normalization-smoke.mjs && tsx scripts/caption-layout-smoke.mjs && tsx scripts/model-taxonomy-smoke.mjs && node scripts/install-progress-smoke.mjs && tsx scripts/agent-project-smoke.mjs && tsx scripts/i18n-smoke.mjs && tsx scripts/smart-cut-smoke.ts",
+    "test": "tsx scripts/workflow-smoke.mjs && tsx scripts/result-normalization-smoke.mjs && tsx scripts/caption-layout-smoke.mjs && tsx scripts/model-taxonomy-smoke.mjs && node scripts/install-progress-smoke.mjs && tsx scripts/agent-project-smoke.mjs && tsx scripts/i18n-smoke.mjs && tsx scripts/smart-cut-smoke.ts && tsx scripts/podcast-smoke.ts",
     "test:custom-provider": "node scripts/custom-provider-smoke.mjs",
     "test:agents:native": "node scripts/agent-native-smoke.mjs",
     "tauri": "tauri",
