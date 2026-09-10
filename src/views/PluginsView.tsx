@@ -118,6 +118,10 @@ function displayPluginVersion(plugin: ModelPlugin, apiPlugin: boolean): string {
   return `v${version}`
 }
 
+function displayPluginName(plugin: ModelPlugin): string {
+  return isWorkspaceAgent(plugin) ? t(plugin.name) : plugin.name
+}
+
 function compareCatalogModels(left: ModelPlugin, right: ModelPlugin): number {
   return left.name.localeCompare(right.name, getLocale(), {
     numeric: true,
@@ -378,6 +382,7 @@ export function PluginsView({
       allModels.filter((plugin) => {
         const searchMatch =
           plugin.name.toLowerCase().includes(search.toLowerCase()) ||
+          t(plugin.name, [], locale).toLowerCase().includes(search.toLowerCase()) ||
           plugin.description.toLowerCase().includes(search.toLowerCase()) ||
           t(plugin.description, [], locale).toLowerCase().includes(search.toLowerCase()) ||
           plugin.version.toLowerCase().includes(search.toLowerCase()) ||
@@ -730,7 +735,7 @@ export function PluginsView({
     if (isWorkspaceAgent(plugin)) {
       if (!plugin.installed) {
         onAppAgentInstalled(plugin.id, true)
-        onAction(`${plugin.name} 已安装并添加到工作台`)
+        onAction(t('{0} 已安装并添加到工作台', [displayPluginName(plugin)]))
       }
       return
     }
@@ -784,7 +789,7 @@ export function PluginsView({
     setPendingDeleteId(null)
     if (isWorkspaceAgent(plugin)) {
       onAppAgentInstalled(plugin.id, false)
-      onAction(`${plugin.name} 已卸载`)
+      onAction(t('{0} 已卸载', [displayPluginName(plugin)]))
       return
     }
     if (isApiPlugin(plugin)) {
@@ -1020,7 +1025,7 @@ export function PluginsView({
                 >
                   <div className="plugin-main-copy">
                     <div className="plugin-title-line">
-                      <h2>{plugin.name}</h2>
+                      <h2>{displayPluginName(plugin)}</h2>
                       <div className="plugin-row-action">
                     {appAgent ? (
                       <button
@@ -1039,12 +1044,12 @@ export function PluginsView({
                         {plugin.installed ? (
                           <>
                             <Trash2 size={14} />
-                            {pendingDeleteId === plugin.id ? '确认' : '卸载'}
+                            {pendingDeleteId === plugin.id ? t('确认') : t('卸载')}
                           </>
                         ) : (
                           <>
                             <Download size={14} />
-                            安装
+                            {t('安装')}
                           </>
                         )}
                       </button>
@@ -1209,7 +1214,7 @@ export function PluginsView({
                     {selectedPlugin.author}
                   </span>
                   <span className="plugin-project-sep">/</span>
-                  <h2>{selectedPlugin.name}</h2>
+                  <h2>{displayPluginName(selectedPlugin)}</h2>
                 </div>
                 {selectedPlugin.description && (
                   <p className="plugin-project-description">
@@ -1222,7 +1227,7 @@ export function PluginsView({
                   </span>
                   {selectedPlugin.license && <span>{selectedPlugin.license}</span>}
                   {!selectedIsApi && (
-                    <span>{selectedVariant?.size ?? selectedPlugin.size}</span>
+                    <span>{selectedIsAppAgent ? t(selectedPlugin.size) : selectedVariant?.size ?? selectedPlugin.size}</span>
                   )}
                   <span>
                     {selectedIsAppAgent
@@ -1331,7 +1336,7 @@ export function PluginsView({
                   {selectedIsAppAgent ? (
                     <>
                       <Download size={16} />
-                      安装 Agent
+                      {t('安装 Agent')}
                     </>
                   ) : selectedInstallState === 'queued' ? (
                     <>
@@ -1671,7 +1676,9 @@ export function PluginsView({
                     <dd>
                       {selectedIsApi
                         ? selectedPlugin.version
-                        : selectedVariant?.size ?? selectedPlugin.size}
+                        : selectedIsAppAgent
+                          ? t(selectedPlugin.size)
+                          : selectedVariant?.size ?? selectedPlugin.size}
                     </dd>
                   </div>
                   {selectedIsApi &&

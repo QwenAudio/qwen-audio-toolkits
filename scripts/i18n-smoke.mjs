@@ -16,6 +16,8 @@ const { getLocale, setLocale, t, translate, subscribeLocale, LANGUAGE_STORAGE_KE
 const { capabilityDefinition, QWEN_ASR_LANGUAGE_OPTIONS } = await import('../src/domain/capabilities.ts')
 const { cloudVoiceOptions } = await import('../src/domain/voices.ts')
 const { initialPlugins } = await import('../src/data.ts')
+const { appAgentsWithInstallState } = await import('../src/appAgents.ts')
+const { localizeVideoEditorMessage } = await import('../src/services/videoEditor.ts')
 const en = JSON.parse(readFileSync(new URL('../src/i18n/en.json', import.meta.url), 'utf8'))
 assert.equal(getLocale(), 'zh-CN', 'First launch defaults to Chinese regardless of system language')
 assert.equal(document.documentElement.lang, 'zh-CN')
@@ -44,6 +46,24 @@ assert.equal(voices[0].name, '龙小淳', 'Voice names are identities, not UI tr
 assert.match(voices[0].description, /Chinese & English/)
 assert.equal(t('Audio-to-Text'), 'Audio-to-Text')
 assert.equal(t('Text-to-Audio'), 'Text-to-Audio')
+const [smartCutAgent] = appAgentsWithInstallState([])
+const smartCutMetadata = [
+  smartCutAgent.name,
+  smartCutAgent.description,
+  smartCutAgent.size,
+  ...smartCutAgent.capabilities,
+  smartCutAgent.agent.task,
+  ...smartCutAgent.agent.usage.inputRequirements,
+  ...smartCutAgent.agent.usage.examples,
+  ...smartCutAgent.agent.usage.limitations,
+  ...smartCutAgent.inputs.map(port => port.label),
+  ...smartCutAgent.outputs.map(port => port.label),
+]
+for (const source of smartCutMetadata) {
+  assert.notEqual(translate(source, [], 'en'), source, `Missing Talking-Head Editor translation: ${source}`)
+}
+assert.equal(localizeVideoEditorMessage('视频导出失败: encoder unavailable'), 'Video export failed: encoder unavailable')
+assert.equal(localizeVideoEditorMessage('视频中没有音轨，无法进行口播剪辑'), 'The video has no audio track and cannot be edited as a talking-head video')
 assert.equal(t('Unknown message'), 'Unknown message', 'Unknown messages have a safe fallback')
 assert.equal(t('版本 {0} 已可用', ['<script>{1}</script>']), 'Version <script>{1}</script> is available', 'Interpolation is single-pass plain text')
 setLocale('en')

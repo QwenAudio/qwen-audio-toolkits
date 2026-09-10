@@ -2,7 +2,8 @@ import { t, useLocale } from "../i18n"
 import type { AgentExtension } from '../types'
 
 export function AgentProjectCard({ plugin }: { plugin: AgentExtension }) {
-  useLocale()
+  const locale = useLocale()
+  const separator = locale === 'en' ? ', ' : '、'
 
   const project = plugin.agent
   const harness = project?.harness
@@ -19,15 +20,15 @@ export function AgentProjectCard({ plugin }: { plugin: AgentExtension }) {
       <dl>
         <div><dt>{t("模型 / API")}</dt><dd>{plugin.variants?.length
           ? plugin.variants.map((variant) => variant.name).join(' / ')
-          : plugin.name}</dd></div>
+          : t(plugin.name)}</dd></div>
         <div><dt>Harness</dt><dd>{harnessLabel}</dd></div>
         <div><dt>{t("运行环境")}</dt><dd>{plugin.runtime}</dd></div>
         <div><dt>{t("输入")}</dt><dd>{plugin.inputs?.length
-          ? plugin.inputs.map((port) => `${t(port.label || port.name)}${port.optional ? t("（可选）") : ''}`).join('、')
+          ? plugin.inputs.map((port) => `${t(port.label || port.name)}${port.optional ? t("（可选）") : ''}`).join(separator)
           : t("由能力契约定义")}</dd></div>
         <div><dt>{t("输出")}</dt><dd>{plugin.outputs?.length
-          ? plugin.outputs.map((port) => t(port.label || port.name)).join('、')
-          : plugin.capabilities.map((capability) => t(capability)).join('、')}</dd></div>
+          ? plugin.outputs.map((port) => t(port.label || port.name)).join(separator)
+          : plugin.capabilities.map((capability) => t(capability)).join(separator)}</dd></div>
       </dl>
       {project ? (
         <>

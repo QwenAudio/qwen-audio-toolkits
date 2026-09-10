@@ -2418,36 +2418,37 @@ function App() {
                 <div className="sidebar-model-group-items">
                   {installedAppAgents.map((agent) => {
                     const active = agent.workspaceEntry === view
+                    const agentName = t(agent.name)
                     return (
                       <div className="installed-model-entry" key={agent.id}>
                         <button
                           className={`installed-model-button${active ? ' active' : ''}`}
                           type="button"
-                          aria-label={agent.name}
+                          aria-label={agentName}
                           aria-current={active ? 'page' : undefined}
                           onClick={() => openWorkspaceAgent(agent)}
                         >
                           <Scissors size={14} />
                           <span className="activity-model-name">
-                            <span className="activity-model-name-text">{agent.name}</span>
+                            <span className="activity-model-name-text">{agentName}</span>
                           </span>
                         </button>
                         <div className="installed-model-actions">
                           <button
                             className={`installed-model-remove${pendingSidebarRemovalId === agent.id ? ' confirming' : ''}`}
                             type="button"
-                            aria-label={`卸载 ${agent.name}`}
-                            title={pendingSidebarRemovalId === agent.id ? '再次点击确认卸载' : '卸载 Agent'}
+                            aria-label={t('卸载 {0}', [agentName])}
+                            title={pendingSidebarRemovalId === agent.id ? t('再次点击确认卸载') : t('卸载 Agent')}
                             onClick={(event) => {
                               event.stopPropagation()
                               if (pendingSidebarRemovalId !== agent.id) {
                                 setPendingSidebarRemovalId(agent.id)
-                                notify(`再次点击垃圾桶确认卸载 ${agent.name}`)
+                                notify(t('再次点击垃圾桶确认卸载 {0}', [agentName]))
                                 return
                               }
                               setPendingSidebarRemovalId(null)
                               setAppAgentInstalled(agent.id, false)
-                              notify(`${agent.name} 已卸载`)
+                              notify(t('{0} 已卸载', [agentName]))
                             }}
                           >
                             <Trash2 size={14} />
