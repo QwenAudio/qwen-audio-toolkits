@@ -3,6 +3,14 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createJsonCache, readJsonIfValid } from './lib/video-dubbing/cache.mjs'
+import { createHarnessClient } from './lib/video-dubbing/harness-client.mjs'
+import {
+  batchTurns,
+  buildTransformationPrompt,
+  distributeScriptAcrossTurns,
+  normalizeDubbingMode,
+} from './lib/video-dubbing/script-planner.mjs'
 
 const api = process.env.QWEN_AUDIO_TOOLKITS_API ?? 'http://127.0.0.1:3847/v1'
 const cloudMode = process.env.VIDEO_TRANSLATION_MODE === 'bailian'
@@ -15,6 +23,7 @@ const speechEdgeSafetySeconds = 0.08
 const inputPath = path.resolve(process.argv[2] ?? '')
 const outputDir = path.resolve(process.argv[3] ?? 'artifacts/video-translation-demo')
 const userInstruction = String(process.env.VIDEO_TRANSLATION_PROMPT ?? '').trim()
+const dubbingMode = normalizeDubbingMode(String(process.env.VIDEO_DUBBING_MODE ?? 'translate'))
 const progressPrefix = '@@QWEN_VIDEO_TRANSLATION@@'
 const textGenerationTimeoutMs = 12 * 60_000
 let latestStage = 'preparing'
@@ -28,7 +37,7 @@ function reportProgress(stage, progress, message, extra = {}) {
 
 function reportFatal(error) {
   const message = error instanceof Error ? error.message : String(error)
-  reportProgress('failed', 100, '视频翻译失败', { status: 'failed', error: message })
+  reportProgress('failed', 100, '视频配音失败', { status: 'failed', error: message })
   process.stderr.write(`${message}\n`)
   process.exit(1)
 }
@@ -41,6 +50,12 @@ if (!inputPath || !fs.existsSync(inputPath)) {
 }
 
 fs.mkdirSync(outputDir, { recursive: true })
+const { cachedJson, saveJson } = createJsonCache(outputDir)
+const { execute } = createHarnessClient({
+  api,
+  reportProgress,
+  getProgress: () => ({ stage: latestStage, progress: latestProgress }),
+})
 reportProgress('preparing', 3, '正在准备视频素材')
 
 function run(command, args) {
@@ -82,7 +97,7 @@ async function createBailianVoice(reference, speaker) {
         action: 'create_voice',
         target_model: cloudTtsModel,
         prefix,
-        language_hints: ['en'],
+        language_hints: dubbingMode === 'translate' ? ['en'] : ['zh', 'en'],
         url: audioInput(reference.filePath).audioDataUrl,
         enable_preprocess: true,
         max_prompt_audio_length: 20,
@@ -99,73 +114,6 @@ async function createBailianVoice(reference, speaker) {
     speaker,
     referenceText: reference.text,
   }
-}
-
-async function requestJson(url, options) {
-  const response = await fetch(url, options)
-  if (!response.ok) throw new Error(await response.text())
-  return response.json()
-}
-
-function retryableApiError(message) {
-  return /error sending request|timed? out|connection|temporar|网络|连接|超时/iu.test(String(message))
-}
-
-async function execute(request, timeoutMs = 10 * 60_000, attempt = 1) {
-  const runRecord = await requestJson(`${api}/runs`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(request),
-  })
-  process.stdout.write(`${request.title}: started (${runRecord.id})\n`)
-  const deadline = Date.now() + timeoutMs
-  const startedAt = Date.now()
-  let nextHeartbeat = startedAt + 15_000
-  while (Date.now() < deadline) {
-    const current = await requestJson(`${api}/runs/${runRecord.id}`)
-    if (current.status === 'completed') {
-      const result = await requestJson(`${api}/runs/${runRecord.id}/output`)
-      process.stdout.write(`${request.title}: completed\n`)
-      return result.output ?? result
-    }
-    if (current.status === 'failed' || current.status === 'canceled') {
-      const message = current.error ?? `${request.title}: ${current.status}`
-      if (current.status === 'failed' && attempt < 3 && retryableApiError(message)) {
-        reportProgress(
-          latestStage,
-          latestProgress,
-          `API 网络波动，正在自动重试 ${attempt + 1}/3`,
-          { retryAttempt: attempt + 1, retryLimit: 3 },
-        )
-        await new Promise((resolve) => setTimeout(resolve, attempt * 1200))
-        return execute(request, timeoutMs, attempt + 1)
-      }
-      throw new Error(message)
-    }
-    if (Date.now() >= nextHeartbeat) {
-      const waitedSeconds = Math.round((Date.now() - startedAt) / 1000)
-      reportProgress(latestStage, latestProgress, `API 正在处理，已等待 ${waitedSeconds} 秒`)
-      nextHeartbeat = Date.now() + 15_000
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250))
-  }
-  await fetch(`${api}/runs/${runRecord.id}/cancel`, { method: 'POST' }).catch(() => {})
-  throw new Error(`${request.title}: timeout`)
-}
-
-function saveJson(name, value) {
-  fs.writeFileSync(path.join(outputDir, name), `${JSON.stringify(value, null, 2)}\n`)
-}
-
-async function cachedJson(name, producer, isValid = () => true) {
-  const filePath = path.join(outputDir, name)
-  if (fs.existsSync(filePath)) {
-    const cached = JSON.parse(fs.readFileSync(filePath, 'utf8'))
-    if (isValid(cached)) return cached
-  }
-  const value = await producer()
-  saveJson(name, value)
-  return value
 }
 
 function probeDuration(filePath) {
@@ -373,7 +321,7 @@ const backgroundAnalysis = await cachedJson('00-background-analysis.json', async
       capability: 'audio.classify',
       providerId: 'plugin.k2-fsa.audio-tagging',
       routing: 'local',
-      title: 'Video translation · detect music and background sound',
+      title: 'Video dubbing · detect music and background sound',
       input: audioInput(analysisSamplePath),
       parameters: {},
     })
@@ -426,7 +374,7 @@ if (!shouldSeparate) {
     capability: 'audio.separate',
     providerId: 'plugin.k2-fsa.spleeter-2stems',
     routing: 'local',
-    title: 'Video translation · separate vocals and background',
+    title: 'Video dubbing · separate vocals and background',
     input: audioInput(sourceAudioPath),
     parameters: {},
   }))
@@ -443,7 +391,7 @@ const diarization = await cachedJson('02-diarization.json', () => execute({
   capability: 'speaker.diarize',
   providerId: 'plugin.k2-fsa.speaker-diarization',
   routing: 'local',
-  title: 'Video translation · diarize separated vocals',
+  title: 'Video dubbing · diarize separated vocals',
   input: audioInput(vocalsPath),
   parameters: {},
 }))
@@ -453,50 +401,52 @@ const transcription = await cachedJson('03-transcription.json', () => execute({
   capability: 'speech.transcribe',
   providerId: cloudMode ? 'api.bailian' : 'plugin.nvidia.parakeet-tdt-0.6b-v3',
   routing: cloudMode ? 'quality' : 'local',
-  title: cloudMode ? 'Video translation · Bailian file transcription' : 'Video translation · transcribe separated vocals',
+  title: cloudMode ? 'Video dubbing · Bailian file transcription' : 'Video dubbing · transcribe separated vocals',
   input: audioInput(vocalsPath),
   parameters: {
     ...(cloudMode ? { modelId: 'qwen-audio-3.0-asr-flash-filetrans' } : {}),
-    language: 'en',
+    ...(dubbingMode === 'translate' ? { language: 'en' } : {}),
     punctuation: true,
   },
 }))
 
 const sourceTurns = buildUtterances(transcription, diarization)
-if (!sourceTurns.length) throw new Error('No timestamped speech turns were produced')
+if (!sourceTurns.length) {
+  throw new Error(
+    dubbingMode === 'script'
+      ? '没有检测到可用于对齐和克隆音色的原始人声；当前版本暂不支持无对白视频自动配音'
+      : '没有识别到带时间信息的原始对白',
+  )
+}
 saveJson('04-source-turns.json', sourceTurns)
 
-reportProgress('translating', 48, '正在翻译并适配中文口播', {
+const transformationSignature = shortHash(JSON.stringify({ version: 3, dubbingMode, userInstruction, sourceTurns }))
+const transformationLabel = dubbingMode === 'translate'
+  ? '翻译并适配中文口播'
+  : dubbingMode === 'rewrite'
+    ? '改写并适配原始口播'
+    : '分配新文案并适配讲话区间'
+reportProgress('translating', 48, `正在${transformationLabel}`, {
   turns: sourceTurns.map((turn) => ({ ...turn, sourceText: turn.text, text: '' })),
 })
 const translated = await cachedJson('05-translated-turns.json', async () => {
-  const translationPrompt = [
-    '你是视频配音翻译编辑。把英文口播翻译成自然、准确、适合朗读的简体中文。',
-    '保持每个 id、speaker、start、end 不变。删除无意义的口吃，但不要遗漏事实。',
-    '每段必须语义完整，禁止以“并且与”“以及”“因为”等未完成连接词结尾。',
-    '每段中文要尽量适配该段时长，正常语速按每秒约 3.5 至 4.5 个汉字控制。',
-    userInstruction ? `用户额外要求：${userInstruction}` : '',
-    '只返回 JSON：{"turns":[{"id":"...","speaker":"...","start":0,"end":1,"text":"..."}]}。',
-  ].filter(Boolean).join('')
-  const batches = []
-  let currentBatch = []
-  let currentSize = 0
-  for (const turn of sourceTurns) {
-    const turnSize = JSON.stringify(turn).length
-    if (currentBatch.length && (currentBatch.length >= 3 || currentSize + turnSize > 2200)) {
-      batches.push(currentBatch)
-      currentBatch = []
-      currentSize = 0
+  if (dubbingMode === 'script') {
+    const turns = distributeScriptAcrossTurns(userInstruction, sourceTurns)
+    reportProgress('translating', 56, '新文案已分配到原始讲话区间', { turns })
+    return {
+      mode: dubbingMode,
+      signature: transformationSignature,
+      engine: 'user-provided script · deterministic timing allocation',
+      turns,
     }
-    currentBatch.push(turn)
-    currentSize += turnSize
   }
-  if (currentBatch.length) batches.push(currentBatch)
+  const translationPrompt = buildTransformationPrompt(dubbingMode, userInstruction)
+  const batches = batchTurns(sourceTurns)
 
   const translatedTurns = []
   const engines = new Set()
   for (const [batchIndex, batch] of batches.entries()) {
-    const signature = shortHash(JSON.stringify({ version: 2, translationPrompt, batch }))
+    const signature = shortHash(JSON.stringify({ version: 3, dubbingMode, translationPrompt, batch }))
     const batchResult = await cachedJson(
       `05-translated-turns-batch-${batchIndex + 1}.json`,
       async () => {
@@ -504,7 +454,7 @@ const translated = await cachedJson('05-translated-turns.json', async () => {
           capability: 'text.generate',
           providerId: 'api.bailian',
           routing: 'quality',
-          title: `Video translation · translate batch ${batchIndex + 1}/${batches.length}`,
+          title: `Video dubbing · ${dubbingMode} batch ${batchIndex + 1}/${batches.length}`,
           input: {
             messages: [
               { role: 'system', content: translationPrompt },
@@ -524,9 +474,9 @@ const translated = await cachedJson('05-translated-turns.json', async () => {
           signature,
           engine: response.engine,
           turns: batch.map((sourceTurn) => {
-            const translation = byId.get(sourceTurn.id)
-            if (!translation?.text?.trim()) throw new Error(`Missing translation for ${sourceTurn.id}`)
-            return { ...sourceTurn, text: translation.text.trim(), sourceText: sourceTurn.text }
+            const transformed = byId.get(sourceTurn.id)
+            if (!transformed?.text?.trim()) throw new Error(`配音文案缺少 ${sourceTurn.id}`)
+            return { ...sourceTurn, text: transformed.text.trim(), sourceText: sourceTurn.text }
           }),
         }
       },
@@ -537,15 +487,17 @@ const translated = await cachedJson('05-translated-turns.json', async () => {
     reportProgress(
       'translating',
       48 + Math.round(((batchIndex + 1) / batches.length) * 8),
-      `已完成翻译 ${batchIndex + 1}/${batches.length} 批`,
+      `已完成配音文案 ${batchIndex + 1}/${batches.length} 批`,
       { turns: translatedTurns },
     )
   }
   return {
+    mode: dubbingMode,
+    signature: transformationSignature,
     engine: [...engines].join(' · '),
     turns: translatedTurns,
   }
-})
+}, (cached) => cached?.mode === dubbingMode && cached?.signature === transformationSignature)
 
 const sourceTurnById = new Map(sourceTurns.map((turn) => [turn.id, turn]))
 for (const turn of translated.turns) {
@@ -577,7 +529,7 @@ function rhythmSignatureFor(turns) {
 
 const rhythmSignature = rhythmSignatureFor(translated.turns)
 const turnsWithInternalPauses = translated.turns.filter((turn) => turn.rhythmSegments.length > 1)
-reportProgress('aligning', 58, '正在对齐译文与原始讲话节奏', { turns: translated.turns })
+reportProgress('aligning', 58, '正在对齐配音稿与原始讲话节奏', { turns: translated.turns })
 const rhythmPlan = await cachedJson('05-rhythm-plan.json', async () => {
   let plannedTurns = []
   let engine = 'deterministic-single-segment'
@@ -586,15 +538,15 @@ const rhythmPlan = await cachedJson('05-rhythm-plan.json', async () => {
       capability: 'text.generate',
       providerId: 'api.bailian',
       routing: 'quality',
-      title: 'Video translation · align translated phrases to source pauses',
+      title: 'Video dubbing · align script phrases to source pauses',
       input: {
         messages: [
           {
             role: 'system',
             content: [
-              '你是视频配音节奏编辑。把整段中文译文拆成与英文节奏短语一一对应的中文短语。',
+              '你是视频配音节奏编辑。把整段配音稿拆成与原始节奏短语一一对应的短语，并保持配音稿的语言。',
               '每个 segment id 必须原样保留且只出现一次；禁止合并、遗漏或新增 segment。',
-              '各短语应分别对应 sourceText 的语义，连接起来后必须忠实覆盖完整译文。',
+              '各短语应分别对应 sourceText 的节奏，连接起来后必须忠实覆盖完整配音稿。',
               '允许为自然断句做轻微改写，但不能添加事实。每个短语必须非空并适合独立合成。',
               '只返回 JSON：{"turns":[{"id":"turn-1","segments":[{"id":"turn-1-phrase-1","text":"..."}]}]}。',
             ].join(''),
@@ -687,8 +639,9 @@ saveJson('06-speaker-references.json', Object.fromEntries(references))
 const cloudVoicePath = path.join(outputDir, '06-bailian-voices.json')
 let cloudVoices = {}
 if (cloudMode) {
-  if (fs.existsSync(cloudVoicePath)) {
-    cloudVoices = JSON.parse(fs.readFileSync(cloudVoicePath, 'utf8'))
+  const cachedVoices = readJsonIfValid(cloudVoicePath)
+  if (cachedVoices) {
+    cloudVoices = cachedVoices
   } else {
     for (const speaker of speakers) {
       cloudVoices[speaker] = await createBailianVoice(references.get(speaker), speaker)
@@ -706,7 +659,7 @@ for (let index = 0; index < speechUnits.length; index += 1) {
   reportProgress(
     'dubbing',
     68 + Math.round((index / Math.max(1, speechUnits.length)) * 20),
-    `正在生成中文配音 ${index + 1}/${speechUnits.length}`,
+    `正在生成视频配音 ${index + 1}/${speechUnits.length}`,
     { completedUnits: index, totalUnits: speechUnits.length },
   )
   const { turn, segment } = speechUnits[index]
@@ -717,19 +670,22 @@ for (let index = 0; index < speechUnits.length; index += 1) {
     const engineName = cloudMode ? 'bailian' : 'zipvoice'
     const signature = shortHash(JSON.stringify({ text, speaker: turn.speaker, reference: reference.text }))
     const cachePath = path.join(outputDir, `${engineName}-${pass}-${unitNumber}-${signature}-${speed.toFixed(3)}.json`)
-    if (fs.existsSync(cachePath)) return JSON.parse(fs.readFileSync(cachePath, 'utf8'))
+    const cachedOutput = readJsonIfValid(cachePath)
+    if (cachedOutput) return cachedOutput
     const output = await execute({
       capability: 'speech.synthesize',
       providerId: cloudMode ? 'api.bailian' : 'plugin.k2-fsa.zipvoice-zh-en',
       routing: cloudMode ? 'quality' : 'local',
-      title: `Video translation · clone ${turn.speaker} · ${index + 1}/${speechUnits.length} · ${pass}`,
+      title: `Video dubbing · clone ${turn.speaker} · ${index + 1}/${speechUnits.length} · ${pass}`,
       input: { text },
       parameters: cloudMode
         ? {
             modelId: cloudTtsModel,
             voice: cloudVoices[turn.speaker].id,
             speed,
-            instruction: '自然、清晰的中文口播，保留参考说话人的音色。',
+            instruction: dubbingMode === 'translate'
+              ? '自然、清晰的中文口播，保留参考说话人的音色。'
+              : '自然、清晰的视频口播，保持文案语言并保留参考说话人的音色。',
           }
         : {
             speed,
@@ -771,7 +727,8 @@ for (let index = 0; index < speechUnits.length; index += 1) {
   async function rewriteForDuration(text, naturalDuration, desiredDuration, attempt) {
     const signature = shortHash(JSON.stringify({ version: 2, text, naturalDuration, desiredDuration }))
     const cachePath = path.join(outputDir, `rewrite-${unitNumber}-${signature}.json`)
-    if (fs.existsSync(cachePath)) return JSON.parse(fs.readFileSync(cachePath, 'utf8')).text
+    const cachedRewrite = readJsonIfValid(cachePath, (value) => Boolean(value?.text))
+    if (cachedRewrite) return cachedRewrite.text
     const ratio = desiredDuration / naturalDuration
     const currentLength = [...text].length
     const minimumLength = desiredDuration < 1 ? 2 : desiredDuration < 1.5 ? 3 : 6
@@ -780,22 +737,24 @@ for (let index = 0; index < speechUnits.length; index += 1) {
       capability: 'text.generate',
       providerId: 'api.bailian',
       routing: 'quality',
-      title: `Video translation · fit ${segment.id} to speech window · ${attempt}`,
+      title: `Video dubbing · fit ${segment.id} to speech window · ${attempt}`,
       input: {
         messages: [
           {
             role: 'system',
             content: [
-              '你是专业视频配音译者。根据一次真实 TTS 的测量结果，重写中文译文，使它用自然语速读完时接近目标时长。',
-              '必须忠实保留英文原意；过长时精简，过短时补回英文中的语气和细节，但禁止凑字、重复或添加新事实。',
-              '译文必须自然；短节奏片段可以是完整短语，长片段必须是完整口语句子，不能以未完成的连接词结尾。只返回 JSON：{"text":"..."}。',
+              '你是专业视频配音编辑。根据一次真实 TTS 的测量结果，重写配音稿，使它用自然语速读完时接近目标时长，并保持原语言。',
+              dubbingMode === 'script'
+                ? '必须忠实保留 currentScript 的原意；过长时精简，过短时只能补充自然表达，禁止改回 referenceText 的内容或添加新事实。'
+                : '必须忠实保留 referenceText 的原意；过长时精简，过短时补回原文中的语气和细节，但禁止凑字、重复或添加新事实。',
+              '结果必须自然；短节奏片段可以是完整短语，长片段必须是完整口语句子，不能以未完成的连接词结尾。只返回 JSON：{"text":"..."}。',
             ].join(''),
           },
           {
             role: 'user',
             content: JSON.stringify({
-              source: segment.sourceText,
-              currentTranslation: text,
+              referenceText: segment.sourceText,
+              currentScript: text,
               measuredNaturalSeconds: Number(naturalDuration.toFixed(2)),
               targetNaturalSeconds: Number(desiredDuration.toFixed(2)),
               approximateLengthRatio: Number(ratio.toFixed(2)),
@@ -935,7 +894,7 @@ saveJson('07-dubbed-segments.json', dubbedSegments.map(({ alignedPath: _alignedP
 
 reportProgress('mixing', 90, '正在混合配音与背景声')
 const videoDuration = probeDuration(inputPath)
-const dubbedTrackPath = path.join(outputDir, 'dubbed-voice-zh.wav')
+const dubbedTrackPath = path.join(outputDir, 'dubbed-voice.wav')
 const mixInputs = dubbedSegments.flatMap((segment) => ['-i', segment.alignedPath])
 const mixLabels = dubbedSegments.map((_, index) => `[${index}:a]`).join('')
 run('ffmpeg', [
@@ -945,8 +904,8 @@ run('ffmpeg', [
   dubbedTrackPath,
 ])
 
-const subtitlePath = path.join(outputDir, 'translated-bilingual.srt')
-reportProgress('subtitles', 93, '正在生成双语字幕')
+const subtitlePath = path.join(outputDir, 'dubbing-script.srt')
+reportProgress('subtitles', 93, '正在生成配音字幕')
 fs.writeFileSync(subtitlePath, `${translated.turns.map((turn, index) => [
   index + 1,
   `${srtTimestamp(turn.start)} --> ${srtTimestamp(turn.end)}`,
@@ -969,10 +928,11 @@ const backgroundMix = backgroundAnalysis?.decision === 'skip_separation_mix' ? 0
 
 const outputVideoPath = path.join(
   outputDir,
-  cloudMode
-    ? `${path.basename(inputPath, path.extname(inputPath))}-zh-bailian-voice-clone.mp4`
-    : `${path.basename(inputPath, path.extname(inputPath))}-zh-voice-clone.mp4`,
+  `${path.basename(inputPath, path.extname(inputPath))}-${
+    dubbingMode === 'translate' ? 'zh-translated' : dubbingMode === 'rewrite' ? 'rewritten' : 'new-script'
+  }-voice-clone.mp4`,
 )
+const subtitleLanguage = dubbingMode === 'translate' ? 'zho' : 'und'
 const stagingVideoPath = `${outputVideoPath}.next.mp4`
 reportProgress('rendering', 96, '正在渲染最终视频')
 run('ffmpeg', [
@@ -981,7 +941,7 @@ run('ffmpeg', [
   '-map', previousVideoLabel, '-map', '[mix]', '-map', '3:0',
   '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
   '-c:a', 'aac', '-b:a', '192k',
-  '-c:s', 'mov_text', '-metadata:s:s:0', 'language=zho',
+  '-c:s', 'mov_text', '-metadata:s:s:0', `language=${subtitleLanguage}`,
   '-t', videoDuration.toFixed(6), '-shortest', '-movflags', '+faststart',
   stagingVideoPath,
 ])
@@ -990,6 +950,7 @@ fs.renameSync(stagingVideoPath, outputVideoPath)
 saveJson('08-report.json', {
   inputPath,
   outputVideoPath,
+  dubbingMode,
   sourceDuration: videoDuration,
   separatedWith: separated.engine,
   diarizedWith: diarization.engine,
@@ -1007,7 +968,7 @@ saveJson('08-report.json', {
   backgroundAnalysis,
 })
 
-reportProgress('completed', 100, '视频翻译已完成', {
+reportProgress('completed', 100, '视频配音已完成', {
   status: 'completed',
   outputDir,
   outputVideoPath,

@@ -102,7 +102,8 @@ import type {
   VadDetectionResult,
 } from './types'
 import type { WorkflowChatTurn } from './views/WorkflowChatView'
-import type { AgentCreationMode } from './views/AgentHomeView'
+import type { AgentCreationMode, VideoDubbingMode } from './domain/agents'
+import { useAgentConversations } from './hooks/useAgentConversations'
 import './App.css'
 
 const ModelWorkspaceView = lazy(() =>
@@ -145,20 +146,13 @@ const MeetingNotesView = lazy(() =>
     default: module.MeetingNotesView,
   })),
 )
-const VideoTranslationView = lazy(() =>
-  import('./views/VideoTranslationView').then((module) => ({
-    default: module.VideoTranslationView,
+const VideoDubbingView = lazy(() =>
+  import('./views/VideoDubbingView').then((module) => ({
+    default: module.VideoDubbingView,
   })),
 )
 
 type AppView = 'workspace' | 'agents' | AgentCreationMode | 'workflows'
-type AgentConversation = {
-  id: string
-  mode: AgentCreationMode
-  title: string
-  prompt: string
-  sourcePath: string
-}
 type ThemePreference = 'system' | 'light' | 'dark'
 type AppUpdateState = {
   status:
@@ -548,11 +542,14 @@ function App() {
   }, [locale])
 
   const [view, setView] = useState<AppView>('workspace')
-  const [agentConversations, setAgentConversations] = useState<AgentConversation[]>([])
-  const [selectedAgentConversationId, setSelectedAgentConversationId] = useState<string | null>(null)
-  const selectedAgentConversation = agentConversations.find(
-    (conversation) => conversation.id === selectedAgentConversationId,
-  ) ?? null
+  const {
+    conversations: agentConversations,
+    selectedId: selectedAgentConversationId,
+    selectedConversation: selectedAgentConversation,
+    createConversation: createAgentConversation,
+    selectConversation: setSelectedAgentConversationId,
+    startNewConversation: startNewAgentConversation,
+  } = useAgentConversations()
   const [shellPage, setShellPage] = useState<ShellPage>('workspace')
   const [extensionsNavHost, setExtensionsNavHost] =
     useState<HTMLDivElement | null>(null)
@@ -1480,27 +1477,26 @@ function App() {
     mode: AgentCreationMode,
     prompt: string,
     sourcePath: string,
+    videoDubbingMode?: VideoDubbingMode,
   ) => {
     const modeLabel = mode === 'smart-cut'
       ? t('视频剪辑')
       : mode === 'ai-podcast'
         ? t('AI 播客')
-        : mode === 'video-translation'
-          ? t('视频翻译')
+        : mode === 'video-dubbing'
+          ? t('视频配音')
           : t('会议纪要')
     const normalizedPrompt = prompt.replace(/\s+/gu, ' ').trim()
     const promptTitle = normalizedPrompt.length > 22
       ? `${normalizedPrompt.slice(0, 22)}…`
       : normalizedPrompt
-    const conversation: AgentConversation = {
-      id: crypto.randomUUID(),
+    createAgentConversation({
       mode,
       title: `${modeLabel} · ${promptTitle}`,
       prompt,
       sourcePath,
-    }
-    setAgentConversations((current) => [conversation, ...current])
-    setSelectedAgentConversationId(conversation.id)
+      videoDubbingMode,
+    })
     setWorkflowSelected(false)
     changeView(mode)
   }
@@ -2466,7 +2462,7 @@ function App() {
               type="button"
               aria-current={view === 'agents' ? 'page' : undefined}
               onClick={() => {
-                setSelectedAgentConversationId(null)
+                startNewAgentConversation()
                 setWorkflowSelected(false)
                 changeView('agents')
               }}
@@ -2480,7 +2476,7 @@ function App() {
               aria-label={t('新建会话')}
               title={t('新建会话')}
               onClick={() => {
-                setSelectedAgentConversationId(null)
+                startNewAgentConversation()
                 setWorkflowSelected(false)
                 changeView('agents')
               }}
@@ -2663,7 +2659,7 @@ function App() {
                   ? t("设置 · {0}", [activeSettingsSection.label])
                   : view === 'agents'
                     ? 'Agents'
-                    : view === 'smart-cut' || view === 'ai-podcast' || view === 'video-translation' || view === 'meeting-notes'
+              : view === 'smart-cut' || view === 'ai-podcast' || view === 'video-dubbing' || view === 'meeting-notes'
                       ? selectedAgentConversation?.title ?? t('Agent 对话')
                     : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
@@ -2821,18 +2817,19 @@ function App() {
               </div>
             ))}
           {agentConversations
-            .filter((conversation) => conversation.mode === 'video-translation')
+            .filter((conversation) => conversation.mode === 'video-dubbing')
             .map((conversation) => (
                 <div
                   key={conversation.id}
                   className="agent-workspace-session"
-                  hidden={view !== 'video-translation' || selectedAgentConversationId !== conversation.id}
-                  inert={view !== 'video-translation' || selectedAgentConversationId !== conversation.id}
+                  hidden={view !== 'video-dubbing' || selectedAgentConversationId !== conversation.id}
+                  inert={view !== 'video-dubbing' || selectedAgentConversationId !== conversation.id}
                 >
-                  <VideoTranslationView
+                  <VideoDubbingView
                     initialInstruction={conversation.prompt}
                     initialSourcePath={conversation.sourcePath}
                     initialLaunchId={1}
+                    dubbingMode={conversation.videoDubbingMode ?? 'translate'}
                     onAction={notify}
                   />
                 </div>

@@ -86,7 +86,8 @@
     "createUpdaterArtifacts": true,
     "targets": "all",
     "resources": {
-      "../scripts/video-translation-demo.mjs": "scripts/video-translation-demo.mjs"
+      "../scripts/video-translation-demo.mjs": "scripts/video-translation-demo.mjs",
+      "../scripts/lib/video-dubbing": "scripts/lib/video-dubbing"
     },
     "icon": [
       "icons/32x32.png",

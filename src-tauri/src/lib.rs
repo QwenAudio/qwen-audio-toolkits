@@ -9,6 +9,7 @@ mod downloads;
 mod harness;
 #[cfg(all(target_os = "macos", debug_assertions))]
 mod macos_window_smoke;
+mod native_worker;
 mod onnx_audio;
 mod plugins;
 mod podcast_audio;
@@ -849,4 +850,8 @@ pub fn run() {
             restore_main_window(app);
         }
     });
+}
+
+pub fn run_native_worker_from_arguments(arguments: &[String]) -> Option<i32> {
+    native_worker::run_from_arguments(arguments)
 }

@@ -28,6 +28,7 @@ pub struct StartVideoTranslationRequest {
     input_path: String,
     prompt: Option<String>,
     mode: Option<String>,
+    dubbing_mode: Option<String>,
     output_dir: Option<String>,
 }
 
@@ -73,7 +74,7 @@ fn script_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     bundled
         .is_file()
         .then_some(bundled)
-        .ok_or_else(|| "找不到视频翻译执行脚本，请重新安装应用".to_owned())
+        .ok_or_else(|| "找不到视频配音执行脚本，请重新安装应用".to_owned())
 }
 
 fn emit(app: &tauri::AppHandle, task_id: &str, mut payload: Value) {
@@ -98,9 +99,9 @@ pub fn start_video_translation(
     if !input_path.is_file() {
         return Err("选择的视频文件不存在".to_owned());
     }
-    let node = executable("node").ok_or_else(|| "未找到 Node.js，无法启动视频翻译".to_owned())?;
+    let node = executable("node").ok_or_else(|| "未找到 Node.js，无法启动视频配音".to_owned())?;
     if executable("ffmpeg").is_none() || executable("ffprobe").is_none() {
-        return Err("未找到 FFmpeg/FFprobe，无法处理视频".to_owned());
+        return Err("未找到 FFmpeg/FFprobe，无法处理视频配音".to_owned());
     }
     let script = script_path(&app)?;
     let task_id = format!("translation-{}", Uuid::new_v4());
@@ -117,7 +118,7 @@ pub fn start_video_translation(
     runtime
         .cancellations
         .lock()
-        .map_err(|_| "视频翻译运行状态不可用".to_owned())?
+        .map_err(|_| "视频配音运行状态不可用".to_owned())?
         .insert(task_id.clone(), cancellation.clone());
 
     let background_runtime = runtime.inner().clone();
@@ -127,7 +128,7 @@ pub fn start_video_translation(
         emit(
             &app,
             &background_task_id,
-            json!({"stage":"preparing","progress":1,"message":"正在启动视频翻译"}),
+            json!({"stage":"preparing","progress":1,"message":"正在启动视频配音"}),
         );
         let mut command = Command::new(node);
         command
@@ -142,6 +143,10 @@ pub fn start_video_translation(
             .env(
                 "VIDEO_TRANSLATION_PROMPT",
                 request.prompt.unwrap_or_default(),
+            )
+            .env(
+                "VIDEO_DUBBING_MODE",
+                request.dubbing_mode.as_deref().unwrap_or("translate"),
             )
             .env(
                 "PATH",
@@ -159,7 +164,7 @@ pub fn start_video_translation(
                 emit(
                     &app,
                     &background_task_id,
-                    json!({"status":"failed","stage":"failed","progress":100,"message":"视频翻译启动失败","error":error.to_string()}),
+                    json!({"status":"failed","stage":"failed","progress":100,"message":"视频配音启动失败","error":error.to_string()}),
                 );
                 if let Ok(mut tasks) = background_runtime.cancellations.lock() {
                     tasks.remove(&background_task_id);
@@ -193,7 +198,7 @@ pub fn start_video_translation(
                 emit(
                     &app,
                     &background_task_id,
-                    json!({"status":"canceled","stage":"canceled","progress":100,"message":"视频翻译已取消"}),
+                    json!({"status":"canceled","stage":"canceled","progress":100,"message":"视频配音已取消"}),
                 );
                 break;
             }
@@ -222,7 +227,7 @@ pub fn start_video_translation(
                             emit(
                                 &app,
                                 &background_task_id,
-                                json!({"status":"completed","stage":"completed","progress":100,"message":"视频翻译已完成","outputDir":background_output_dir}),
+                                json!({"status":"completed","stage":"completed","progress":100,"message":"视频配音已完成","outputDir":background_output_dir}),
                             );
                         }
                     } else {
@@ -237,7 +242,7 @@ pub fn start_video_translation(
                         emit(
                             &app,
                             &background_task_id,
-                            json!({"status":"failed","stage":"failed","progress":100,"message":"视频翻译失败","error":errors.into_iter().collect::<Vec<_>>().join("\n")}),
+                            json!({"status":"failed","stage":"failed","progress":100,"message":"视频配音失败","error":errors.into_iter().collect::<Vec<_>>().join("\n")}),
                         );
                     }
                     break;
@@ -247,7 +252,7 @@ pub fn start_video_translation(
                     emit(
                         &app,
                         &background_task_id,
-                        json!({"status":"failed","stage":"failed","progress":100,"message":"无法读取视频翻译状态","error":error.to_string()}),
+                        json!({"status":"failed","stage":"failed","progress":100,"message":"无法读取视频配音状态","error":error.to_string()}),
                     );
                     break;
                 }
@@ -272,10 +277,10 @@ pub fn cancel_video_translation(
     let tasks = runtime
         .cancellations
         .lock()
-        .map_err(|_| "视频翻译运行状态不可用".to_owned())?;
+        .map_err(|_| "视频配音运行状态不可用".to_owned())?;
     let cancellation = tasks
         .get(&task_id)
-        .ok_or_else(|| "视频翻译任务已经结束".to_owned())?;
+        .ok_or_else(|| "视频配音任务已经结束".to_owned())?;
     cancellation.store(true, Ordering::Relaxed);
     Ok(())
 }

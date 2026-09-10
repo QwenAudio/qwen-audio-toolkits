@@ -86,12 +86,20 @@ only once and uses the finalized artifact for history.
 
 ## Local API and trust boundary
 
-The app exposes an experimental HTTP API on `127.0.0.1:3847` for local
-integration and smoke tests. It is not authenticated and must not be bound or
-proxied to a LAN or public interface. Tauri asset scopes are restricted to
-application-owned audio directories.
+The app exposes a loopback-only HTTP API on `127.0.0.1:3847` for local
+workflow integration and smoke tests. It is not authenticated and must not be
+bound or proxied to a LAN or public interface. Tauri asset scopes are restricted
+to application-owned audio, video, recording, and generated-artifact directories.
 
 Cloud provider credentials are stored in the private application configuration
 directory. Native credential-vault integration is planned. See
 [PRIVACY.md](../PRIVACY.md) and [SECURITY.md](../SECURITY.md).
 
+## Native inference isolation
+
+Local batch inference is serialized before entering native runtimes. Audio
+tagging, speaker diarization, and source separation additionally run in a
+short-lived worker process. A fatal ONNX or sherpa-onnx failure therefore marks
+the individual Harness run as failed instead of terminating the Tauri UI
+process. Worker request, result, and error files use private temporary files and
+are removed after completion or cancellation.

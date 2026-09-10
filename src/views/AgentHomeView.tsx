@@ -12,10 +12,9 @@ import {
   X,
 } from 'lucide-react'
 import { open } from '@tauri-apps/plugin-dialog'
+import type { AgentCreationMode, VideoDubbingMode } from '../domain/agents'
 import { t, useLocale } from '../i18n'
 import './AgentHomeView.css'
-
-export type AgentCreationMode = 'smart-cut' | 'ai-podcast' | 'video-translation' | 'meeting-notes'
 
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v', 'webm', 'mkv'] as const
 const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'markdown'] as const
@@ -23,7 +22,12 @@ const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'markdown'] as const
 interface AgentHomeViewProps {
   smartCutAvailable: boolean
   podcastAvailable: boolean
-  onLaunch: (mode: AgentCreationMode, prompt: string, sourcePath: string) => void
+  onLaunch: (
+    mode: AgentCreationMode,
+    prompt: string,
+    sourcePath: string,
+    videoDubbingMode?: VideoDubbingMode,
+  ) => void
   onOpenStore: () => void
 }
 
@@ -43,9 +47,9 @@ const MODES = [
     tone: 'violet',
   },
   {
-    id: 'video-translation',
-    name: '视频翻译',
-    description: '翻译对白、克隆音色，并保留原讲话节奏',
+    id: 'video-dubbing',
+    name: '视频配音',
+    description: '翻译、改写或替换口播，并自动克隆音色、对齐节奏',
     icon: Languages,
     tone: 'blue',
   },
@@ -58,7 +62,11 @@ const MODES = [
   },
 ] as const
 
-const PROMPTS: Record<AgentCreationMode, ReadonlyArray<{ title: string; detail: string }>> = {
+const PROMPTS: Record<AgentCreationMode, ReadonlyArray<{
+  title: string
+  detail: string
+  dubbingMode?: VideoDubbingMode
+}>> = {
   'smart-cut': [
     { title: '保守粗剪', detail: '删除明显口水词和超过 0.8 秒的静音，保留自然停顿并生成字幕' },
     { title: '只清理口水词', detail: '保留所有停顿，只删除高置信度口水词和重复表达' },
@@ -69,10 +77,13 @@ const PROMPTS: Record<AgentCreationMode, ReadonlyArray<{ title: string; detail: 
     { title: '主持人访谈', detail: '整理成主持人与专家的对话，保留专业细节和争议' },
     { title: '快速摘要', detail: '生成约三分钟的双人播客，只保留最重要的发现和启示' },
   ],
-  'video-translation': [
-    { title: '自然中文配音', detail: '把英文视频翻译成自然中文，克隆原说话人音色并保留讲话停顿' },
-    { title: '忠实双语版', detail: '忠实翻译对白，生成中文配音和中英双语字幕' },
-    { title: '适配时长', detail: '翻译并调整措辞，使中文配音自然贴合每段原始时长' },
+  'video-dubbing': [
+    { title: '自然中文配音', detail: '把英文视频翻译成自然中文，克隆原说话人音色并保留讲话停顿', dubbingMode: 'translate' },
+    { title: '忠实双语版', detail: '忠实翻译对白，生成中文配音和中英双语字幕', dubbingMode: 'translate' },
+    { title: '精简原稿', detail: '保持原语言和原意，删除口吃、重复和冗余表达，让口播更简洁', dubbingMode: 'rewrite' },
+    { title: '专业润色', detail: '保持原语言，把原视频台词改得更自然、专业，并贴合原讲话时长', dubbingMode: 'rewrite' },
+    { title: '产品介绍模板', detail: '大家好，欢迎了解我们的产品。接下来，我会用几个简单步骤介绍它的核心功能和使用方式。', dubbingMode: 'script' },
+    { title: '教程旁白模板', detail: '这一部分将演示完整的操作流程。请跟随画面中的步骤，依次完成设置、确认和提交。', dubbingMode: 'script' },
   ],
   'meeting-notes': [
     { title: '项目周会', detail: '重点整理项目进展、风险、决策和带负责人的行动项' },
@@ -80,6 +91,16 @@ const PROMPTS: Record<AgentCreationMode, ReadonlyArray<{ title: string; detail: 
     { title: '客户访谈', detail: '提炼客户痛点、原话证据、需求优先级和后续跟进事项' },
   ],
 }
+
+const VIDEO_DUBBING_MODES: ReadonlyArray<{
+  id: VideoDubbingMode
+  name: string
+  description: string
+}> = [
+  { id: 'translate', name: '翻译原声', description: '翻译原台词后配音' },
+  { id: 'rewrite', name: '修改原稿', description: '按要求改写原台词' },
+  { id: 'script', name: '使用新文案', description: '替换为你提供的完整文案' },
+]
 
 function attachmentMatchesMode(path: string, mode: AgentCreationMode): boolean {
   const extension = path.split('.').at(-1)?.toLowerCase() ?? ''
@@ -98,6 +119,7 @@ export function AgentHomeView({
 }: AgentHomeViewProps) {
   useLocale()
   const [mode, setMode] = useState<AgentCreationMode | null>(null)
+  const [videoDubbingMode, setVideoDubbingMode] = useState<VideoDubbingMode>('translate')
   const [prompt, setPrompt] = useState('')
   const [attachment, setAttachment] = useState<{ path: string; name: string } | null>(null)
 
@@ -109,7 +131,7 @@ export function AgentHomeView({
     ? smartCutAvailable
     : mode === 'ai-podcast'
       ? podcastAvailable
-      : mode === 'video-translation' || mode === 'meeting-notes'
+      : mode === 'video-dubbing' || mode === 'meeting-notes'
   const attachmentCompatible = !attachment || !mode || attachmentMatchesMode(attachment.path, mode)
 
   const chooseMode = (nextMode: AgentCreationMode) => {
@@ -117,10 +139,20 @@ export function AgentHomeView({
     setMode(nextMode)
   }
 
+  const launch = () => {
+    if (!selectedMode || (selectedMode.id !== 'meeting-notes' && (!attachment || !attachmentCompatible))) return
+    onLaunch(
+      selectedMode.id,
+      prompt.trim(),
+      attachment?.path ?? '',
+      selectedMode.id === 'video-dubbing' ? videoDubbingMode : undefined,
+    )
+  }
+
   const chooseAttachment = async () => {
     const filters = mode === 'ai-podcast'
       ? [{ name: t('文档'), extensions: [...DOCUMENT_EXTENSIONS] }]
-      : mode === 'smart-cut' || mode === 'video-translation'
+      : mode === 'smart-cut' || mode === 'video-dubbing'
         ? [{ name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] }]
         : [
             { name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] },
@@ -170,7 +202,13 @@ export function AgentHomeView({
           <textarea
             rows={3}
             value={prompt}
-            placeholder={t('描述你的创作要求')}
+            placeholder={t(
+                  mode === 'video-dubbing' && videoDubbingMode === 'script'
+                ? '粘贴完整配音文案'
+                    : mode === 'video-dubbing' && videoDubbingMode === 'rewrite'
+                  ? '描述你希望如何修改原稿'
+                  : '描述你的创作要求',
+            )}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
@@ -181,7 +219,7 @@ export function AgentHomeView({
                 prompt.trim() &&
                 available
               ) {
-                onLaunch(selectedMode.id, prompt.trim(), attachment?.path ?? '')
+                launch()
               }
             }}
           />
@@ -222,7 +260,7 @@ export function AgentHomeView({
               aria-label={t('进入 Agent 工作区')}
               onClick={() => {
                 if (selectedMode && (selectedMode.id === 'meeting-notes' || (attachment && attachmentCompatible))) {
-                  onLaunch(selectedMode.id, prompt.trim(), attachment?.path ?? '')
+                  launch()
                 }
               }}
             >
@@ -265,15 +303,46 @@ export function AgentHomeView({
               <small>{t('也可以选择后继续修改')}</small>
             </div>
 
+              {selectedMode.id === 'video-dubbing' && (
+              <>
+                <div className="agent-dubbing-mode-picker" role="group" aria-label={t('选择配音方式')}>
+                  {VIDEO_DUBBING_MODES.map((item) => (
+                    <button
+                      type="button"
+                      className={videoDubbingMode === item.id ? 'active' : ''}
+                      key={item.id}
+                      onClick={() => {
+                        setVideoDubbingMode(item.id)
+                        setPrompt('')
+                      }}
+                    >
+                      <strong>{t(item.name)}</strong>
+                      <small>{t(item.description)}</small>
+                    </button>
+                  ))}
+                </div>
+                {videoDubbingMode === 'script' && (
+                  <p className="agent-dubbing-note">
+                    {t('新文案会按原视频的人声时间轴分配；当前不支持无对白视频的画面理解配音。')}
+                  </p>
+                )}
+              </>
+            )}
+
             <div className="agent-prompt-list">
-              {PROMPTS[selectedMode.id].map((suggestion) => {
+              {PROMPTS[selectedMode.id]
+                  .filter((suggestion) => selectedMode.id !== 'video-dubbing' || suggestion.dubbingMode === videoDubbingMode)
+                .map((suggestion) => {
                 const active = prompt === suggestion.detail
                 return (
                   <button
                     type="button"
                     className={active ? 'active' : ''}
                     key={suggestion.title}
-                    onClick={() => setPrompt(suggestion.detail)}
+                    onClick={() => {
+                      if (suggestion.dubbingMode) setVideoDubbingMode(suggestion.dubbingMode)
+                      setPrompt(suggestion.detail)
+                    }}
                   >
                     <MessageSquareText size={16} strokeWidth={1.65} />
                     <span>

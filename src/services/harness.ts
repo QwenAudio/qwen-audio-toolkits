@@ -301,12 +301,35 @@ export function finishFunAsrStream(sessionId: string): Promise<void> {
   return invoke<void>('harness_finish_funasr_stream', { sessionId })
 }
 
-export function subscribeFunAsrStream(
+const funAsrListeners = new Set<(event: FunAsrStreamEvent) => void>()
+let stopFunAsrBridge: UnlistenFn | null = null
+let funAsrBridgePromise: Promise<void> | null = null
+
+async function ensureFunAsrBridge(): Promise<void> {
+  if (stopFunAsrBridge || funAsrBridgePromise) return funAsrBridgePromise ?? Promise.resolve()
+  funAsrBridgePromise = listen<FunAsrStreamEvent>('funasr-stream-event', (event) => {
+    for (const listener of funAsrListeners) listener(event.payload)
+  }).then((unlisten) => {
+    if (funAsrListeners.size === 0) unlisten()
+    else stopFunAsrBridge = unlisten
+  }).finally(() => {
+    funAsrBridgePromise = null
+  })
+  return funAsrBridgePromise
+}
+
+export async function subscribeFunAsrStream(
   callback: (event: FunAsrStreamEvent) => void,
 ): Promise<UnlistenFn> {
-  return listen<FunAsrStreamEvent>('funasr-stream-event', (event) =>
-    callback(event.payload),
-  )
+  funAsrListeners.add(callback)
+  await ensureFunAsrBridge()
+  return () => {
+    funAsrListeners.delete(callback)
+    if (funAsrListeners.size === 0 && stopFunAsrBridge) {
+      stopFunAsrBridge()
+      stopFunAsrBridge = null
+    }
+  }
 }
 
 export function startVadStream(

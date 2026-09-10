@@ -74,6 +74,34 @@
 .agent-prompt-heading span { color: var(--accent, #4c7e6c); font-size: 10px; font-weight: 720; letter-spacing: .08em; }
 .agent-prompt-heading h2 { margin: 4px 0 0; font-size: 18px; font-weight: 650; letter-spacing: -.02em; }
 .agent-prompt-heading > small { color: var(--agent-muted); font-size: 11px; }
+.agent-dubbing-mode-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 0 12px;
+  padding: 4px;
+  background: color-mix(in srgb, var(--text-primary, #202422) 4%, transparent);
+  border-radius: 12px;
+}
+.agent-dubbing-mode-picker button {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  color: var(--agent-muted);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.agent-dubbing-mode-picker button.active {
+  color: var(--accent, #4c7e6c);
+  background: var(--surface-raised, #fff);
+  box-shadow: 0 1px 5px rgba(25, 35, 31, .08);
+}
+.agent-dubbing-mode-picker strong { color: var(--text-primary, #202422); font-size: 12px; }
+.agent-dubbing-mode-picker small { font-size: 10px; line-height: 1.4; }
+.agent-dubbing-note { margin: -3px 2px 12px; color: var(--agent-muted); font-size: 10px; line-height: 1.5; }
 .agent-prompt-list { display: grid; gap: 7px; }
 .agent-prompt-list > button {
   display: flex;
@@ -122,6 +150,7 @@
   .agent-mode-card { min-height: 76px; }
   .agent-prompt-list > button > span { display: grid; grid-template-columns: 1fr; gap: 3px; }
   .agent-prompt-heading > small { display: none; }
+  .agent-dubbing-mode-picker { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

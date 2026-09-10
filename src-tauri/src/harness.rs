@@ -1,7 +1,6 @@
 use crate::{
     advanced_models::{
-        run_audio_tagging, run_diarization, run_keyword_spotting, run_language_id, run_punctuation,
-        run_source_separation, run_speaker_embedding,
+        run_keyword_spotting, run_language_id, run_punctuation, run_speaker_embedding,
     },
     asr::{
         create_streaming_asr_recognizer, transcribe_audio_with_runtime, transcribe_streaming_audio,
@@ -15,7 +14,7 @@ use crate::{
         process_audio_with_runtime, AudioProcessRequest, AudioProcessingRuntime, StreamingEnhancer,
         RNNOISE_SAMPLE_RATE,
     },
-    onnx_audio::separate_mossformer2,
+    native_worker::run_isolated_audio_model,
     plugins,
     tts::{generate_speech_with_runtime, TtsGenerateRequest, TtsRuntime},
     vad::{
@@ -43,7 +42,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Semaphore};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
@@ -601,15 +600,30 @@ pub struct BailianProviderSettings {
     status: &'static str,
 }
 
-#[derive(Default)]
 pub struct HarnessRuntime {
     runs: Mutex<Vec<HarnessRun>>,
     persistence: Mutex<()>,
     active: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    native_execution_gate: Arc<Semaphore>,
     funasr_streams: Mutex<HashMap<String, mpsc::Sender<FunAsrStreamCommand>>>,
     vad_streams: Mutex<HashMap<String, StreamingVad>>,
     enhancement_streams: Mutex<HashMap<String, EnhancementStreamHandle>>,
     initialized: Mutex<bool>,
+}
+
+impl Default for HarnessRuntime {
+    fn default() -> Self {
+        Self {
+            runs: Mutex::new(Vec::new()),
+            persistence: Mutex::new(()),
+            active: Mutex::new(HashMap::new()),
+            native_execution_gate: Arc::new(Semaphore::new(1)),
+            funasr_streams: Mutex::new(HashMap::new()),
+            vad_streams: Mutex::new(HashMap::new()),
+            enhancement_streams: Mutex::new(HashMap::new()),
+            initialized: Mutex::new(false),
+        }
+    }
 }
 
 enum FunAsrStreamCommand {
@@ -1474,6 +1488,28 @@ pub(crate) fn start_run(
 
     let task_app = app.clone();
     tauri::async_runtime::spawn(async move {
+        let native_permit = if provider.is_api {
+            None
+        } else {
+            log::info!("run {run_id} waiting for the native inference gate");
+            if let Ok(waiting) = harness_runtime.update(&task_app, &run_id, |run| {
+                run.activity = Some("等待本地推理资源".to_string());
+            }) {
+                emit_run(&task_app, &waiting);
+            }
+            match harness_runtime
+                .native_execution_gate
+                .clone()
+                .acquire_owned()
+                .await
+            {
+                Ok(permit) => {
+                    log::info!("run {run_id} acquired the native inference gate");
+                    Some(permit)
+                }
+                Err(_) => return,
+            }
+        };
         let started = timestamp_millis();
         if let Ok(running) = harness_runtime.update(&task_app, &run_id, |run| {
             run.status = "running".to_string();
@@ -1541,6 +1577,9 @@ pub(crate) fn start_run(
         }
         if let Ok(mut active) = harness_runtime.active.lock() {
             active.remove(&run_id);
+        }
+        if native_permit.is_some() {
+            log::info!("run {run_id} released the native inference gate");
         }
     });
 
@@ -4139,12 +4178,15 @@ async fn execute_request(
         }
         (CAPABILITY_AUDIO_TAGGING, false) => {
             let audio = required_string(&request.input, "audioDataUrl")?;
-            run_audio_tagging(
+            run_isolated_audio_model(
+                "audio-tagging",
                 provider
                     .model_path
                     .as_deref()
                     .ok_or_else(|| "Audio Tagging 缺少模型目录".to_string())?,
                 &audio,
+                Some(&provider.adapter),
+                cancel.as_ref(),
             )?
         }
         (CAPABILITY_LANGUAGE_ID, false) => {
@@ -4209,12 +4251,15 @@ async fn execute_request(
         }
         (CAPABILITY_DIARIZATION, false) => {
             let audio = required_string(&request.input, "audioDataUrl")?;
-            run_diarization(
+            run_isolated_audio_model(
+                "speaker-diarization",
                 provider
                     .model_path
                     .as_deref()
                     .ok_or_else(|| "Speaker Diarization 缺少模型目录".to_string())?,
                 &audio,
+                Some(&provider.adapter),
+                cancel.as_ref(),
             )?
         }
         (CAPABILITY_SOURCE_SEPARATION, false) => {
@@ -4223,11 +4268,13 @@ async fn execute_request(
                 .model_path
                 .as_deref()
                 .ok_or_else(|| "Source Separation 缺少模型目录".to_string())?;
-            if provider.adapter == "mossformer2-separation" {
-                separate_mossformer2(model_path, &audio)?
-            } else {
-                run_source_separation(model_path, &audio)?
-            }
+            run_isolated_audio_model(
+                "source-separation",
+                model_path,
+                &audio,
+                Some(&provider.adapter),
+                cancel.as_ref(),
+            )?
         }
         (CAPABILITY_ENHANCE, true) if provider.adapter == "bailian-audio-process" => {
             execute_bailian_audio_process(&app, request, &provider.model_id, cancel, false).await?
@@ -7187,6 +7234,27 @@ mod tests {
             .expect("skip initialized runtime");
 
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn native_execution_is_serialized() {
+        let runtime = HarnessRuntime::default();
+        let first = runtime
+            .native_execution_gate
+            .clone()
+            .try_acquire_owned()
+            .expect("first native task should start");
+        assert!(runtime
+            .native_execution_gate
+            .clone()
+            .try_acquire_owned()
+            .is_err());
+        drop(first);
+        assert!(runtime
+            .native_execution_gate
+            .clone()
+            .try_acquire_owned()
+            .is_ok());
     }
 
     #[test]
