@@ -184,6 +184,32 @@
 }
 .smart-cut-attach-button span { font-size: 10px; }
 
+.smart-cut-planner-model {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  color: var(--accent, #4c7e6c);
+}
+
+.smart-cut-planner-model select {
+  max-width: 170px;
+  height: 28px;
+  padding: 0 20px 0 2px;
+  overflow: hidden;
+  border: 0;
+  outline: 0;
+  color: var(--cut-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 9px;
+  text-overflow: ellipsis;
+}
+
+.smart-cut-planner-model select:focus-visible {
+  color: var(--text-primary, #202422);
+}
+
 .smart-cut-send {
   display: grid;
   place-items: center;

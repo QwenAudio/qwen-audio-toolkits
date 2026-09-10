@@ -1032,5 +1032,11 @@
   "剪辑指令": "Editing instructions",
   "删除口水词和超过 0.8 秒的静音，保留片头，并生成字幕": "Remove filler words and silences longer than 0.8 seconds, keep the intro, and add captions",
   "只删除明显的口水词，保留所有停顿": "Remove only obvious filler words and keep all pauses",
-  "去掉长静音，不要字幕": "Remove long silences without captions"
+  "去掉长静音，不要字幕": "Remove long silences without captions",
+  "正在理解剪辑指令…": "Understanding the editing instructions…",
+  "已使用 {0} 理解剪辑指令": "Used {0} to understand the editing instructions",
+  "本地规则": "Local rules",
+  "{0} 暂时无法解析指令，已改用本地规则": "{0} could not interpret the instructions, so local rules were used instead",
+  "指令解析模型": "Instruction planner",
+  " · 由 {0} 解析": " · Planned by {0}"
 }

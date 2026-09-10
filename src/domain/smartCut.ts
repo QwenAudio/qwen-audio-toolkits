@@ -33,9 +33,12 @@ export interface SubtitleCue {
 
 export interface SmartCutInstructionPreferences {
   minimumSilence?: number
+  edgePadding?: number
   preserveLeadingSilence?: boolean
   preserveTrailingSilence?: boolean
   removeSilences?: boolean
+  removeFillers?: boolean
+  removeRepetitions?: boolean
   includeSubtitles?: boolean
 }
 
@@ -86,6 +89,80 @@ export function parseSmartCutInstruction(
     removeSilences,
     includeSubtitles,
   }
+}
+
+const SMART_CUT_PLANNER_KEYS = [
+  'minimumSilence',
+  'edgePadding',
+  'preserveLeadingSilence',
+  'preserveTrailingSilence',
+  'removeSilences',
+  'removeFillers',
+  'removeRepetitions',
+  'includeSubtitles',
+] as const
+
+export const SMART_CUT_PLANNER_SYSTEM_PROMPT = `You convert a user's video-editing instruction into safe settings for a talking-head rough-cut tool.
+Return exactly one JSON object and no markdown or explanation.
+Schema:
+{
+  "minimumSilence": number | null,
+  "edgePadding": number | null,
+  "preserveLeadingSilence": boolean | null,
+  "preserveTrailingSilence": boolean | null,
+  "removeSilences": boolean | null,
+  "removeFillers": boolean | null,
+  "removeRepetitions": boolean | null,
+  "includeSubtitles": boolean | null
+}
+minimumSilence is seconds in [0.3, 2.0]. edgePadding is seconds in [0.04, 0.35].
+Use null when the user did not express a preference. Never add fields.`
+
+function plannerJson(value: string): unknown {
+  const withoutFence = value
+    .trim()
+    .replace(/^```(?:json)?\s*/iu, '')
+    .replace(/\s*```$/u, '')
+  const start = withoutFence.indexOf('{')
+  const end = withoutFence.lastIndexOf('}')
+  if (start < 0 || end <= start) throw new Error('planner response does not contain JSON')
+  return JSON.parse(withoutFence.slice(start, end + 1))
+}
+
+export function parseSmartCutPlannerOutput(
+  value: string,
+): SmartCutInstructionPreferences {
+  const parsed = plannerJson(value)
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('planner response must be an object')
+  }
+  const record = parsed as Record<string, unknown>
+  const preferences: SmartCutInstructionPreferences = {}
+  for (const key of SMART_CUT_PLANNER_KEYS) {
+    const item = record[key]
+    if (item === null || item === undefined) continue
+    if (key === 'minimumSilence' || key === 'edgePadding') {
+      if (typeof item !== 'number' || !Number.isFinite(item)) continue
+      preferences[key] = key === 'minimumSilence'
+        ? Math.min(2, Math.max(0.3, item))
+        : Math.min(0.35, Math.max(0.04, item))
+      continue
+    }
+    if (typeof item === 'boolean') preferences[key] = item
+  }
+  return preferences
+}
+
+export function mergeSmartCutPreferences(
+  fallback: SmartCutInstructionPreferences,
+  preferred: SmartCutInstructionPreferences,
+): SmartCutInstructionPreferences {
+  const merged = { ...fallback }
+  for (const key of SMART_CUT_PLANNER_KEYS) {
+    const value = preferred[key]
+    if (value !== undefined) Object.assign(merged, { [key]: value })
+  }
+  return merged
 }
 
 const STRONG_FILLERS = new Set([

@@ -1625,8 +1625,13 @@ function App() {
   ): Promise<
     HarnessExecution<TtsGenerateResult | TextGenerateResult | Record<string, unknown>>
   > => {
-    const providerKey = selectedPlugin.providerId ?? ''
-    const history = capability === 'text.generate'
+    const executionPlugin = orderedRunnablePlugins.find(
+      (plugin) =>
+        plugin.providerId === providerId &&
+        (plugin.version === modelId || plugin.id === modelId),
+    )
+    const providerKey = providerId
+    const history = capability === 'text.generate' && conversationVisible
       ? (textHistory[providerKey] ?? [])
       : []
     const systemPrompt = typeof modelParameters.systemPrompt === 'string'
@@ -1651,11 +1656,11 @@ function App() {
       {
         capability,
         providerId,
-        conversationProviderId: selectedPlugin.providerId,
+        conversationProviderId: providerId,
         conversationVisible,
         dependencyRunIds,
         routing: capability === 'text.generate' ? 'quality' : 'local',
-        title: `${selectedPlugin.name} · ${
+        title: `${executionPlugin?.name ?? modelId} · ${
           capability === 'text.generate'
             ? t("文本生成")
             : capability === 'text.punctuate'
@@ -1681,7 +1686,7 @@ function App() {
       },
     )
     recordRun(execution.run)
-    if (capability === 'text.generate') {
+    if (capability === 'text.generate' && conversationVisible) {
       const reply = (execution.output as TextGenerateResult).text
       if (typeof reply === 'string') {
         setTextHistory((current) => ({
@@ -2713,6 +2718,7 @@ function App() {
               models={orderedRunnablePlugins}
               catalog={catalog}
               onRunAudio={runAudio}
+              onRunText={runText}
               onOpenStore={openExtensions}
               onAction={notify}
             />

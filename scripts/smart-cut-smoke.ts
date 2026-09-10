@@ -8,7 +8,9 @@ import {
   manualWordCandidate,
   modelSupportsSmartCutTimeline,
   normalizeSmartCutTranscription,
+  mergeSmartCutPreferences,
   parseSmartCutInstruction,
+  parseSmartCutPlannerOutput,
   smartCutWords,
 } from '../src/domain/smartCut'
 import type { AsrTranscriptionResult } from '../src/types'
@@ -22,6 +24,22 @@ assert.deepEqual(
     removeSilences: undefined,
     includeSubtitles: true,
   },
+)
+assert.deepEqual(
+  parseSmartCutPlannerOutput('```json\n{"minimumSilence":9,"edgePadding":0.01,"removeFillers":false,"includeSubtitles":true,"unsafe":"ignored"}\n```'),
+  {
+    minimumSilence: 2,
+    edgePadding: 0.04,
+    removeFillers: false,
+    includeSubtitles: true,
+  },
+)
+assert.deepEqual(
+  mergeSmartCutPreferences(
+    { minimumSilence: 0.8, preserveLeadingSilence: true },
+    { minimumSilence: 1.1, includeSubtitles: false },
+  ),
+  { minimumSilence: 1.1, preserveLeadingSilence: true, includeSubtitles: false },
 )
 assert.deepEqual(
   parseSmartCutInstruction('Keep the outro, remove pauses longer than 1.2 seconds, without captions'),
