@@ -57,11 +57,13 @@ import {
   deleteHarnessRun,
   getHarnessCatalog,
   getModelDependencyBindings,
+  installCatalogModel,
   installRecommendedModelDependency,
   isTauriRuntime,
   listApiModelCatalog,
   listHarnessRuns,
   listModelPlugins,
+  readDroppedAudioFile,
   refreshModelPlugins,
   replaceModelDependencyBindings,
   revealInFileManager,
@@ -100,8 +102,26 @@ import type {
   VadDetectionResult,
 } from './types'
 import type { WorkflowChatTurn } from './views/WorkflowChatView'
-import type { AgentCreationMode, VideoDubbingMode } from './domain/agents'
+import type {
+  AgentCreationMode,
+  GeneralAgentAttachment,
+  GeneralAgentMessageModelOptions,
+  GeneralAgentMessage,
+  GeneralAgentTask,
+} from './domain/agents'
+import {
+  createOnDemandModelExecutionPlan,
+  createInstallModelAction,
+  isInstallApproval,
+  planOnDemandModelAction,
+  resolveOnDemandModelExecutions,
+  type OnDemandModelExecutionCandidate,
+  type OnDemandModelInstallMode,
+  type OnDemandModelResolution,
+} from './domain/onDemandModels'
+import { agentFileKind } from './domain/agentFiles'
 import { useAgentConversations } from './hooks/useAgentConversations'
+import { audioFileToClip } from './utils/audio'
 import './App.css'
 
 const ModelWorkspaceView = lazy(() =>
@@ -403,6 +423,14 @@ const ACCENT_OPTIONS: {
 
 type SidebarDensity = 'comfortable' | 'compact'
 
+interface PendingOnDemandInstall {
+  resolution: OnDemandModelResolution
+  prompt: string
+  selectedModeName: string | null
+  attachmentHint: string
+  attachment: GeneralAgentAttachment | null
+}
+
 const SIDEBAR_DENSITY_OPTIONS: {
   id: SidebarDensity
   label: string
@@ -434,12 +462,24 @@ function App() {
   const [view, setView] = useState<AppView>('agents')
   const {
     conversations: agentConversations,
+    generalTasks,
     selectedId: selectedAgentConversationId,
     selectedConversation: selectedAgentConversation,
-    createConversation: createAgentConversation,
+    selectedGeneralTask,
+    createGeneralTask,
+    ensureGeneralTask,
+    updateGeneralTask,
+    updateGeneralMessageActionStatus,
+    submitGeneralPrompt,
     selectConversation: setSelectedAgentConversationId,
   } = useAgentConversations()
   const [agentHomeMode, setAgentHomeMode] = useState<AgentCreationMode | null>(null)
+  const pendingGeneralTaskRef = useRef<GeneralAgentTask | null>(null)
+  const pendingOnDemandModelRef = useRef(new Map<string, PendingOnDemandInstall>())
+  const [agentModelInstallMode, setAgentModelInstallMode] =
+    useState<OnDemandModelInstallMode>('ask')
+  const [agentMessageModelSelections, setAgentMessageModelSelections] =
+    useState<Record<string, string>>({})
   const [shellPage, setShellPage] = useState<ShellPage>('workspace')
   const [plugins, setPlugins] = useState<ModelPlugin[]>(initialPlugins)
   const [pluginsLoaded, setPluginsLoaded] = useState(() => !isTauriRuntime())
@@ -454,6 +494,10 @@ function App() {
   const [textHistory, setTextHistory] = useState<
     Record<string, { role: 'user' | 'assistant'; content: string }[]>
   >({})
+
+  useEffect(() => {
+    if (selectedGeneralTask) pendingGeneralTaskRef.current = null
+  }, [selectedGeneralTask])
   const [activeRunIds, setActiveRunIds] = useState<Set<string>>(
     () => new Set(),
   )
@@ -1250,28 +1294,518 @@ function App() {
     setView(next)
     setSidebarOpen(false)
   }
-  const launchCreationAgent = (
-    mode: AgentCreationMode,
-    prompt: string,
-    sourcePath: string,
-    videoDubbingMode?: VideoDubbingMode,
+  const materializeGeneralTask = (
+    draft: {
+      selectedModeId?: AgentCreationMode | null
+      attachment?: GeneralAgentTask['attachment']
+    } = {},
   ) => {
-    const modeLabel =
-      appAgents.find((agent) => agent.workspaceEntry === mode)?.name ??
-      t('技能')
-    const normalizedPrompt = prompt.replace(/\s+/gu, ' ').trim()
-    const promptTitle = normalizedPrompt.length > 22
-      ? `${normalizedPrompt.slice(0, 22)}…`
-      : normalizedPrompt
-    createAgentConversation({
-      mode,
-      title: `${modeLabel} · ${promptTitle}`,
-      prompt,
-      sourcePath,
-      videoDubbingMode,
+    if (selectedGeneralTask) {
+      pendingGeneralTaskRef.current = null
+      return selectedGeneralTask
+    }
+    if (pendingGeneralTaskRef.current) return pendingGeneralTaskRef.current
+    const task = ensureGeneralTask({
+      selectedModeId: draft.selectedModeId ?? agentHomeMode,
+      attachment: draft.attachment ?? null,
     })
-    setWorkflowSelected(false)
-    changeView(mode)
+    pendingGeneralTaskRef.current = task
+    return task
+  }
+  const updateAgentHomeMode = (mode: AgentCreationMode | null) => {
+    setAgentHomeMode(mode)
+    if (selectedGeneralTask || mode) {
+      const task = materializeGeneralTask({ selectedModeId: mode })
+      updateGeneralTask(task.id, { selectedModeId: mode })
+    }
+  }
+  const updateAgentHomeDraft = (prompt: string) => {
+    if (!selectedGeneralTask && !prompt.trim()) return
+    const task = materializeGeneralTask()
+    updateGeneralTask(task.id, { draftPrompt: prompt })
+  }
+  const updateAgentHomeAttachment = (
+    attachment: GeneralAgentTask['attachment'],
+  ) => {
+    if (!selectedGeneralTask && !attachment) return
+    const task = materializeGeneralTask({ attachment })
+    updateGeneralTask(task.id, { attachment })
+  }
+  const refreshModelStoreState = async () => {
+    const [nextPlugins, nextCatalog] = await Promise.all([
+      listModelPlugins(),
+      getHarnessCatalog(),
+    ])
+    setPlugins(nextPlugins)
+    setCatalog(nextCatalog)
+    return nextPlugins
+  }
+  const installOnDemandModel = async (
+    resolution: OnDemandModelResolution,
+  ): Promise<ModelPlugin> => {
+    const model = resolution.recommendedModel
+    if (!model) {
+      throw new Error(t('模型商店暂时没有可用于 {0} 的开源模型', [resolution.need.label]))
+    }
+    if (model.installed) return model
+    if (!model.catalogManaged || model.installable === false) {
+      throw new Error(t('{0} 不是可自动安装的模型，请打开模型商店手动处理', [model.name]))
+    }
+    if (!isTauriRuntime()) {
+      throw new Error(t('按需安装需要在桌面端运行'))
+    }
+    notify(t('正在安装按需模型 {0}', [model.name]))
+    const installed = await installCatalogModel(model.id, model.defaultVariantId)
+    await refreshModelStoreState()
+    return installed
+  }
+  const onDemandModelContext = (
+    resolution: OnDemandModelResolution,
+    model: ModelPlugin,
+  ): string =>
+    `\n\n按需模型商店：检测到用户需要「${resolution.need.label}」。` +
+    `模型商店已安装开源模型「${model.name}」（${model.id}），` +
+    `可直接使用 ${resolution.need.capability} 能力执行${resolution.need.actionLabel}。` +
+    '请在回复中明确使用该模型，并给出下一步可审阅处理计划。'
+  const latestAgentAttachments = (
+    task: GeneralAgentTask,
+    messageId: string,
+  ): GeneralAgentAttachment[] => {
+    const messageIndex = task.messages.findIndex((item) => item.id === messageId)
+    const messages = messageIndex >= 0
+      ? task.messages.slice(0, messageIndex + 1)
+      : task.messages
+    const candidates: GeneralAgentAttachment[] = []
+    if (task.attachment) candidates.push(task.attachment)
+    for (const item of messages) {
+      if (item.attachment) candidates.push(item.attachment)
+      if (item.attachments?.length) candidates.push(...item.attachments)
+    }
+    return candidates.reverse().filter((file) =>
+      ['audio', 'video', 'document'].includes(agentFileKind(file)),
+    )
+  }
+  const resolveConfirmExecutionCandidates = (
+    task: GeneralAgentTask,
+    message: GeneralAgentMessage,
+  ): { attachment: GeneralAgentAttachment; candidates: OnDemandModelExecutionCandidate[] } | null => {
+    if (!message.action || message.action.kind !== 'confirm-agent-plan') return null
+    const recentContext = [
+      ...task.messages.slice(-6).map((item) => item.content),
+      message.action.confirmationText,
+    ].join('\n')
+    for (const attachment of latestAgentAttachments(task, message.id)) {
+      const candidates = resolveOnDemandModelExecutions(recentContext, plugins, attachment)
+      if (candidates.length) return { attachment, candidates }
+    }
+    return null
+  }
+  const selectOnDemandExecutionCandidate = (
+    candidates: OnDemandModelExecutionCandidate[],
+    selectedModelId?: string | null,
+  ): OnDemandModelExecutionCandidate | null =>
+    (selectedModelId
+      ? candidates.find(({ model }) => model.id === selectedModelId)
+      : null) ??
+    candidates.find(({ model }) => model.installed) ??
+    candidates.find(({ model }) => model.catalogManaged && model.installable !== false) ??
+    null
+  const resolveConfirmExecution = (
+    task: GeneralAgentTask,
+    message: GeneralAgentMessage,
+    selectedModelId?: string | null,
+  ): PendingOnDemandInstall | null => {
+    const resolved = resolveConfirmExecutionCandidates(task, message)
+    if (!resolved) return null
+    const candidate = selectOnDemandExecutionCandidate(resolved.candidates, selectedModelId)
+    if (!candidate) return null
+    return {
+      resolution: candidate.resolution,
+      prompt: message.action?.kind === 'confirm-agent-plan'
+        ? message.action.confirmationText
+        : '',
+      selectedModeName: null,
+      attachmentHint: `\n\n已选择素材：${resolved.attachment.name}\n文件路径：${resolved.attachment.path}`,
+      attachment: resolved.attachment,
+    }
+  }
+  const resolveMessageModelOptions = (
+    task: GeneralAgentTask,
+    message: GeneralAgentMessage,
+  ): GeneralAgentMessageModelOptions | null => {
+    const resolved = resolveConfirmExecutionCandidates(task, message)
+    if (!resolved || resolved.candidates.length < 2) return null
+    const selected =
+      selectOnDemandExecutionCandidate(
+        resolved.candidates,
+        agentMessageModelSelections[message.id],
+      ) ?? resolved.candidates[0]
+    return {
+      needLabel: selected.resolution.need.label,
+      actionLabel: selected.resolution.need.actionLabel,
+      selectedModelId: selected.model.id,
+      choices: resolved.candidates.map(({ model }) => ({
+        id: model.id,
+        name: model.name,
+        description: model.description,
+        installed: model.installed,
+      })),
+    }
+  }
+  const resolveTaskMessageModelOptions = (
+    task: GeneralAgentTask | null,
+  ): Record<string, GeneralAgentMessageModelOptions> => {
+    if (!task) return {}
+    return Object.fromEntries(
+      task.messages.flatMap((message) => {
+        if (message.action?.kind !== 'confirm-agent-plan') return []
+        const options = resolveMessageModelOptions(task, message)
+        return options ? [[message.id, options]] : []
+      }),
+    )
+  }
+  const runOnDemandModelExecution = async (
+    pending: PendingOnDemandInstall,
+    model: ModelPlugin,
+  ): Promise<{ content: string; attachments: GeneralAgentAttachment[] } | null> => {
+    const plan = createOnDemandModelExecutionPlan(
+      pending.resolution,
+      model,
+      pending.attachment,
+    )
+    if (!plan) return null
+    const attachment = pending.attachment
+    if (!attachment) return null
+    const providerId = model.providerId ?? model.id
+    notify(t('正在使用 {0} 处理 {1}', [model.name, attachment.name]))
+    const file = await readDroppedAudioFile(attachment.path)
+    const clip = await audioFileToClip(file)
+    const audioDataUrl =
+      plan.capability === 'speech.transcribe'
+        ? clip.transcriptionAudioUrl
+        : clip.processingAudioUrl ?? clip.transcriptionAudioUrl
+    if (!audioDataUrl) {
+      throw new Error(t('该音频无法解码为模型需要的 WAV 格式'))
+    }
+    if (plan.capability === 'speech.transcribe') {
+      const execution = await executeHarnessTask<AsrTranscriptionResult>(
+        {
+          capability: plan.capability,
+          providerId,
+          conversationProviderId: providerId,
+          conversationVisible: true,
+          routing: 'local',
+          title: t('{0} · 语音识别', [attachment.name]),
+          input: {
+            audioDataUrl,
+            clipName: attachment.name,
+            duration: clip.duration,
+          },
+          parameters: {
+            modelId: model.version || model.id,
+            ...plan.parameters,
+          },
+        },
+        recordRun,
+      )
+      recordRun(execution.run)
+      const transcript = execution.output.text.trim() || t('未识别到可用文本。')
+      return {
+        content: t('已完成语音识别，结果如下：\n\n{0}', [transcript]),
+        attachments: [],
+      }
+    }
+    const execution = await executeHarnessTask<AudioProcessResult>(
+      {
+        capability: plan.capability,
+        providerId,
+        conversationProviderId: providerId,
+        conversationVisible: true,
+        routing: 'local',
+        title: t('{0} · 音频降噪', [attachment.name]),
+        input: {
+          audioDataUrl,
+          clipName: attachment.name,
+          duration: clip.duration,
+        },
+        parameters: {
+          modelId: model.version || model.id,
+          ...plan.parameters,
+        },
+      },
+      recordRun,
+    )
+    recordRun(execution.run)
+    return {
+      content: t('已完成降噪，输出新文件 `{0}`。文件位置：{1}', [
+        execution.output.fileName,
+        execution.output.filePath,
+      ]),
+      attachments: [
+        {
+          path: execution.output.filePath,
+          name: execution.output.fileName,
+        },
+      ],
+    }
+  }
+  const continueWithInstalledOnDemandModel = (
+    task: GeneralAgentTask,
+    pending: PendingOnDemandInstall,
+    model: ModelPlugin,
+  ) => {
+    pendingOnDemandModelRef.current.delete(task.id)
+    const directPlan = createOnDemandModelExecutionPlan(
+      pending.resolution,
+      model,
+      pending.attachment,
+    )
+    void submitGeneralPrompt({
+      task,
+      content: pending.prompt,
+      selectedModeName: pending.selectedModeName,
+      attachmentHint:
+        pending.attachmentHint +
+        onDemandModelContext(pending.resolution, model),
+      attachment: pending.attachment,
+      appendUserMessage: false,
+      ...(directPlan
+        ? {
+            localResponse: async () =>
+              (await runOnDemandModelExecution(pending, model)) ??
+              t('已安装 {0}。当前任务还需要 Agent 继续规划，请补充处理参数。', [
+                model.name,
+              ]),
+          }
+        : {}),
+      onError: notify,
+    })
+  }
+  const runAgentMessageAction = (
+    task: GeneralAgentTask | null,
+    message: GeneralAgentMessage,
+    selectedModelId?: string | null,
+  ) => {
+    if (!task || !message.action) return
+    if (message.action.kind === 'confirm-agent-plan') {
+      const action = message.action
+      const directExecution = resolveConfirmExecution(task, message, selectedModelId)
+      updateGeneralMessageActionStatus(task.id, message.id, 'running')
+      void (async () => {
+        await submitGeneralPrompt({
+          task,
+          content: action.confirmationText,
+          selectedModeName: null,
+          attachmentHint: directExecution?.attachmentHint ?? '',
+          attachment: directExecution?.attachment ?? null,
+          ...(directExecution
+            ? {
+                localResponse: async () => {
+                  const model =
+                    directExecution.resolution.installedModel ??
+                    await installOnDemandModel(directExecution.resolution)
+                  return (
+                    (await runOnDemandModelExecution(directExecution, model)) ??
+                    t('已确认。当前任务还需要 Agent 继续规划，请补充处理参数。')
+                  )
+                },
+              }
+            : {}),
+          onError: notify,
+        })
+        updateGeneralMessageActionStatus(task.id, message.id, 'done')
+      })()
+      return
+    }
+    if (message.action.kind !== 'install-on-demand-model') return
+    const action = message.action
+    updateGeneralMessageActionStatus(task.id, message.id, 'running')
+    const model = plugins.find((candidate) => candidate.id === action.modelId)
+    const resolution: OnDemandModelResolution = {
+      need: {
+        id: action.id,
+        capability: action.capability as ModelPlugin['harnessCapabilities'][number],
+        label: action.needLabel,
+        actionLabel: action.actionLabel,
+        preferredModelIds: [action.modelId],
+      },
+      installedModel: model?.installed ? model : null,
+      recommendedModel: model ?? null,
+    }
+    void (async () => {
+      try {
+        const installed = await installOnDemandModel(resolution)
+        updateGeneralMessageActionStatus(task.id, message.id, 'done')
+        continueWithInstalledOnDemandModel(task, {
+          resolution,
+          prompt: action.prompt,
+          selectedModeName: action.selectedModeName,
+          attachmentHint: action.attachmentHint,
+          attachment: action.attachment ?? null,
+        }, installed)
+      } catch (error) {
+        updateGeneralMessageActionStatus(task.id, message.id, 'failed')
+        notify(
+          t('按需模型安装失败：{0}', [error instanceof Error ? error.message : String(error)]),
+        )
+      }
+    })()
+  }
+  const submitAgentHomePrompt = (request: {
+    content: string
+    selectedModeName: string | null
+    attachmentHint: string
+    attachment: GeneralAgentAttachment | null
+  }) => {
+    const task = selectedGeneralTask ?? pendingGeneralTaskRef.current ?? createGeneralTask({
+      selectedModeId: agentHomeMode,
+      attachment: null,
+    })
+    pendingGeneralTaskRef.current = task
+    const pendingInstall = pendingOnDemandModelRef.current.get(task.id)
+    if (pendingInstall && isInstallApproval(request.content)) {
+      pendingOnDemandModelRef.current.delete(task.id)
+      void submitGeneralPrompt({
+        task,
+        content: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: '',
+        attachment: null,
+        localResponse: async () => {
+          const model = await installOnDemandModel(pendingInstall.resolution)
+          window.setTimeout(() => continueWithInstalledOnDemandModel(task, pendingInstall, model), 0)
+          return t('已安装 {0}。正在继续处理原请求。', [
+            model.name,
+          ])
+        },
+        onError: notify,
+      })
+      return
+    }
+
+    const modelAction = planOnDemandModelAction(
+      request.content,
+      plugins,
+      agentModelInstallMode,
+    )
+    if (modelAction.kind === 'use-installed') {
+      pendingOnDemandModelRef.current.delete(task.id)
+      const pendingExecution: PendingOnDemandInstall = {
+        resolution: modelAction.resolution,
+        prompt: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: request.attachmentHint,
+        attachment: request.attachment,
+      }
+      const directPlan = createOnDemandModelExecutionPlan(
+        pendingExecution.resolution,
+        modelAction.model,
+        pendingExecution.attachment,
+      )
+      void submitGeneralPrompt({
+        task,
+        content: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint:
+          request.attachmentHint +
+          onDemandModelContext(modelAction.resolution, modelAction.model),
+        attachment: request.attachment,
+        ...(directPlan
+          ? {
+              localResponse: async () =>
+                (await runOnDemandModelExecution(pendingExecution, modelAction.model)) ??
+                t('模型 {0} 已就绪。当前任务还需要 Agent 继续规划，请补充处理参数。', [
+                  modelAction.model.name,
+                ]),
+            }
+          : {}),
+        onError: notify,
+      })
+      return
+    }
+
+    if (modelAction.kind === 'auto-install') {
+      pendingOnDemandModelRef.current.delete(task.id)
+      const pendingExecution: PendingOnDemandInstall = {
+        resolution: modelAction.resolution,
+        prompt: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: request.attachmentHint,
+        attachment: request.attachment,
+      }
+      void submitGeneralPrompt({
+        task,
+        content: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: '',
+        attachment: request.attachment,
+        localResponse: async () => {
+          const model = await installOnDemandModel(modelAction.resolution)
+          const directResult = await runOnDemandModelExecution(pendingExecution, model)
+          if (directResult) return directResult
+          return t('已自动安装 {0}。当前任务还需要 Agent 继续规划，请补充处理参数。', [
+            model.name,
+          ])
+        },
+        onError: notify,
+      })
+      return
+    }
+
+    if (modelAction.kind === 'ask-install') {
+      const pendingInstallRequest: PendingOnDemandInstall = {
+        resolution: modelAction.resolution,
+        prompt: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: request.attachmentHint,
+        attachment: request.attachment,
+      }
+      pendingOnDemandModelRef.current.set(task.id, pendingInstallRequest)
+      void submitGeneralPrompt({
+        task,
+        content: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: '',
+        attachment: request.attachment,
+        localResponse: () => ({
+          content: t('需要先安装开源模型 {0} 才能处理「{1}」。点击下方按钮即可安装并继续，或回复“安装”。', [
+            modelAction.model.name,
+            modelAction.resolution.need.label,
+          ]),
+          action: createInstallModelAction(modelAction.resolution, modelAction.model, {
+            prompt: request.content,
+            selectedModeName: request.selectedModeName,
+            attachmentHint: request.attachmentHint,
+            attachment: request.attachment,
+          }),
+        }),
+        onError: notify,
+      })
+      return
+    }
+
+    if (modelAction.kind === 'unavailable') {
+      void submitGeneralPrompt({
+        task,
+        content: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: '',
+        attachment: request.attachment,
+        localResponse: () =>
+          t('模型商店暂时没有可用于 {0} 的开源模型', [modelAction.resolution.need.label]),
+        onError: notify,
+      })
+      return
+    }
+
+    void submitGeneralPrompt({
+      task,
+      content: request.content,
+      selectedModeName: request.selectedModeName,
+      attachmentHint: request.attachmentHint,
+      attachment: request.attachment,
+      onError: notify,
+    })
   }
   const syncExtensionsState = useCallback(async () => {
     try {
@@ -1321,6 +1855,7 @@ function App() {
     setSidebarOpen(false)
   }
   const openNewTask = () => {
+    pendingGeneralTaskRef.current = null
     setShellPage('workspace')
     setAgentHomeMode(null)
     setSelectedAgentConversationId(null)
@@ -1971,13 +2506,13 @@ function App() {
           <nav className="sidebar-primary-nav" aria-label={t("主导航")}>
             <button
               className={`sidebar-primary-button${
-                shellPage === 'workspace' && view === 'agents' && !agentHomeMode
+                shellPage === 'workspace' && view === 'agents' && !selectedAgentConversationId
                   ? ' active'
                   : ''
               }`}
               type="button"
               aria-current={
-                shellPage === 'workspace' && view === 'agents' && !agentHomeMode
+                shellPage === 'workspace' && view === 'agents' && !selectedAgentConversationId
                   ? 'page'
                   : undefined
               }
@@ -2046,10 +2581,36 @@ function App() {
               <SquarePen size={16} />
             </button>
           </div>
-          {agentConversations.length > 0 && (
-            <div className="sidebar-agent-conversations" aria-label={t('技能任务')}>
+          {(generalTasks.length > 0 || agentConversations.length > 0) && (
+            <div className="sidebar-agent-conversations" aria-label={t('最近任务')}>
+              {generalTasks.map((task) => {
+                const active = shellPage === 'workspace' && selectedAgentConversationId === task.id && view === 'agents'
+                return (
+                  <button
+                    className={`installed-model-button agent-conversation-button${active ? ' active' : ''}`}
+                    type="button"
+                    key={task.id}
+                    title={task.title}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => {
+                      pendingGeneralTaskRef.current = null
+                      setShellPage('workspace')
+                      setAgentHomeMode(task.selectedModeId)
+                      setSelectedAgentConversationId(task.id)
+                      setWorkflowSelected(false)
+                      changeView('agents')
+                    }}
+                  >
+                    <span>{task.title}</span>
+                    {task.submitting && <small>{t('运行中')}</small>}
+                  </button>
+                )
+              })}
               {agentConversations.map((conversation) => {
-                const active = selectedAgentConversationId === conversation.id && view === conversation.mode
+                const active =
+                  shellPage === 'workspace' &&
+                  selectedAgentConversationId === conversation.id &&
+                  view === conversation.mode
                 const fileName = conversation.sourcePath
                   ? conversation.sourcePath.split(/[\\/]/u).at(-1) ?? conversation.sourcePath
                   : t('实时会议')
@@ -2061,6 +2622,8 @@ function App() {
                     title={`${conversation.title}\n${fileName}`}
                     aria-current={active ? 'page' : undefined}
                     onClick={() => {
+                      pendingGeneralTaskRef.current = null
+                      setShellPage('workspace')
                       setSelectedAgentConversationId(conversation.id)
                       setWorkflowSelected(false)
                       changeView(conversation.mode)
@@ -2072,7 +2635,7 @@ function App() {
               })}
             </div>
           )}
-          {agentConversations.length === 0 && (
+          {generalTasks.length === 0 && agentConversations.length === 0 && (
             <p className="sidebar-recent-empty">{t("暂无最近任务")}</p>
           )}
         </nav>
@@ -2308,9 +2871,28 @@ function App() {
           {view === 'agents' && (
             <AgentHomeView
               skills={appAgents}
-              selectedModeId={agentHomeMode}
-              onSelectedModeChange={setAgentHomeMode}
-              onLaunch={launchCreationAgent}
+              taskId={selectedGeneralTask?.id ?? null}
+              messages={selectedGeneralTask?.messages ?? []}
+              draftPrompt={selectedGeneralTask?.draftPrompt ?? ''}
+              attachment={selectedGeneralTask?.attachment ?? null}
+              submitting={selectedGeneralTask?.submitting ?? false}
+              modelInstallMode={agentModelInstallMode}
+              messageModelOptions={resolveTaskMessageModelOptions(selectedGeneralTask)}
+              selectedModeId={selectedGeneralTask?.selectedModeId ?? agentHomeMode}
+              onModelInstallModeChange={setAgentModelInstallMode}
+              onMessageModelSelect={(messageId, modelId) =>
+                setAgentMessageModelSelections((current) => ({
+                  ...current,
+                  [messageId]: modelId,
+                }))
+              }
+              onSelectedModeChange={updateAgentHomeMode}
+              onDraftPromptChange={updateAgentHomeDraft}
+              onAttachmentChange={updateAgentHomeAttachment}
+              onSubmitPrompt={submitAgentHomePrompt}
+              onRunMessageAction={(message, modelId) =>
+                runAgentMessageAction(selectedGeneralTask, message, modelId)
+              }
               onOpenStore={openSkills}
             />
           )}

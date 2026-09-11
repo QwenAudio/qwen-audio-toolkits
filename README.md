@@ -12,6 +12,24 @@ what you want to create, choose a skill such as video editing, AI podcast,
 video translation, or meeting notes, and install the underlying models only
 when they are needed.
 
+The product goal is to become a conversational Agent-driven audio and video
+creation IDE. The Agent understands user intent, plans workflows, orchestrates
+models, and produces reviewable edits; dedicated editing surfaces provide
+timeline, waveform, caption, dubbing, and preview controls; the model store
+supplies local and cloud capabilities on demand.
+
+Three product pillars guide this goal:
+
+- **Conversational Agent workflow**: describe an audio or video goal in natural
+  language, then let the Agent plan the workflow, choose tools and models,
+  run long tasks, and return reviewable edits instead of opaque results.
+- **On-demand open source model store**: install open-source local models, runtime
+  packages, dependencies, and cloud model definitions only when a skill or
+  project needs them.
+- **Dedicated professional editing surfaces**: use purpose-built timeline,
+  waveform, transcript, caption, dubbing, and preview interfaces for precise
+  manual control, while the Agent operates the same project state.
+
 The first public preview targets Apple Silicon Macs running macOS 14.2 or
 later. Model weights and runtime packages are downloaded on demand, so they are
 not bundled into the application installer.

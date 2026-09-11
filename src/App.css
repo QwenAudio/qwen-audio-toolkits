@@ -6386,6 +6386,13 @@ body.sidebar-resizing .model-app-frame {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.agent-conversation-button > small {
+  margin-left: auto;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
 .agent-conversation-placeholder {
   width: min(760px, calc(100% - 48px));
   margin: 0 auto;

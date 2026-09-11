@@ -1,3 +1,4 @@
+mod acp_agent;
 mod advanced_models;
 mod agents;
 mod app_language;
@@ -775,6 +776,7 @@ pub fn run() {
             runtime_status,
             set_close_behavior,
             app_language::set_ui_language,
+            acp_agent::agent_acp_prompt,
             app_data_directory,
             reveal_in_file_manager,
             cleanup_download_cache,

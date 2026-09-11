@@ -1,12 +1,98 @@
-import { useCallback, useMemo, useState } from 'react'
-import type { AgentConversation } from '../domain/agents'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { t } from '../i18n'
+import type {
+  AgentConversation,
+  AgentCreationMode,
+  GeneralAgentActionStatus,
+  GeneralAgentAttachment,
+  GeneralAgentMessage,
+  GeneralAgentMessageAction,
+  GeneralAgentTask,
+} from '../domain/agents'
+import { inferAgentMessageAction } from '../domain/agentMessageActions'
+import { isLocalGreetingContent, sendGeneralAgentPrompt } from '../services/agent'
+
+type GeneralAgentTaskDraft = {
+  selectedModeId?: AgentCreationMode | null
+  attachment?: GeneralAgentTask['attachment']
+}
+
+type GeneralAgentLocalResponse =
+  | string
+  | {
+      content: string
+      action?: GeneralAgentMessageAction
+      attachments?: GeneralAgentAttachment[]
+    }
+
+function newMessage(
+  role: 'user' | 'assistant',
+  content: string,
+  action?: GeneralAgentMessageAction,
+  attachment?: GeneralAgentAttachment | null,
+  attachments?: GeneralAgentAttachment[],
+): GeneralAgentMessage {
+  return {
+    id: crypto.randomUUID(),
+    role,
+    content,
+    createdAt: Date.now(),
+    action,
+    attachment,
+    attachments,
+  }
+}
+
+function summarizeTaskTitle(prompt: string): string {
+  const compact = prompt.replace(/\s+/g, ' ').trim()
+  if (!compact) return t('未命名任务')
+  return compact.length > 24 ? `${compact.slice(0, 24)}...` : compact
+}
+
+export function buildGeneralAgentPromptContent(
+  content: string,
+  selectedModeName?: string | null,
+  attachmentHint = '',
+): string {
+  const trimmed = content.trim()
+  if (isLocalGreetingContent(trimmed)) return trimmed
+  const selectedSkillHint = selectedModeName
+    ? `\n\n当前用户选择的技能：${selectedModeName}。`
+    : ''
+  return `${trimmed}${selectedSkillHint}${attachmentHint}`
+}
+
+function bringGeneralTaskToFront(
+  tasks: GeneralAgentTask[],
+  taskId: string,
+  patch: Partial<GeneralAgentTask>,
+): GeneralAgentTask[] {
+  const existing = tasks.find((task) => task.id === taskId)
+  if (!existing) return tasks
+  const next = { ...existing, ...patch, updatedAt: Date.now() }
+  return [next, ...tasks.filter((task) => task.id !== taskId)]
+}
+
+export function appendVisibleGeneralUserMessage(
+  messages: GeneralAgentMessage[],
+  userMessage: GeneralAgentMessage,
+  appendUserMessage = true,
+): GeneralAgentMessage[] {
+  return appendUserMessage ? [...messages, userMessage] : messages
+}
 
 export function useAgentConversations() {
   const [conversations, setConversations] = useState<AgentConversation[]>([])
+  const [generalTasks, setGeneralTasks] = useState<GeneralAgentTask[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const activeGeneralPromptIdsRef = useRef(new Set<string>())
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedId) ?? null,
     [conversations, selectedId],
+  )
+  const selectedGeneralTask = useMemo(
+    () => generalTasks.find((task) => task.id === selectedId) ?? null,
+    [generalTasks, selectedId],
   )
   const createConversation = useCallback((draft: Omit<AgentConversation, 'id'>) => {
     const conversation = { ...draft, id: crypto.randomUUID() }
@@ -15,12 +101,162 @@ export function useAgentConversations() {
     return conversation
   }, [])
   const startNewConversation = useCallback(() => setSelectedId(null), [])
+  const createGeneralTask = useCallback((draft: GeneralAgentTaskDraft = {}) => {
+    const now = Date.now()
+    const task: GeneralAgentTask = {
+      id: crypto.randomUUID(),
+      kind: 'general',
+      title: t('新任务'),
+      draftPrompt: '',
+      messages: [],
+      selectedModeId: draft.selectedModeId ?? null,
+      attachment: draft.attachment ?? null,
+      createdAt: now,
+      updatedAt: now,
+      submitting: false,
+    }
+    setSelectedId(task.id)
+    return task
+  }, [])
+  const ensureGeneralTask = useCallback((draft: GeneralAgentTaskDraft = {}) => {
+    if (selectedGeneralTask) return selectedGeneralTask
+    const task = createGeneralTask(draft)
+    setGeneralTasks((current) => [task, ...current])
+    return task
+  }, [createGeneralTask, selectedGeneralTask])
+  const updateGeneralTask = useCallback((
+    taskId: string,
+    update: Partial<Pick<GeneralAgentTask, 'selectedModeId' | 'attachment' | 'draftPrompt'>>,
+  ) => {
+    setGeneralTasks((current) =>
+      current.map((task) => {
+        if (task.id !== taskId) return task
+        const draftTitle = update.draftPrompt !== undefined && task.messages.length === 0
+          ? summarizeTaskTitle(update.draftPrompt)
+          : task.title
+        return { ...task, ...update, title: draftTitle, updatedAt: Date.now() }
+      }),
+    )
+  }, [])
+  const updateGeneralMessageActionStatus = useCallback((
+    taskId: string,
+    messageId: string,
+    status: GeneralAgentActionStatus,
+  ) => {
+    setGeneralTasks((current) =>
+      current.map((task) => {
+        if (task.id !== taskId) return task
+        return {
+          ...task,
+          updatedAt: Date.now(),
+          messages: task.messages.map((message) =>
+            message.id === messageId && message.action
+              ? { ...message, action: { ...message.action, status } }
+              : message,
+          ),
+        }
+      }),
+    )
+  }, [])
+  const submitGeneralPrompt = useCallback(async (request: {
+    task: GeneralAgentTask
+    content: string
+    selectedModeName?: string | null
+    attachmentHint?: string
+    attachment?: GeneralAgentAttachment | null
+    appendUserMessage?: boolean
+    localResponse?: () => Promise<GeneralAgentLocalResponse> | GeneralAgentLocalResponse
+    onError?: (message: string) => void
+  }) => {
+    const trimmed = request.content.trim()
+    if (!trimmed) return
+    if (request.task.submitting || activeGeneralPromptIdsRef.current.has(request.task.id)) return
+    activeGeneralPromptIdsRef.current.add(request.task.id)
+
+    const appendUserMessage = request.appendUserMessage !== false
+    const userMessage = newMessage('user', trimmed, undefined, request.attachment ?? null)
+    const agentMessage: GeneralAgentMessage = {
+      ...userMessage,
+      content: buildGeneralAgentPromptContent(
+        trimmed,
+        request.selectedModeName,
+        request.attachmentHint,
+      ),
+    }
+    const startedAt = Date.now()
+    const agentMessages = [...request.task.messages, agentMessage]
+
+    setGeneralTasks((current) => {
+      const task = current.find((candidate) => candidate.id === request.task.id) ?? request.task
+      if (!task || task.submitting) return current
+      const base = current.some((candidate) => candidate.id === task.id)
+        ? current
+        : [task, ...current]
+      return bringGeneralTaskToFront(base, task.id, {
+        draftPrompt: '',
+        messages: appendVisibleGeneralUserMessage(task.messages, userMessage, appendUserMessage),
+        title: appendUserMessage && task.messages.length === 0
+          ? summarizeTaskTitle(trimmed)
+          : task.title,
+        submitting: true,
+        updatedAt: startedAt,
+      })
+    })
+
+    try {
+      const response = request.localResponse
+        ? await request.localResponse()
+        : { content: (await sendGeneralAgentPrompt(agentMessages)).text }
+      const responseContent = typeof response === 'string' ? response : response.content
+      const responseAction =
+        typeof response === 'string'
+          ? inferAgentMessageAction(responseContent)
+          : response.action ?? inferAgentMessageAction(responseContent)
+      setGeneralTasks((current) =>
+        bringGeneralTaskToFront(current, request.task.id, {
+          messages: [
+            ...(current.find((task) => task.id === request.task.id)?.messages ?? []),
+            newMessage(
+              'assistant',
+              responseContent || t('Agent 没有返回文本结果，请稍后重试。'),
+              responseAction,
+              null,
+              typeof response === 'string' ? [] : response.attachments,
+            ),
+          ],
+          submitting: false,
+        }),
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const text = t('Agent 调用失败：{0}', [message])
+      setGeneralTasks((current) =>
+        bringGeneralTaskToFront(current, request.task.id, {
+          messages: [
+            ...(current.find((task) => task.id === request.task.id)?.messages ?? []),
+            newMessage('assistant', text),
+          ],
+          submitting: false,
+        }),
+      )
+      request.onError?.(text)
+    } finally {
+      activeGeneralPromptIdsRef.current.delete(request.task.id)
+    }
+  }, [])
 
   return {
     conversations,
+    generalTasks,
     selectedId,
     selectedConversation,
+    selectedGeneralTask,
     createConversation,
+    createGeneralTask,
+    ensureGeneralTask,
+    updateGeneralTask,
+    updateGeneralMessageActionStatus,
+    submitGeneralPrompt,
     selectConversation: setSelectedId,
     startNewConversation,
   }

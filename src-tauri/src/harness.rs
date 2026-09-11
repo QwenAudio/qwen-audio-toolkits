@@ -4157,6 +4157,7 @@ async fn execute_request(
                     audio_data_url,
                     clip_name,
                     operations,
+                    optional_string(&request.parameters, "outputFileName"),
                     optional_number(&request.parameters, "selectionStart"),
                     optional_number(&request.parameters, "selectionEnd"),
                     optional_number(&request.parameters, "denoiseStrength"),
