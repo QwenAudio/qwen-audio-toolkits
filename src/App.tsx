@@ -100,7 +100,7 @@ import type {
   VadDetectionResult,
 } from './types'
 import type { WorkflowChatTurn } from './views/WorkflowChatView'
-import type { AgentCreationMode, VideoDubbingLanguages, VideoDubbingMode } from './domain/agents'
+import type { AgentCreationMode, VideoDubbingLanguages, VideoDubbingMode, VideoDubbingStyle } from './domain/agents'
 import { capabilityDefinition } from './domain/capabilities'
 import { useAgentConversations } from './hooks/useAgentConversations'
 import appIconUrl from '../src-tauri/icons/128x128.png'
@@ -1292,6 +1292,7 @@ function App() {
     sourcePath: string,
     videoDubbingMode?: VideoDubbingMode,
     videoDubbingLanguages?: VideoDubbingLanguages,
+    videoDubbingStyle?: VideoDubbingStyle,
   ) => {
     const modeLabel =
       appAgents.find((agent) => agent.workspaceEntry === mode)?.name ??
@@ -1307,6 +1308,7 @@ function App() {
       sourcePath,
       videoDubbingMode,
       videoDubbingLanguages,
+      videoDubbingStyle,
     })
     setWorkflowSelected(false)
     changeView(mode)
@@ -2538,6 +2540,7 @@ function App() {
                     initialLaunchId={1}
                     dubbingMode={conversation.videoDubbingMode ?? 'translate'}
                     dubbingLanguages={conversation.videoDubbingLanguages}
+                    dubbingStyle={conversation.videoDubbingStyle}
                     onAction={notify}
                   />
                 </div>

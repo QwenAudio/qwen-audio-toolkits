@@ -73,6 +73,33 @@ export function distributeScriptAcrossTurns(script, turns) {
   })
 }
 
+export const DUBBING_STYLES = ['natural', 'formal', 'casual']
+
+export function normalizeDubbingStyle(value) {
+  return DUBBING_STYLES.includes(value) ? value : 'natural'
+}
+
+const STYLE_GUIDANCE = {
+  natural: '',
+  formal: '风格要求：书面、正式的表达，句式完整、用词规范，避免口头禅和过于随性的说法，听上去像新闻播报或商务演示。',
+  casual: '风格要求：轻松口语化，多用短句和自然语气（适度），贴近日常聊天，避免书面腔和公文腔。',
+}
+
+export function dubbingStyleGuidance(style) {
+  return STYLE_GUIDANCE[normalizeDubbingStyle(style)] ?? ''
+}
+
+export function ttsStyleInstruction(style, targetName) {
+  switch (normalizeDubbingStyle(style)) {
+    case 'formal':
+      return `正式、庄重的${targetName}播音腔，吐字规范、节奏稳健，保留参考说话人的音色。`
+    case 'casual':
+      return `轻松、亲切的${targetName}日常口吻，像和朋友聊天一样，保留参考说话人的音色。`
+    default:
+      return `自然、清晰的${targetName}口播，保留参考说话人的音色。`
+  }
+}
+
 export function buildTransformationPrompt(dubbingMode, userInstruction = '', languages = {}) {
   const targetLanguage = normalizeDubbingLanguage(languages.target, 'zh')
   const sourceLanguage = normalizeDubbingLanguage(languages.source, 'auto')
@@ -91,6 +118,7 @@ export function buildTransformationPrompt(dubbingMode, userInstruction = '', lan
     dubbingMode === 'translate'
       ? `每段译文要尽量适配该段时长，正常语速按${speechRateGuidance(targetLanguage)}控制。`
       : '改写结果要尽量适配原始讲话时长，不能增加原文没有的事实。',
+    dubbingStyleGuidance(languages.style),
     userInstruction ? `用户要求：${userInstruction}` : '',
     '只返回 JSON：{"turns":[{"id":"...","speaker":"...","start":0,"end":1,"text":"..."}]}。',
   ].filter(Boolean).join('')
@@ -105,11 +133,11 @@ export function buildTranslationContextPrompt(targetLanguage) {
   ].join('')
 }
 
-export function formatTranslationContext(context) {
+export function formatTranslationContext(context, { includeTone = true } = {}) {
   if (!context || typeof context !== 'object') return ''
   const lines = []
   if (context.summary) lines.push(`内容梗概：${context.summary}`)
-  if (context.tone) lines.push(`语气风格：${context.tone}`)
+  if (includeTone && context.tone) lines.push(`语气风格：${context.tone}`)
   const glossary = Array.isArray(context.glossary) ? context.glossary : []
   const validGlossary = glossary.filter((entry) => entry?.source && entry?.target).slice(0, 30)
   if (validGlossary.length) {

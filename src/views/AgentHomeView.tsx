@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { open } from '@tauri-apps/plugin-dialog'
-import type { AgentCreationMode, VideoDubbingLanguages, VideoDubbingMode } from '../domain/agents'
+import type { AgentCreationMode, VideoDubbingLanguages, VideoDubbingMode, VideoDubbingStyle } from '../domain/agents'
 import { t, useLocale } from '../i18n'
 import type { ModelPlugin } from '../types'
 import './AgentHomeView.css'
@@ -30,6 +30,7 @@ interface AgentHomeViewProps {
     sourcePath: string,
     videoDubbingMode?: VideoDubbingMode,
     videoDubbingLanguages?: VideoDubbingLanguages,
+    videoDubbingStyle?: VideoDubbingStyle,
   ) => void
   onOpenStore: () => void
 }
@@ -95,6 +96,12 @@ const DUBBING_LANGUAGE_OPTIONS: ReadonlyArray<{ code: string; name: string }> = 
   { code: 'ko', name: '한국어' },
 ]
 
+const DUBBING_STYLE_OPTIONS: ReadonlyArray<{ code: VideoDubbingStyle; name: string }> = [
+  { code: 'natural', name: '自然' },
+  { code: 'formal', name: '正式' },
+  { code: 'casual', name: '口语' },
+]
+
 function attachmentMatchesMode(path: string, mode: AgentCreationMode): boolean {
   const extension = path.split('.').at(-1)?.toLowerCase() ?? ''
   return mode === 'meeting-notes'
@@ -115,6 +122,7 @@ export function AgentHomeView({
   const [videoDubbingMode, setVideoDubbingMode] = useState<VideoDubbingMode>('translate')
   const [sourceLanguage, setSourceLanguage] = useState('auto')
   const [targetLanguage, setTargetLanguage] = useState('zh')
+  const [dubbingStyle, setDubbingStyle] = useState<VideoDubbingStyle>('natural')
   const [prompt, setPrompt] = useState('')
   const [attachment, setAttachment] = useState<{ path: string; name: string } | null>(null)
   const [greeting, setGreeting] = useState<string | null>(null)
@@ -192,6 +200,7 @@ export function AgentHomeView({
         selectedEntry === 'video-dubbing'
           ? { source: sourceLanguage, target: targetLanguage }
           : undefined,
+        selectedEntry === 'video-dubbing' ? dubbingStyle : undefined,
       )
     } else if (!attachment && !hasGreeted) {
       showGreeting()
@@ -413,6 +422,19 @@ export function AgentHomeView({
                         onChange={(event) => setTargetLanguage(event.target.value)}
                       >
                         {DUBBING_LANGUAGE_OPTIONS.map((option) => (
+                          <option key={option.code} value={option.code}>{option.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {videoDubbingMode !== 'script' && (
+                    <label>
+                      {t('风格')}
+                      <select
+                        value={dubbingStyle}
+                        onChange={(event) => setDubbingStyle(event.target.value as VideoDubbingStyle)}
+                      >
+                        {DUBBING_STYLE_OPTIONS.map((option) => (
                           <option key={option.code} value={option.code}>{option.name}</option>
                         ))}
                       </select>

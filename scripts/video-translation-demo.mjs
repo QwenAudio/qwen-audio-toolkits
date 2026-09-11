@@ -14,6 +14,8 @@ import {
   formatTranslationContext,
   normalizeDubbingLanguage,
   normalizeDubbingMode,
+  normalizeDubbingStyle,
+  ttsStyleInstruction,
 } from './lib/video-dubbing/script-planner.mjs'
 
 const api = process.env.QWEN_AUDIO_TOOLKITS_API ?? 'http://127.0.0.1:3847/v1'
@@ -32,6 +34,7 @@ const sourceLanguage = normalizeDubbingLanguage(process.env.VIDEO_SOURCE_LANGUAG
 const targetLanguage = dubbingMode === 'translate'
   ? normalizeDubbingLanguage(process.env.VIDEO_TARGET_LANGUAGE, 'zh')
   : sourceLanguage
+const dubbingStyle = normalizeDubbingStyle(process.env.VIDEO_DUBBING_STYLE)
 const progressPrefix = '@@QWEN_VIDEO_TRANSLATION@@'
 const textGenerationTimeoutMs = 12 * 60_000
 let latestStage = 'preparing'
@@ -627,8 +630,9 @@ if (!sourceTurns.length) {
 saveJson('04-source-turns.json', sourceTurns)
 
 const transformationSignature = shortHash(JSON.stringify({
-  version: 6,
+  version: 7,
   dubbingMode,
+  dubbingStyle,
   userInstruction,
   sourceLanguage,
   targetLanguage,
@@ -682,7 +686,9 @@ const translationContext = dubbingMode !== 'translate'
     }, (cached) => cached?.version === 1 && cached?.signature === shortHash(
       JSON.stringify({ version: 1, targetLanguage, transcriptDigest: sourceTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n') }),
     ))
-const translationContextBlock = formatTranslationContext(translationContext?.context)
+const translationContextBlock = formatTranslationContext(translationContext?.context, {
+  includeTone: dubbingStyle === 'natural',
+})
 
 const translated = await cachedJson('05-translated-turns.json', async () => {
   if (dubbingMode === 'script') {
@@ -696,7 +702,11 @@ const translated = await cachedJson('05-translated-turns.json', async () => {
     }
   }
   const translationPrompt = [
-    buildTransformationPrompt(dubbingMode, userInstruction, { source: sourceLanguage, target: targetLanguage }),
+    buildTransformationPrompt(dubbingMode, userInstruction, {
+      source: sourceLanguage,
+      target: targetLanguage,
+      style: dubbingStyle,
+    }),
     translationContextBlock,
   ].filter(Boolean).join('\n\n')
   const batches = batchTurns(sourceTurns)
@@ -1033,9 +1043,10 @@ for (let index = 0; index < speechUnits.length; index += 1) {
             modelId: cloudVoices[turn.speaker].targetModel ?? cloudTtsModel,
             voice: cloudVoices[turn.speaker].id,
             speed,
-            instruction: dubbingMode === 'translate'
-              ? `自然、清晰的${dubbingLanguageName(targetLanguage)}口播，保留参考说话人的音色。`
-              : `自然、清晰的${dubbingLanguageName(speechLanguage)}视频口播，保持文案语言并保留参考说话人的音色。`,
+            instruction: ttsStyleInstruction(
+              dubbingStyle,
+              dubbingLanguageName(dubbingMode === 'translate' ? targetLanguage : speechLanguage),
+            ),
           }
         : {
             speed,
@@ -1343,6 +1354,7 @@ saveJson('08-report.json', {
   inputPath,
   outputVideoPath,
   dubbingMode,
+  dubbingStyle,
   sourceLanguage,
   targetLanguage: dubbingMode === 'translate' ? targetLanguage : undefined,
   detectedLanguage: speechLanguage,
