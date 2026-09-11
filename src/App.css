@@ -1102,7 +1102,8 @@ input[type="range"]:disabled {
   flex-direction: column;
   width: 212px;
   color: var(--muted);
-  background: var(--sidebar);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sidebar) 96%, #e9f7f7), var(--sidebar));
   border-right: 1px solid var(--line);
   transition:
     width 160ms ease,
@@ -3611,6 +3612,14 @@ button.job-state {
   grid-row: 2;
   grid-column: 2;
 }
+.plugins-page.skills-catalog {
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+}
+.plugins-page.skills-catalog > .plugins-workspace {
+  grid-row: 1;
+  grid-column: 1;
+}
 /* ---- In-app pages (extensions / settings) that take over the sidebar ---- */
 
 .sidebar-page-nav {
@@ -3716,7 +3725,8 @@ button.job-state {
 .settings-nav button.active {
   background: var(--primary-soft);
 }
-.model-view-container.page-extensions,
+.model-view-container.page-skills,
+.model-view-container.page-models,
 .model-view-container.page-settings {
   background: var(--surface-raised);
 }
@@ -4124,10 +4134,20 @@ button.job-state {
   background: color-mix(in srgb, var(--danger) 6%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 26%, var(--line));
 }
+.installed-button.hide-skill-button {
+  color: var(--ink-soft);
+  background: var(--surface-raised);
+  border-color: var(--line);
+}
 .installed-button.confirming-delete {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   border-color: color-mix(in srgb, var(--danger) 58%, var(--line));
+}
+.installed-button.hide-skill-button.confirming-delete {
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-color: var(--primary-ring);
 }
 .installed-button.retained-dependency {
   color: var(--muted);
@@ -6123,6 +6143,95 @@ body.sidebar-resizing .model-app-frame {
   height: 48px;
   flex-basis: 48px;
 }
+.sidebar-brand {
+  display: flex;
+  min-height: 62px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px 14px;
+}
+.sidebar-brand-mark {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #fff;
+  background: var(--primary);
+  border-radius: 9px;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--primary) 24%, transparent);
+}
+.sidebar-brand-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 760;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-primary-nav {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 12px;
+}
+.sidebar-primary-button {
+  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink-soft);
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+}
+.sidebar-primary-button {
+  height: 36px;
+  padding: 0 10px;
+  font-size: 15px;
+  font-weight: 620;
+}
+.sidebar-primary-button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-primary-button:hover {
+  color: var(--ink);
+  background: var(--list-hover);
+}
+.sidebar-primary-button.active {
+  color: var(--ink);
+  background: var(--list-active);
+  font-weight: 650;
+}
+.sidebar-primary-button.active svg {
+  color: var(--primary);
+}
+.sidebar-return-nav {
+  padding-bottom: 10px;
+}
+.sidebar-return-button {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface-raised) 78%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 78%, transparent);
+}
+.sidebar-return-button svg {
+  color: var(--primary);
+}
+.sidebar-settings-nav {
+  flex: 0 0 auto;
+  margin: 0 12px 12px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
 .installed-models {
   display: flex;
   min-height: 0;
@@ -6135,6 +6244,11 @@ body.sidebar-resizing .model-app-frame {
 }
 .installed-models::-webkit-scrollbar {
   display: none;
+}
+.sidebar-recent-tasks {
+  gap: 4px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
 }
 .sidebar-model-group {
   width: 100%;
@@ -6223,6 +6337,13 @@ body.sidebar-resizing .model-app-frame {
 }
 .sidebar-agents-entry:hover,
 .sidebar-agents-entry.active { background: var(--list-hover); }
+.sidebar-agents-entry:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.sidebar-agents-entry:disabled:hover {
+  background: transparent;
+}
 .sidebar-new-agent-conversation {
   display: grid;
   width: 30px;
@@ -6235,6 +6356,14 @@ body.sidebar-resizing .model-app-frame {
   border: 0;
   border-radius: 8px;
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.sidebar-agent-history-header:hover .sidebar-new-agent-conversation,
+.sidebar-agent-history-header:focus-within .sidebar-new-agent-conversation {
+  opacity: 1;
+  pointer-events: auto;
 }
 .sidebar-new-agent-conversation:hover { color: var(--ink); background: var(--list-hover); }
 .sidebar-agent-conversations {
@@ -6242,6 +6371,12 @@ body.sidebar-resizing .model-app-frame {
   flex-direction: column;
   gap: 2px;
   padding: 0 6px 2px 12px;
+}
+.sidebar-recent-empty {
+  margin: 4px 8px 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
 }
 .agent-conversation-button > span {
   overflow: hidden;

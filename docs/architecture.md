@@ -21,12 +21,12 @@ flowchart TD
 
 The React frontend lives in `src/`:
 
-- `App.tsx` owns the desktop shell, model navigation, settings, and global run
-  state.
+- `App.tsx` owns the desktop shell, New Task home page, Skills and Model Store
+  navigation, settings, and global run state.
 - `views/ModelWorkspaceView.tsx` renders the conversation and capability-aware
   input controls.
-- `views/PluginsView.tsx` renders the model catalog, installation state, model
-  variants, and dependency bindings.
+- `views/PluginsView.tsx` renders the Skills and Model Store catalog surfaces,
+  installation state, model variants, and dependency bindings.
 - `components/` contains shared waveform, spectrogram, recording, drop-zone,
   and playback controls.
 - `services/harness.ts` is the typed boundary for frontend-to-Rust calls.
@@ -52,13 +52,16 @@ to the parent result detail. Model bindings are persisted by the Rust backend,
 so sidebar removal, store removal, and the local API share the same reference
 graph. Referenced weights are retained; unreferenced weights are deleted.
 
-## Agent projects
+## Skill and model projects
 
-Independent data-processing projects bundle usage knowledge, model resources and
-a Harness contract. `agents.rs` validates `agent.json`; `plugins.rs` installs the
-project and registers its selected host adapter. New projects do not depend on
-other Agents. Legacy model packages remain compatible during migration. See
-[Agent projects](agent-projects.md) for implemented boundaries and examples.
+The product UI separates task-oriented **Skills** from the **Model Store**.
+Both can be backed by declarative project metadata during the migration from
+legacy plugin packages. `agents.rs` still validates the `agent.json` manifest
+name, while `plugins.rs` installs the project and registers its selected host
+adapter. New projects do not depend on other imported projects. Legacy model
+packages remain compatible during migration. See
+[Skill and model projects](agent-projects.md) for implemented boundaries and
+examples.
 
 ## Model plugins
 

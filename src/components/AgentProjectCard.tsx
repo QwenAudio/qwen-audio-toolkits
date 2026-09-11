@@ -7,18 +7,19 @@ export function AgentProjectCard({ plugin }: { plugin: AgentExtension }) {
 
   const project = plugin.agent
   const harness = project?.harness
+  const skillProject = plugin.extensionKind === 'workspace-agent'
   const harnessLabel = harness?.kind === 'app-workflow'
     ? `${t("应用工作流")} · ${harness.entry}`
     : harness?.adapter ?? plugin.adapter
   return (
-    <section className="agent-project-card" aria-label={t("Agent 项目定义")}>
+    <section className="agent-project-card" aria-label={t("项目定义")}>
       <header>
-        <strong>{project ? t("独立 Agent 项目") : t("旧版扩展")}</strong>
-        <span>{project ? t("数据处理") : t("自定义旧协议")}</span>
+        <strong>{skillProject ? t("内置技能") : project ? t("模型资源") : t("兼容扩展")}</strong>
+        <span>{skillProject ? t("工作流") : project ? t("模型能力") : t("自定义协议")}</span>
       </header>
       <p>{t(project?.task ?? plugin.description)}</p>
       <dl>
-        <div><dt>{t("模型 / API")}</dt><dd>{plugin.variants?.length
+        <div><dt>{skillProject ? t("技能入口") : t("模型 / API")}</dt><dd>{plugin.variants?.length
           ? plugin.variants.map((variant) => variant.name).join(' / ')
           : t(plugin.name)}</dd></div>
         <div><dt>Harness</dt><dd>{harnessLabel}</dd></div>
@@ -33,8 +34,8 @@ export function AgentProjectCard({ plugin }: { plugin: AgentExtension }) {
       {project ? (
         <>
           <p className="agent-project-boundary">{harness?.kind === 'app-workflow'
-            ? t("该 Agent 编排应用内已有模型能力；所需模型由用户独立安装和选择。")
-            : t("资源由本项目管理，不调用其他 Agent。当前 Harness 使用宿主提供的执行器。")}</p>
+            ? t("该技能编排应用内已有模型能力；所需模型由用户独立安装和选择。")
+            : t("资源由本模型管理，当前 Harness 使用宿主提供的执行器。")}</p>
           {([
             [t("输入要求"), project.usage.inputRequirements],
             [t("使用示例"), project.usage.examples],
@@ -47,7 +48,7 @@ export function AgentProjectCard({ plugin }: { plugin: AgentExtension }) {
           ))}
         </>
       ) : (
-        <p className="agent-project-boundary">{t("保留原有运行方式。迁移为独立 Agent 后，可在项目中声明使用说明、资源和 Harness。")}</p>
+        <p className="agent-project-boundary">{t("保留原有运行方式。迁移为模型资源后，可声明使用说明、资源和 Harness。")}</p>
       )}
     </section>
   )

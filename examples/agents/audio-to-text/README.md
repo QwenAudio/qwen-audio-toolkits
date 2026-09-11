@@ -1,10 +1,10 @@
-# Audio to Text · SenseVoice Small GGUF Agent
+# Audio to Text · SenseVoice Small GGUF skill project
 
 将音频转换为文本，并提供模型支持的语言、情感和音频事件标签。
 
 ## 使用
 
-在桌面应用 Agents 页面选择“导入 Agent”，选择本项目文件夹。
+在桌面应用「技能」页面选择“导入技能”，选择本项目文件夹。
 也可以将本目录打包为 ZIP，通过旁边的安装包按钮导入。首次安装会下载 Q8 模型、FSMN-VAD 和
 清单中声明的 FunASR 运行时。如果已有同 ID 的 SenseVoice 安装，导入不会覆盖它。
 
@@ -18,6 +18,6 @@
 - `funasr-sensevoice-gguf` 宿主 Harness 契约。
 - 输入输出、使用说明和限制。
 
-不依赖独立的 VAD Agent。结果不包含会议纪要或说话人分离。
+不依赖独立的 VAD 技能或模型。结果不包含会议纪要或说话人分离。
 模型与运行时按需下载；项目 ID 对应官方资源仓库路径，不能在使用
 `repositoryHosted` 时随意更改。自有项目可改用明确的 HTTPS 资源地址。

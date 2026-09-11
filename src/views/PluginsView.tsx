@@ -23,6 +23,7 @@ import {
   FileText,
   Gauge,
   HardDrive,
+  EyeOff,
   KeyRound,
   PackageCheck,
   Pause,
@@ -78,6 +79,7 @@ import type {
 } from '../types'
 
 interface PluginsViewProps {
+  catalogKind?: 'skills' | 'models'
   plugins: ModelPlugin[]
   modelBindings: ModelDependencyBindings
   runtime: RuntimeStatus
@@ -139,6 +141,7 @@ type CatalogInstallState = 'queued' | 'running' | 'paused' | 'canceling'
 
 
 export function PluginsView({
+  catalogKind = 'models',
   plugins,
   modelBindings,
   runtime,
@@ -159,20 +162,21 @@ export function PluginsView({
   taxonomyHost,
 }: PluginsViewProps) {
   const locale = useLocale()
+  const skillsCatalog = catalogKind === 'skills'
 
   const [importingAgent, setImportingAgent] = useState(false)
   const importAgent = async (directory = true) => {
     if (!isTauriRuntime()) {
-      onAction(t("请在桌面端导入 Agent 项目"))
+      onAction(t("请在桌面端导入技能项目"))
       return
     }
     setImportingAgent(true)
     try {
       const path = await open({
-        title: directory ? t("选择包含 agent.json 的项目文件夹") : t("导入 Agent 安装包"),
+        title: directory ? t("选择包含 agent.json 的技能项目文件夹") : t("导入技能安装包"),
         multiple: false,
         directory,
-        ...(directory ? {} : { filters: [{ name: t("Agent 安装包"), extensions: ['zip', 'cspkg'] }] }),
+        ...(directory ? {} : { filters: [{ name: t("技能安装包"), extensions: ['zip', 'cspkg'] }] }),
       })
       if (!path) return
       const installed = await installAgentProject(path)
@@ -186,7 +190,7 @@ export function PluginsView({
       setSelectedId(installed.id)
       onAction(t("{0} 已安装", [installed.name]))
     } catch (error) {
-      onAction(t("Agent 导入失败：{0}", [error instanceof Error ? error.message : String(error)]))
+      onAction(t("技能导入失败：{0}", [error instanceof Error ? error.message : String(error)]))
     } finally {
       setImportingAgent(false)
     }
@@ -200,12 +204,7 @@ export function PluginsView({
     'all' | 'offline' | 'api'
   >('all')
   const [selectedId, setSelectedId] = useState(
-    plugins.find((plugin) =>
-      plugin.harnessCapabilities.includes('speech.synthesize'),
-    )?.id ??
-      plugins.find((plugin) => plugin.featured)?.id ??
-      plugins[0]?.id ??
-      '',
+    '',
   )
   const [busyId, setBusyId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
@@ -277,6 +276,13 @@ export function PluginsView({
   const compactInstallProgress = installSpeed
     ? `${installProgressLabel} · ${installSpeed}`
     : installProgressLabel
+
+  useEffect(() => {
+    setPrimaryFilter('all')
+    setSecondaryFilter('all')
+    setRuntimeFilter('all')
+  }, [skillsCatalog])
+
   const cloudModels = useMemo(
     () =>
       cloudModelsFromCatalog(
@@ -288,8 +294,11 @@ export function PluginsView({
     [apiModelCatalog, catalog, customApiModels, installedCloudModelIds],
   )
   const allModels = useMemo(
-    () => [...appAgents, ...plugins, ...cloudModels].sort(compareCatalogModels),
-    [appAgents, cloudModels, plugins],
+    () =>
+      skillsCatalog
+        ? [...appAgents]
+        : [...plugins, ...cloudModels].sort(compareCatalogModels),
+    [appAgents, cloudModels, plugins, skillsCatalog],
   )
   const taxonomyByModelId = useMemo(
     () =>
@@ -391,12 +400,14 @@ export function PluginsView({
           )
         const taxonomy = taxonomyByModelId.get(plugin.id)
         const filterMatch =
+          skillsCatalog ||
           primaryFilter === 'all' ||
           (taxonomy?.primaryCategory === primaryFilter &&
             (secondaryFilter === 'all' ||
               taxonomy.secondaryCategory === secondaryFilter))
         const apiPlugin = isApiPlugin(plugin)
         const runtimeMatch =
+          skillsCatalog ||
           runtimeFilter === 'all' ||
           (runtimeFilter === 'api' && apiPlugin) ||
           (runtimeFilter === 'offline' && !apiPlugin)
@@ -409,6 +420,7 @@ export function PluginsView({
       runtimeFilter,
       search,
       secondaryFilter,
+      skillsCatalog,
       taxonomyByModelId,
     ],
   )
@@ -506,6 +518,16 @@ export function PluginsView({
   const anotherOperationBusy = importingAgent || Boolean(
     busyId && !installJobsRef.current[busyId],
   )
+
+  useEffect(() => {
+    if (!filteredPlugins.length) {
+      if (selectedId) setSelectedId('')
+      return
+    }
+    if (!filteredPlugins.some((plugin) => plugin.id === selectedId)) {
+      setSelectedId(filteredPlugins[0].id)
+    }
+  }, [filteredPlugins, selectedId])
 
   const variantIdFor = (plugin: ModelPlugin) =>
     selectedVariants[plugin.id] ??
@@ -783,13 +805,17 @@ export function PluginsView({
     if (plugin.adapter === 'web-audio' || busyId) return
     if (pendingDeleteId !== plugin.id) {
       setPendingDeleteId(plugin.id)
-      onAction(t("再次点击删除 {0}", [plugin.name]))
+      onAction(
+        isWorkspaceAgent(plugin)
+          ? t("再次点击隐藏 {0}", [displayPluginName(plugin)])
+          : t("再次点击删除 {0}", [plugin.name]),
+      )
       return
     }
     setPendingDeleteId(null)
     if (isWorkspaceAgent(plugin)) {
       onAppAgentInstalled(plugin.id, false)
-      onAction(t('{0} 已卸载', [displayPluginName(plugin)]))
+      onAction(t('{0} 已隐藏', [displayPluginName(plugin)]))
       return
     }
     if (isApiPlugin(plugin)) {
@@ -821,13 +847,13 @@ export function PluginsView({
     }
   }
 
-  const taxonomy = (
+  const taxonomy = skillsCatalog ? null : (
     <aside
       className="catalog-taxonomy"
-      aria-label={t("Agent 分类")}
+      aria-label={t("模型分类")}
     >
       <div className="taxonomy-heading">
-        <span>{t("Agent 分类")}</span>
+        <span>{t("模型分类")}</span>
         <small>{allModels.length}</small>
       </div>
       <nav className="taxonomy-tree" role="tree">
@@ -841,7 +867,7 @@ export function PluginsView({
               setSecondaryFilter('all')
             }}
           >
-            <span>{t("全部 Agents")}</span>
+            <span>{t("全部模型")}</span>
             <small>{allModels.length}</small>
           </button>
           {categoryTree.filter((category) => category.id !== 'agents').map((category) => {
@@ -908,8 +934,12 @@ export function PluginsView({
   )
 
   return (
-    <div className={`plugins-page${taxonomyHost ? ' embedded' : ''}`}>
-      {taxonomyHost ? createPortal(taxonomy, taxonomyHost) : taxonomy}
+    <div
+      className={`plugins-page${taxonomyHost ? ' embedded' : ''}${
+        skillsCatalog ? ' skills-catalog' : ''
+      }`}
+    >
+      {taxonomy && (taxonomyHost ? createPortal(taxonomy, taxonomyHost) : taxonomy)}
 
       <div
         ref={workspaceRef}
@@ -922,19 +952,28 @@ export function PluginsView({
       >
         <main className="plugin-catalog">
           <div className="agent-catalog-heading">
-            <div><h1>Agents</h1><p>{t("模型、使用知识与 Harness，组成完整的数据处理项目。")}</p></div>
-            <div className="agent-import-actions">
-            <button type="button" className="secondary-action" onClick={() => void importAgent()}
-              disabled={importingAgent || Boolean(busyId) || Object.keys(installJobs).length > 0}>
-              {importingAgent ? <RefreshCw size={15} className="model-spin" /> : <CirclePlus size={15} />}
-              {importingAgent ? t("正在导入") : t("导入 Agent")}
-            </button>
-            <button type="button" className="icon-button" title={t("导入 ZIP 安装包")} aria-label={t("导入 ZIP 安装包")}
-              onClick={() => void importAgent(false)}
-              disabled={importingAgent || Boolean(busyId) || Object.keys(installJobs).length > 0}>
-              <Boxes size={17} />
-            </button>
+            <div>
+              <h1>{skillsCatalog ? t("技能") : t("模型商店")}</h1>
+              <p>
+                {skillsCatalog
+                  ? t("面向任务的音频工作流，可调用已安装模型完成创作。")
+                  : t("识别、合成、降噪、声纹和云端 API，组成技能可调用的基础能力。")}
+              </p>
             </div>
+            {skillsCatalog && (
+              <div className="agent-import-actions">
+                <button type="button" className="secondary-action" onClick={() => void importAgent()}
+                  disabled={importingAgent || Boolean(busyId) || Object.keys(installJobs).length > 0}>
+                  {importingAgent ? <RefreshCw size={15} className="model-spin" /> : <CirclePlus size={15} />}
+                  {importingAgent ? t("正在导入") : t("导入技能")}
+                </button>
+                <button type="button" className="icon-button" title={t("导入 ZIP 安装包")} aria-label={t("导入 ZIP 安装包")}
+                  onClick={() => void importAgent(false)}
+                  disabled={importingAgent || Boolean(busyId) || Object.keys(installJobs).length > 0}>
+                  <Boxes size={17} />
+                </button>
+              </div>
+            )}
           </div>
           <div className="plugin-catalog-head">
             <label className="search-field plugin-search">
@@ -942,8 +981,8 @@ export function PluginsView({
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder={t("搜索 Agent、模型、能力或作者")}
-                aria-label={t("搜索 Agent")}
+                placeholder={skillsCatalog ? t("搜索技能、能力或作者") : t("搜索模型、能力或作者")}
+                aria-label={skillsCatalog ? t("搜索技能") : t("搜索模型")}
               />
             </label>
             {Object.keys(installJobs).length > 0 && (
@@ -956,7 +995,8 @@ export function PluginsView({
                     : t("等待安装")}{' '}
                   · {Object.values(installJobs).length} {t(" 个任务")}</span>
               )}
-            <div className="runtime-scope" aria-label={t("按运行方式筛选")}>
+            {!skillsCatalog && (
+              <div className="runtime-scope" aria-label={t("按运行方式筛选")}>
                 <button
                   className={runtimeFilter === 'offline' ? 'active' : ''}
                   type="button"
@@ -985,6 +1025,7 @@ export function PluginsView({
                   <Wifi size={13} />
                   {t("云端 API")}</button>
               </div>
+            )}
           </div>
 
 
@@ -993,7 +1034,7 @@ export function PluginsView({
               <div className="plugin-empty-category">
                 <BrainCircuit size={22} />
                 <strong>
-                  {t("这个分类暂时没有 Agent")}</strong>
+                  {skillsCatalog ? t("这个分类暂时没有技能") : t("这个分类暂时没有模型")}</strong>
                 <p>
                   {t("尝试切换分类或搜索其他能力。")}</p>
               </div>
@@ -1031,7 +1072,7 @@ export function PluginsView({
                       <button
                         className={
                           plugin.installed
-                            ? `installed-button${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`
+                            ? `installed-button hide-skill-button${pendingDeleteId === plugin.id ? ' confirming-delete' : ''}`
                             : 'install-button'
                         }
                         type="button"
@@ -1043,8 +1084,8 @@ export function PluginsView({
                       >
                         {plugin.installed ? (
                           <>
-                            <Trash2 size={14} />
-                            {pendingDeleteId === plugin.id ? t('确认') : t('卸载')}
+                            <EyeOff size={14} />
+                            {pendingDeleteId === plugin.id ? t('确认隐藏') : t('隐藏')}
                           </>
                         ) : (
                           <>
@@ -1155,7 +1196,7 @@ export function PluginsView({
                       </div>
                     </div>
                     <span className="plugin-author">
-                      {plugin.agent ? 'Agent' : t("兼容扩展")} · {plugin.author} ·{' '}
+                      {appAgent ? t("技能") : plugin.agent ? t("模型") : t("兼容扩展")} · {plugin.author} ·{' '}
                       {displayPluginVersion(plugin, apiPlugin)}
                     </span>
                     <p>{t(plugin.description)}</p>
@@ -1165,7 +1206,7 @@ export function PluginsView({
                       >
                         {apiPlugin ? <Wifi size={11} /> : <HardDrive size={11} />}
                         {appAgent
-                          ? t("应用 Agent")
+                          ? t("技能")
                           : apiPlugin
                             ? t("云端 API")
                             : t("离线运行")}
@@ -1201,8 +1242,12 @@ export function PluginsView({
           {!selectedPlugin && (
             <div className="plugin-empty-category plugin-details-empty">
               <BrainCircuit size={22} />
-              <strong>{t("选择一个 Agent 查看详情")}</strong>
-              <p>{t("选择一个数据处理项目，查看使用说明、运行资源与安装选项。")}</p>
+              <strong>{skillsCatalog ? t("选择一个技能查看详情") : t("选择一个模型查看详情")}</strong>
+              <p>
+                {skillsCatalog
+                  ? t("选择一个技能，查看使用说明、所需模型与安装选项。")
+                  : t("选择一个模型，查看能力、运行资源与安装选项。")}
+              </p>
             </div>
           )}
 
@@ -1231,7 +1276,7 @@ export function PluginsView({
                   )}
                   <span>
                     {selectedIsAppAgent
-                      ? t("应用 Agent")
+                      ? t("技能")
                       : selectedIsApi
                         ? t("云端 API")
                         : t("离线运行")}
@@ -1336,7 +1381,7 @@ export function PluginsView({
                   {selectedIsAppAgent ? (
                     <>
                       <Download size={16} />
-                      {t('安装 Agent')}
+                      {t('安装技能')}
                     </>
                   ) : selectedInstallState === 'queued' ? (
                     <>
@@ -1380,9 +1425,9 @@ export function PluginsView({
                     <>
                       <Download size={16} />{' '}
                       {selectedPlugin.installable === false
-                        ? t("运行适配中")
+                          ? t("运行适配中")
                         : selectedPlugin.catalogManaged
-                          ? t("安装 Agent")
+                          ? t("安装模型")
                           : t("需导入完整项目资源")}
                     </>
                   )}
@@ -1439,6 +1484,8 @@ export function PluginsView({
                   selectedPlugin.adapter !== 'web-audio' && (
                     <button
                       className={`installed-button plugin-detail-remove${
+                        selectedIsAppAgent ? ' hide-skill-button' : ''
+                      }${
                         selectedRetainedDependency ? ' retained-dependency' : ''
                       }${pendingDeleteId === selectedPlugin.id ? ' confirming-delete' : ''}`}
                       type="button"
@@ -1456,16 +1503,16 @@ export function PluginsView({
                           {t("依赖中")}</>
                       ) : (
                         <>
-                          <Trash2 size={15} />
+                          {selectedIsAppAgent ? <EyeOff size={15} /> : <Trash2 size={15} />}
                           {pendingDeleteId === selectedPlugin.id
                             ? selectedIsAppAgent
-                              ? t("再次点击确认卸载")
+                              ? t("再次点击确认隐藏")
                               : t("再次点击确认删除")
                             : selectedIsAppAgent
-                              ? t("卸载 Agent")
+                              ? t("隐藏技能")
                               : selectedIsApi
                               ? t("从工作台移除")
-                              : t("删除 Agent")}
+                              : t("删除模型")}
                         </>
                       )}
                     </button>
@@ -1480,7 +1527,7 @@ export function PluginsView({
                   className={detailsTab === 'card' ? 'active' : ''}
                   onClick={() => setDetailsTab('card')}
                 >
-                  {t("项目说明")}</button>
+                  {skillsCatalog ? t("技能说明") : t("模型说明")}</button>
                 {selectedHasFiles && (
                   <button
                     type="button"

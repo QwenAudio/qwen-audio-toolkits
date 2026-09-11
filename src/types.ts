@@ -35,7 +35,11 @@ export interface AgentProject {
       }
 }
 
-export type WorkspaceAgentEntry = 'smart-cut' | 'ai-podcast'
+export type WorkspaceAgentEntry =
+  | 'smart-cut'
+  | 'ai-podcast'
+  | 'video-dubbing'
+  | 'meeting-notes'
 
 /** An extension is an Agent project; model fields remain compatible with v1/v2 packages. */
 export interface AgentExtension {

@@ -6,10 +6,11 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://v2.tauri.app/)
 [![macOS](https://img.shields.io/badge/macOS-14.2%2B-black?logo=apple)](docs/getting-started.md)
 
-QwenAudio Toolkits is a local-first desktop workspace for audio AI models. It
-provides one conversation-like interface for uploading, recording, and
-monitoring audio, then inspecting results as playable audio, waveforms, Mel
-spectrograms, timestamps, speaker segments, and runtime metadata.
+QwenAudio Toolkits is a local-first desktop workspace for audio AI creation and
+model execution. It starts from a new-task home page where you can describe
+what you want to create, choose a skill such as video editing, AI podcast,
+video translation, or meeting notes, and install the underlying models only
+when they are needed.
 
 The first public preview targets Apple Silicon Macs running macOS 14.2 or
 later. Model weights and runtime packages are downloaded on demand, so they are
@@ -24,6 +25,8 @@ not bundled into the application installer.
 - Audio enhancement and noise suppression
 - Text normalization, including TN / ITN processing
 - Text-to-speech and reference-voice workflows where supported by the model
+- Task-oriented skills for video editing, AI podcast generation, video
+  translation, and meeting notes
 - Local model runtimes and cloud API models behind one typed Harness contract
 - A model store with variants, checksums, dependencies, and resumable downloads
 - Shared input, streaming, preview, and result-detail interactions across model
@@ -81,7 +84,20 @@ inside the release workflow to create signed updater artifacts.
 See the [getting started guide](docs/getting-started.md) for permissions,
 model installation, cloud configuration, and local data locations.
 
-## Use a model
+## Start a task
+
+1. Open **New Task**.
+2. Describe what you want to create.
+3. Choose a skill, such as **视频剪辑**, **AI 播客**, **视频配音**, or
+   **会议纪要**.
+4. Add source material when the selected skill needs a file.
+5. Install or configure the required models if the skill asks for them.
+
+Skills are workflow entry points. They orchestrate installed models, but model
+weights, cloud API configuration, and model dependencies remain managed by the
+model store.
+
+## Use a model directly
 
 1. Open **Model Store**.
 2. Choose an **Offline** model, a bundled cloud model, or configure a custom
@@ -97,8 +113,8 @@ reference transcription, remain separate models and can be selected from the
 model details.
 
 Cloud execution sends the selected input to the configured provider. Configure
-provider credentials under **Settings → Provider**; local models continue to
-run without access to those credentials.
+provider credentials from the API model configuration flow in **Model Store**;
+local models continue to run without access to those credentials.
 
 ## Updates, models, and privacy
 
@@ -128,14 +144,14 @@ processed audio, recordings, run history, and provider configuration. Removing
 the app does not remove this directory automatically. See [PRIVACY.md](PRIVACY.md)
 for the complete storage and network boundaries.
 
-## Agent projects
+## Skills and model projects
 
-The extensions page now presents Agents: data-processing projects combining a
-model, usage information, resources and a Harness contract. Import a local
-Agent project folder or ZIP from the desktop Agents page. 3D-Speaker and
-SenseVoice are the first migrated entries; legacy model packages remain
-compatible. See [Agent projects](docs/agent-projects.md) for examples and the
-current host-adapter execution boundary.
+The desktop UI separates **Skills** from **Model Store**. Skills are
+task-oriented workflows, while Model Store entries provide the concrete local
+or cloud capabilities that those workflows call. Under the hood, imported skill
+or model projects can still use the `agent.json` project manifest during the
+current migration period. See [Skill and model projects](docs/agent-projects.md)
+for examples and the current host-adapter execution boundary.
 
 ## Architecture
 
