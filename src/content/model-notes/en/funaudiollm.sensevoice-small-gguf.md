@@ -12,7 +12,7 @@ The official SenseVoice Small GGUF runtime produces text together with language,
 
 ## Usage tips
 - Default Q8 (about 243 MB) suits most uses; F16 / F32 offer greater precision at larger sizes.
-- The project includes FSMN-VAD GGUF segmentation resources; no other Agent is needed.
+- The project includes FSMN-VAD GGUF segmentation resources; no extra VAD model is needed.
 
 ## Source and license
 - Publisher: FunAudioLLM · License: Apache-2.0

@@ -54,6 +54,34 @@ npm run desktop:build
 
 Signed updater artifacts are created separately by the GitHub release workflow.
 
+## App layout
+
+The left sidebar starts with the **QwenAudio Toolkits** brand and three primary
+entries:
+
+- **新任务 / New Task** opens the creation home page. Describe the task, choose
+  a skill, and attach source material when the workflow needs a file.
+- **技能 / Skills** lists task workflows such as video editing, AI podcast,
+  video translation, and meeting notes. Built-in skills can be hidden from the
+  workspace and installed again later.
+- **模型商店 / Model Store** lists local and cloud models. Models provide the
+  underlying ASR, VAD, TTS, enhancement, speaker, and text capabilities used by
+  skills and direct model conversations.
+
+The settings button at the bottom of the sidebar opens a separate settings
+surface with **常规 / General**, **外观 / Appearance**, and
+**模型与存储 / Models & Storage**. Use **返回应用 / Back to app** to return to
+the main workspace.
+
+## Start a task
+
+1. Open **新任务 / New Task**.
+2. Describe the audio or video result you want.
+3. Select a skill from the chips below the composer.
+4. Add the required source file when prompted.
+5. If a required model is missing, follow the install link to **技能 / Skills**
+   or **模型商店 / Model Store**, then return to the task.
+
 ## Install and run a local model
 
 1. Open **模型商店 / Model Store**.
@@ -70,9 +98,10 @@ remain separate models and can be changed in model details.
 ## Configure a cloud model
 
 QwenAudio Toolkits exposes Alibaba Cloud Model Studio and custom REST API
-providers. Open **Settings → Provider** to configure Alibaba Cloud Bailian or
-one or more custom providers. A custom provider stores its display name, API
-Base URL, authentication, enabled capabilities, and capability-level protocol.
+providers. Open the API model configuration flow from **模型商店 / Model Store**
+to configure Alibaba Cloud Bailian or one or more custom providers. A custom
+provider stores its display name, API Base URL, authentication, enabled
+capabilities, and capability-level protocol.
 HTTPS is required for remote endpoints;
 local `localhost`, `127.0.0.1`, and `[::1]` HTTP endpoints may omit the API key.
 
@@ -83,10 +112,9 @@ JSON text pointers, Base64 audio JSON bodies, and custom request templates are
 configurable. TTS supports standard JSON, voice-in-path JSON, nested voice
 settings, model-in-path/query requests, or a custom JSON template, with raw
 WAV/PCM16, JSON Hex/Base64, or streamed NDJSON/SSE Base64 responses. Paths and
-headers may contain `{model}`, `{voice}`, `{speed}`, or `{uuid}` variables. Add
-models separately from **Model Store → Add API Model**; each model stores only
-its Provider, capability, display name, Model ID, and an optional default voice.
-These settings do not require a desktop release.
+headers may contain `{model}`, `{voice}`, `{speed}`, or `{uuid}` variables.
+Each API model stores only its Provider, capability, display name, Model ID,
+and an optional default voice. These settings do not require a desktop release.
 Capabilities on one provider share the same Base URL and authentication. If a
 service exposes LLM, ASR, or TTS on different hosts or keys, create separate
 providers and enable only the matching capability on each one.

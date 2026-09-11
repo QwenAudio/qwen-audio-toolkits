@@ -14,14 +14,16 @@ import {
 import { open } from '@tauri-apps/plugin-dialog'
 import type { AgentCreationMode, VideoDubbingMode } from '../domain/agents'
 import { t, useLocale } from '../i18n'
+import type { ModelPlugin } from '../types'
 import './AgentHomeView.css'
 
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v', 'webm', 'mkv'] as const
 const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'markdown'] as const
 
 interface AgentHomeViewProps {
-  smartCutAvailable: boolean
-  podcastAvailable: boolean
+  skills: ModelPlugin[]
+  selectedModeId: AgentCreationMode | null
+  onSelectedModeChange: (mode: AgentCreationMode | null) => void
   onLaunch: (
     mode: AgentCreationMode,
     prompt: string,
@@ -31,36 +33,19 @@ interface AgentHomeViewProps {
   onOpenStore: () => void
 }
 
-const MODES = [
-  {
-    id: 'smart-cut',
-    name: '视频剪辑',
-    description: '识别口播，校对后删除停顿、口水词和重录片段',
-    icon: Scissors,
-    tone: 'green',
-  },
-  {
-    id: 'ai-podcast',
-    name: 'AI 播客',
-    description: '把论文或文档变成可编辑的双人对话节目',
-    icon: Radio,
-    tone: 'violet',
-  },
-  {
-    id: 'video-dubbing',
-    name: '视频配音',
-    description: '翻译、改写或替换口播，并自动克隆音色、对齐节奏',
-    icon: Languages,
-    tone: 'blue',
-  },
-  {
-    id: 'meeting-notes',
-    name: '会议纪要',
-    description: '实时转写并滚动识别说话人，延迟生成结构化纪要',
-    icon: Mic2,
-    tone: 'coral',
-  },
-] as const
+const MODE_ORDER: AgentCreationMode[] = [
+  'smart-cut',
+  'ai-podcast',
+  'video-dubbing',
+  'meeting-notes',
+]
+
+const MODE_ICONS = {
+  'smart-cut': Scissors,
+  'ai-podcast': Radio,
+  'video-dubbing': Languages,
+  'meeting-notes': Mic2,
+} satisfies Record<AgentCreationMode, typeof Scissors>
 
 const PROMPTS: Record<AgentCreationMode, ReadonlyArray<{
   title: string
@@ -107,52 +92,63 @@ function attachmentMatchesMode(path: string, mode: AgentCreationMode): boolean {
   return mode === 'meeting-notes'
     ? false
     : mode === 'ai-podcast'
-    ? DOCUMENT_EXTENSIONS.includes(extension as (typeof DOCUMENT_EXTENSIONS)[number])
-    : VIDEO_EXTENSIONS.includes(extension as (typeof VIDEO_EXTENSIONS)[number])
+      ? DOCUMENT_EXTENSIONS.includes(extension as (typeof DOCUMENT_EXTENSIONS)[number])
+      : VIDEO_EXTENSIONS.includes(extension as (typeof VIDEO_EXTENSIONS)[number])
 }
 
 export function AgentHomeView({
-  smartCutAvailable,
-  podcastAvailable,
+  skills,
+  selectedModeId,
+  onSelectedModeChange,
   onLaunch,
   onOpenStore,
 }: AgentHomeViewProps) {
   useLocale()
-  const [mode, setMode] = useState<AgentCreationMode | null>(null)
   const [videoDubbingMode, setVideoDubbingMode] = useState<VideoDubbingMode>('translate')
   const [prompt, setPrompt] = useState('')
   const [attachment, setAttachment] = useState<{ path: string; name: string } | null>(null)
 
-  const selectedMode = useMemo(
-    () => MODES.find((candidate) => candidate.id === mode) ?? null,
-    [mode],
+  const modes = useMemo(
+    () =>
+      skills
+        .filter((skill): skill is ModelPlugin & { workspaceEntry: AgentCreationMode } =>
+          Boolean(skill.workspaceEntry) &&
+          MODE_ORDER.includes(skill.workspaceEntry as AgentCreationMode),
+        )
+        .sort(
+          (left, right) =>
+            MODE_ORDER.indexOf(left.workspaceEntry) -
+            MODE_ORDER.indexOf(right.workspaceEntry),
+        ),
+    [skills],
   )
-  const available = mode === 'smart-cut'
-    ? smartCutAvailable
-    : mode === 'ai-podcast'
-      ? podcastAvailable
-      : mode === 'video-dubbing' || mode === 'meeting-notes'
-  const attachmentCompatible = !attachment || !mode || attachmentMatchesMode(attachment.path, mode)
+  const selectedMode = useMemo(
+    () => modes.find((candidate) => candidate.workspaceEntry === selectedModeId) ?? null,
+    [modes, selectedModeId],
+  )
+  const selectedEntry = selectedMode?.workspaceEntry ?? null
+  const available = selectedMode?.installed ?? false
+  const attachmentCompatible = !attachment || !selectedEntry || attachmentMatchesMode(attachment.path, selectedEntry)
 
   const chooseMode = (nextMode: AgentCreationMode) => {
     if (nextMode === 'meeting-notes') setAttachment(null)
-    setMode(nextMode)
+    onSelectedModeChange(nextMode)
   }
 
   const launch = () => {
-    if (!selectedMode || (selectedMode.id !== 'meeting-notes' && (!attachment || !attachmentCompatible))) return
+    if (!selectedEntry || (selectedEntry !== 'meeting-notes' && (!attachment || !attachmentCompatible))) return
     onLaunch(
-      selectedMode.id,
+      selectedEntry,
       prompt.trim(),
       attachment?.path ?? '',
-      selectedMode.id === 'video-dubbing' ? videoDubbingMode : undefined,
+      selectedEntry === 'video-dubbing' ? videoDubbingMode : undefined,
     )
   }
 
   const chooseAttachment = async () => {
-    const filters = mode === 'ai-podcast'
+    const filters = selectedEntry === 'ai-podcast'
       ? [{ name: t('文档'), extensions: [...DOCUMENT_EXTENSIONS] }]
-      : mode === 'smart-cut' || mode === 'video-dubbing'
+      : selectedEntry === 'smart-cut' || selectedEntry === 'video-dubbing'
         ? [{ name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] }]
         : [
             { name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] },
@@ -177,9 +173,9 @@ export function AgentHomeView({
       <section className="agent-home-shell">
         <header className="agent-home-heading">
           <div className="agent-home-mark"><Sparkles size={23} strokeWidth={1.65} /></div>
-          <span>{t('AI 创作 Agent')}</span>
+          <span>{t('新任务')}</span>
           <h1>{t('今天想创作什么？')}</h1>
-          <p>{t('描述你的创作需求，或从下方选择任务类型和推荐 Prompt。')}</p>
+          <p>{t('描述任务，选择技能和模型完成音频创作与处理。')}</p>
         </header>
 
         <div className="agent-home-composer">
@@ -203,19 +199,19 @@ export function AgentHomeView({
             rows={3}
             value={prompt}
             placeholder={t(
-                  mode === 'video-dubbing' && videoDubbingMode === 'script'
+              selectedEntry === 'video-dubbing' && videoDubbingMode === 'script'
                 ? '粘贴完整配音文案'
-                    : mode === 'video-dubbing' && videoDubbingMode === 'rewrite'
+                : selectedEntry === 'video-dubbing' && videoDubbingMode === 'rewrite'
                   ? '描述你希望如何修改原稿'
-                  : '描述你的创作要求',
+                  : '描述任务，输入/调用技能',
             )}
             onChange={(event) => setPrompt(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
               event.preventDefault()
               if (
-                selectedMode &&
-                (selectedMode.id === 'meeting-notes' || (attachment && attachmentCompatible)) &&
+                selectedEntry &&
+                (selectedEntry === 'meeting-notes' || (attachment && attachmentCompatible)) &&
                 prompt.trim() &&
                 available
               ) {
@@ -224,63 +220,60 @@ export function AgentHomeView({
             }}
           />
           <div className="agent-home-composer-toolbar">
-            <button type="button" className="agent-attach-button" disabled={mode === 'meeting-notes'} onClick={() => void chooseAttachment()}>
+            <button type="button" className="agent-attach-button" disabled={selectedEntry === 'meeting-notes'} onClick={() => void chooseAttachment()}>
               <Paperclip size={14} />
               {t('添加文件')}
             </button>
             <span className={attachmentCompatible ? '' : 'invalid'}>
-              {!attachmentCompatible && mode === 'ai-podcast'
+              {!attachmentCompatible && selectedEntry === 'ai-podcast'
                 ? t('AI 播客仅支持 PDF、DOCX、TXT 和 Markdown，请更换附件')
                 : !attachmentCompatible
                   ? t('此任务仅支持视频文件，请更换附件')
                   : attachment
                     ? t('文件将与 Prompt 一起提交')
-                    : mode === 'meeting-notes'
+                    : selectedEntry === 'meeting-notes'
                       ? t('实时会议无需添加文件')
-                    : mode === 'ai-podcast'
+                    : selectedEntry === 'ai-podcast'
                       ? t('支持 PDF、DOCX、TXT 和 Markdown')
-                      : mode
+                      : selectedEntry
                         ? t('支持 MP4、MOV、M4V、WebM 和 MKV')
                         : t('支持视频、PDF 和文档')}
             </span>
             {selectedMode && !available && (
               <button type="button" className="agent-install-link" onClick={onOpenStore}>
-                {t('安装对应 Agent')}
+                {t('安装对应技能')}
               </button>
             )}
             <button
               className="agent-home-submit"
               type="button"
               disabled={
-                !selectedMode ||
-                (selectedMode?.id !== 'meeting-notes' && (!attachment || !attachmentCompatible)) ||
+                !selectedEntry ||
+                (selectedEntry !== 'meeting-notes' && (!attachment || !attachmentCompatible)) ||
                 !prompt.trim() ||
                 !available
               }
-              aria-label={t('进入 Agent 工作区')}
-              onClick={() => {
-                if (selectedMode && (selectedMode.id === 'meeting-notes' || (attachment && attachmentCompatible))) {
-                  launch()
-                }
-              }}
+              aria-label={t('进入技能工作区')}
+              onClick={launch}
             >
               <ArrowUp size={18} strokeWidth={2.2} />
             </button>
           </div>
         </div>
 
-        <div className="agent-mode-heading">{t('选择创作类型')}</div>
-        <div className="agent-mode-picker" aria-label={t('选择创作类型')}>
-          {MODES.map((item) => {
-            const Icon = item.icon
-            const active = item.id === mode
+        <div className="agent-mode-heading">{t('选择技能')}</div>
+        <div className="agent-mode-picker" aria-label={t('选择技能')}>
+          {modes.map((item) => {
+            const modeId = item.workspaceEntry
+            const Icon = MODE_ICONS[modeId]
+            const active = modeId === selectedModeId
             return (
               <button
                 className={`agent-mode-card ${item.tone}${active ? ' active' : ''}`}
                 type="button"
                 key={item.id}
                 aria-pressed={active}
-                onClick={() => chooseMode(item.id)}
+                onClick={() => chooseMode(modeId)}
               >
                 <span className="agent-mode-icon"><Icon size={19} strokeWidth={1.7} /></span>
                 <span className="agent-mode-copy">
@@ -293,7 +286,7 @@ export function AgentHomeView({
           })}
         </div>
 
-        {selectedMode ? (
+        {selectedMode && selectedEntry ? (
           <section className="agent-prompt-stage" aria-live="polite">
             <div className="agent-prompt-heading">
               <div>
@@ -303,7 +296,7 @@ export function AgentHomeView({
               <small>{t('也可以选择后继续修改')}</small>
             </div>
 
-              {selectedMode.id === 'video-dubbing' && (
+            {selectedEntry === 'video-dubbing' && (
               <>
                 <div className="agent-dubbing-mode-picker" role="group" aria-label={t('选择配音方式')}>
                   {VIDEO_DUBBING_MODES.map((item) => (
@@ -330,31 +323,30 @@ export function AgentHomeView({
             )}
 
             <div className="agent-prompt-list">
-              {PROMPTS[selectedMode.id]
-                  .filter((suggestion) => selectedMode.id !== 'video-dubbing' || suggestion.dubbingMode === videoDubbingMode)
+              {PROMPTS[selectedEntry]
+                .filter((suggestion) => selectedEntry !== 'video-dubbing' || suggestion.dubbingMode === videoDubbingMode)
                 .map((suggestion) => {
-                const active = prompt === suggestion.detail
-                return (
-                  <button
-                    type="button"
-                    className={active ? 'active' : ''}
-                    key={suggestion.title}
-                    onClick={() => {
-                      if (suggestion.dubbingMode) setVideoDubbingMode(suggestion.dubbingMode)
-                      setPrompt(suggestion.detail)
-                    }}
-                  >
-                    <MessageSquareText size={16} strokeWidth={1.65} />
-                    <span>
-                      <strong>{t(suggestion.title)}</strong>
-                      <small>{t(suggestion.detail)}</small>
-                    </span>
-                    <ArrowUp size={15} className="agent-prompt-arrow" />
-                  </button>
-                )
-              })}
+                  const active = prompt === suggestion.detail
+                  return (
+                    <button
+                      type="button"
+                      className={active ? 'active' : ''}
+                      key={suggestion.title}
+                      onClick={() => {
+                        if (suggestion.dubbingMode) setVideoDubbingMode(suggestion.dubbingMode)
+                        setPrompt(suggestion.detail)
+                      }}
+                    >
+                      <MessageSquareText size={16} strokeWidth={1.65} />
+                      <span>
+                        <strong>{t(suggestion.title)}</strong>
+                        <small>{t(suggestion.detail)}</small>
+                      </span>
+                      <ArrowUp size={15} className="agent-prompt-arrow" />
+                    </button>
+                  )
+                })}
             </div>
-
           </section>
         ) : null}
       </section>

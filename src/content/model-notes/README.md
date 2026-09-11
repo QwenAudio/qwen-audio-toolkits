@@ -1,7 +1,7 @@
 # 模型说明
 
 每个模型一份 Markdown，文件名为模型 id（本地模型见 `src-tauri/src/plugins.rs` 的内置清单，
-云端模型见 `catalog/model-catalog.json` 的 `apiModels`）。扩展页「模型介绍」区块会渲染
+云端模型见 `catalog/model-catalog.json` 的 `apiModels`）。模型商店「模型说明」区块会渲染
 对应文件；没有文件的模型回退到清单里的一句话 `description`。列表卡片始终使用一句话描述。
 
 统一模板：

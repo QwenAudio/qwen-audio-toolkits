@@ -27,12 +27,12 @@ import {
   Menu,
   Monitor,
   Moon,
-  Pin,
   RefreshCw,
   Palette,
   Settings,
   Settings2,
   ShoppingBag,
+  Sparkles,
   SquarePen,
   Sun,
   Trash2,
@@ -44,12 +44,12 @@ import {
 } from './components/ProviderSettings'
 import {
   appAgentsWithInstallState,
+  defaultInstalledAppAgentIds,
   INSTALLED_APP_AGENTS_STORAGE_KEY,
   sanitizeInstalledAppAgentIds,
 } from './appAgents'
 import { initialPlugins, fallbackRuntime } from './data'
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
-import { modelTaxonomy } from './domain/modelTaxonomy'
 import {
   appDataDirectory,
   cleanupDownloadCache,
@@ -68,11 +68,9 @@ import {
   setCloseBehavior,
   setModelDependencyBinding,
   subscribeHarnessRuns,
-  uninstallModelPlugin,
 } from './services/harness'
 import {
   getModelBinding,
-  referencingModels,
   recommendedDependencies,
 } from './modelDependencies'
 import {
@@ -175,11 +173,7 @@ const CUSTOM_API_MODELS_STORAGE_KEY =
   'qwen-audio-toolkits.custom-api-models-v1'
 const RUNS_REMOVED_EVENT = 'harness-runs-removed'
 const HISTORY_CLEARED_EVENT = 'harness-history-cleared'
-const SIDEBAR_MODEL_ORDER_KEY = 'qwen-audio-toolkits.model-sidebar-order-v1'
-const SIDEBAR_PINNED_MODELS_KEY = 'qwen-audio-toolkits.sidebar-pinned-models-v1'
 const SIDEBAR_WIDTH_KEY = 'qwen-audio-toolkits.sidebar-width-v8'
-const SIDEBAR_COLLAPSED_GROUPS_KEY =
-  'qwen-audio-toolkits.sidebar-collapsed-groups-v1'
 const THEME_STORAGE_KEY = 'qwen-audio-toolkits.theme-v1'
 const ACCENT_STORAGE_KEY = 'qwen-audio-toolkits.accent-v1'
 const SIDEBAR_DENSITY_STORAGE_KEY = 'qwen-audio-toolkits.sidebar-density-v1'
@@ -195,20 +189,6 @@ const DEFAULT_SIDEBAR_WIDTH = 260
 const MIN_SIDEBAR_WIDTH = 200
 const MAX_SIDEBAR_WIDTH = 520
 const MIN_WORKSPACE_WIDTH = 480
-
-interface SidebarModelGroup {
-  id: string
-  label: string
-  models: ModelPlugin[]
-}
-
-// 复用扩展页 taxonomy 分类（Audio-to-Text 等）作为侧边栏分组
-const SIDEBAR_TAXONOMY_GROUP_ORDER = [
-  'Audio-to-Text',
-  'Text-to-Audio',
-  'Audio-to-Audio',
-  'Text-to-Text',
-]
 
 function getInitialTheme(): ThemePreference {
   if (typeof window === 'undefined') return 'system'
@@ -273,22 +253,6 @@ function getInitialSidebarWidth() {
     )
   } catch {
     return DEFAULT_SIDEBAR_WIDTH
-  }
-}
-
-function getInitialCollapsedSidebarGroups() {
-  if (typeof window === 'undefined') return new Set<string>()
-  try {
-    const value = JSON.parse(
-      window.localStorage.getItem(SIDEBAR_COLLAPSED_GROUPS_KEY) ?? '[]',
-    )
-    return new Set<string>(
-      Array.isArray(value)
-        ? value.filter((item): item is string => typeof item === 'string')
-        : [],
-    )
-  } catch {
-    return new Set<string>()
   }
 }
 
@@ -387,90 +351,16 @@ function getInitialCustomApiModels(): CustomApiModelDefinition[] {
 }
 
 function getInitialInstalledAppAgents(): string[] {
-  if (typeof window === 'undefined') return []
+  if (typeof window === 'undefined') return defaultInstalledAppAgentIds()
   try {
+    const saved = window.localStorage.getItem(INSTALLED_APP_AGENTS_STORAGE_KEY)
+    if (saved === null) return defaultInstalledAppAgentIds()
     return sanitizeInstalledAppAgentIds(JSON.parse(
-      window.localStorage.getItem(INSTALLED_APP_AGENTS_STORAGE_KEY) ?? '[]',
+      saved,
     ))
   } catch {
-    return []
+    return defaultInstalledAppAgentIds()
   }
-}
-
-function getInitialSidebarModelOrder(): string[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const value = JSON.parse(
-      window.localStorage.getItem(SIDEBAR_MODEL_ORDER_KEY) ?? '[]',
-    )
-    return Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === 'string')
-      : []
-  } catch {
-    return []
-  }
-}
-
-function getInitialPinnedModels(): string[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const value = JSON.parse(
-      window.localStorage.getItem(SIDEBAR_PINNED_MODELS_KEY) ?? '[]',
-    )
-    return Array.isArray(value)
-      ? value.filter((item): item is string => typeof item === 'string')
-      : []
-  } catch {
-    return []
-  }
-}
-
-function startModelNameScroll(button: HTMLButtonElement) {
-  const text = button.querySelector<HTMLElement>('.activity-model-name-text')
-  const viewport = text?.parentElement
-  if (!text || !viewport) return
-  const compact =
-    button.closest<HTMLElement>('.model-sidebar')?.dataset.compact === 'true'
-  if (compact) {
-    const overflow = text.scrollHeight - viewport.clientHeight
-    if (overflow <= 1) return
-    text.getAnimations().forEach((animation) => animation.cancel())
-    text.animate(
-      [
-        { transform: 'translateY(0)' },
-        { transform: `translateY(-${overflow}px)` },
-      ],
-      {
-        duration: Math.max(1400, overflow * 90),
-        delay: 350,
-        direction: 'alternate',
-        easing: 'ease-in-out',
-        iterations: Infinity,
-      },
-    )
-    return
-  }
-  const overflow = text.scrollWidth - viewport.clientWidth
-  if (overflow <= 1) return
-  text.getAnimations().forEach((animation) => animation.cancel())
-  text.animate(
-    [
-      { transform: 'translateX(0)' },
-      { transform: `translateX(-${overflow}px)` },
-    ],
-    {
-      duration: Math.max(1600, overflow * 32),
-      delay: 350,
-      direction: 'alternate',
-      easing: 'ease-in-out',
-      iterations: Infinity,
-    },
-  )
-}
-
-function stopModelNameScroll(button: HTMLButtonElement) {
-  const text = button.querySelector<HTMLElement>('.activity-model-name-text')
-  text?.getAnimations().forEach((animation) => animation.cancel())
 }
 
 function upsertRun(runs: HarnessRun[], run: HarnessRun): HarnessRun[] {
@@ -495,7 +385,7 @@ function summarizeRun(run: HarnessRun): HarnessRun {
   }
 }
 
-type ShellPage = 'workspace' | 'extensions' | 'settings'
+type ShellPage = 'workspace' | 'skills' | 'models' | 'settings'
 type SettingsSection = 'general' | 'appearance' | 'storage'
 
 type AccentColor = 'mint' | 'indigo' | 'amber' | 'rose'
@@ -541,18 +431,16 @@ function App() {
     })
   }, [locale])
 
-  const [view, setView] = useState<AppView>('workspace')
+  const [view, setView] = useState<AppView>('agents')
   const {
     conversations: agentConversations,
     selectedId: selectedAgentConversationId,
     selectedConversation: selectedAgentConversation,
     createConversation: createAgentConversation,
     selectConversation: setSelectedAgentConversationId,
-    startNewConversation: startNewAgentConversation,
   } = useAgentConversations()
+  const [agentHomeMode, setAgentHomeMode] = useState<AgentCreationMode | null>(null)
   const [shellPage, setShellPage] = useState<ShellPage>('workspace')
-  const [extensionsNavHost, setExtensionsNavHost] =
-    useState<HTMLDivElement | null>(null)
   const [plugins, setPlugins] = useState<ModelPlugin[]>(initialPlugins)
   const [pluginsLoaded, setPluginsLoaded] = useState(() => !isTauriRuntime())
   const [runtime, setRuntime] = useState<RuntimeStatus>(fallbackRuntime)
@@ -602,20 +490,6 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth)
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
-  const [collapsedSidebarGroups, setCollapsedSidebarGroups] = useState(
-    getInitialCollapsedSidebarGroups,
-  )
-  const [sidebarModelOrder, setSidebarModelOrder] = useState(
-    getInitialSidebarModelOrder,
-  )
-  const [pinnedModelIds, setPinnedModelIds] = useState(
-    getInitialPinnedModels,
-  )
-  const [draggingModelId, setDraggingModelId] = useState<string | null>(null)
-  const [dropTargetModelId, setDropTargetModelId] = useState<string | null>(null)
-  const [pendingSidebarRemovalId, setPendingSidebarRemovalId] = useState<
-    string | null
-  >(null)
   const extensionsTriggerRef = useRef<HTMLButtonElement>(null)
   const extensionsReturnFocusRef = useRef<HTMLElement | null>(null)
   const [providerDialogOpen, setProviderDialogOpen] = useState(false)
@@ -823,11 +697,6 @@ function App() {
     () => appAgentsWithInstallState(installedAppAgentIds),
     [installedAppAgentIds],
   )
-  const installedAppAgents = useMemo(
-    () => appAgents.filter((agent) => agent.installed),
-    [appAgents],
-  )
-
   const setAppAgentInstalled = (agentId: string, installed: boolean) => {
     setInstalledAppAgentIds((current) => {
       const next = sanitizeInstalledAppAgentIds(
@@ -846,7 +715,7 @@ function App() {
       return next
     })
     const agent = appAgents.find((candidate) => candidate.id === agentId)
-    if (!installed && agent?.workspaceEntry === view) changeView('workspace')
+    if (!installed && agent?.workspaceEntry === view) changeView('agents')
   }
 
   useEffect(() => {
@@ -949,48 +818,8 @@ function App() {
     return [...visible.values()]
   }, [cloudModelPlugins, plugins])
   const orderedRunnablePlugins = useMemo(() => {
-    const order = new Map(
-      sidebarModelOrder.map((pluginId, index) => [pluginId, index]),
-    )
-    const pinned = new Set(pinnedModelIds)
-    return [...runnablePlugins].sort(
-      (left, right) =>
-        Number(pinned.has(right.id)) - Number(pinned.has(left.id)) ||
-        (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-          (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
-    )
-  }, [pinnedModelIds, runnablePlugins, sidebarModelOrder])
-  const sidebarModelGroups = useMemo<SidebarModelGroup[]>(() => {
-    const taxonomyGroups = new Map<string, ModelPlugin[]>()
-    for (const plugin of orderedRunnablePlugins) {
-      if (pinnedModelIds.includes(plugin.id)) continue
-      const label = modelTaxonomy(plugin).secondaryCategory
-      const models = taxonomyGroups.get(label) ?? []
-      models.push(plugin)
-      taxonomyGroups.set(label, models)
-    }
-    const rank = (label: string) => {
-      const index = SIDEBAR_TAXONOMY_GROUP_ORDER.indexOf(label)
-      return index === -1 ? SIDEBAR_TAXONOMY_GROUP_ORDER.length : index
-    }
-    const orderedLabels = [...taxonomyGroups.keys()].sort(
-      (left, right) => rank(left) - rank(right) || left.localeCompare(right),
-    )
-    return [
-      {
-        id: 'pinned',
-        get label() { return t("已置顶") },
-        models: orderedRunnablePlugins.filter((plugin) =>
-          pinnedModelIds.includes(plugin.id),
-        ),
-      },
-      ...orderedLabels.map((label) => ({
-        id: label,
-        label,
-        models: taxonomyGroups.get(label) ?? [],
-      })),
-    ]
-  }, [pinnedModelIds, orderedRunnablePlugins])
+    return runnablePlugins
+  }, [runnablePlugins])
   const responsiveSidebarMaxWidth = Math.max(
     MIN_SIDEBAR_WIDTH,
     Math.min(
@@ -1001,22 +830,6 @@ function App() {
   const visibleSidebarWidth = Math.min(sidebarWidth, responsiveSidebarMaxWidth)
   const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth
 
-  const toggleSidebarGroup = (groupId: string) => {
-    setCollapsedSidebarGroups((current) => {
-      const next = new Set(current)
-      if (next.has(groupId)) next.delete(groupId)
-      else next.add(groupId)
-      try {
-        window.localStorage.setItem(
-          SIDEBAR_COLLAPSED_GROUPS_KEY,
-          JSON.stringify([...next]),
-        )
-      } catch {
-        // Keep the collapsed state for the current session.
-      }
-      return next
-    })
-  }
   const selectedPlugin =
     orderedRunnablePlugins.find((plugin) => plugin.id === selectedPluginId) ??
     orderedRunnablePlugins[0] ??
@@ -1215,46 +1028,10 @@ function App() {
   }, [orderedRunnablePlugins, pluginsLoaded, selectedPluginId])
 
   useEffect(() => {
-    setSidebarModelOrder((current) => {
-      const availableIds = new Set(runnablePlugins.map((plugin) => plugin.id))
-      const next = [
-        ...current.filter((pluginId) => availableIds.has(pluginId)),
-        ...runnablePlugins
-          .map((plugin) => plugin.id)
-          .filter((pluginId) => !current.includes(pluginId)),
-      ]
-      if (
-        next.length === current.length &&
-        next.every((pluginId, index) => pluginId === current[index])
-      ) {
-        return current
-      }
-      try {
-        window.localStorage.setItem(
-          SIDEBAR_MODEL_ORDER_KEY,
-          JSON.stringify(next),
-        )
-      } catch {
-        // Keep the current session order when storage is unavailable.
-      }
-      return next
-    })
-  }, [runnablePlugins])
-
-  useEffect(() => {
     if (!toast) return undefined
     const timer = window.setTimeout(() => setToast(null), 2800)
     return () => window.clearTimeout(timer)
   }, [toast])
-
-  useEffect(() => {
-    if (!pendingSidebarRemovalId) return undefined
-    const timer = window.setTimeout(
-      () => setPendingSidebarRemovalId(null),
-      3200,
-    )
-    return () => window.clearTimeout(timer)
-  }, [pendingSidebarRemovalId])
 
   const notify = (message: string) => setToast(message)
 
@@ -1479,13 +1256,9 @@ function App() {
     sourcePath: string,
     videoDubbingMode?: VideoDubbingMode,
   ) => {
-    const modeLabel = mode === 'smart-cut'
-      ? t('视频剪辑')
-      : mode === 'ai-podcast'
-        ? t('AI 播客')
-        : mode === 'video-dubbing'
-          ? t('视频配音')
-          : t('会议纪要')
+    const modeLabel =
+      appAgents.find((agent) => agent.workspaceEntry === mode)?.name ??
+      t('技能')
     const normalizedPrompt = prompt.replace(/\s+/gu, ' ').trim()
     const promptTitle = normalizedPrompt.length > 22
       ? `${normalizedPrompt.slice(0, 22)}…`
@@ -1547,7 +1320,19 @@ function App() {
     setShellPage(page)
     setSidebarOpen(false)
   }
-  const openExtensions = () => openShellPage('extensions')
+  const openNewTask = () => {
+    setShellPage('workspace')
+    setAgentHomeMode(null)
+    setSelectedAgentConversationId(null)
+    setWorkflowSelected(false)
+    changeView('agents')
+  }
+  const openSkills = () => {
+    setShellPage('skills')
+    setSidebarOpen(false)
+  }
+  const openModelStore = () => openShellPage('models')
+  const openExtensions = openModelStore
   const openSettings = () => {
     setSettingsSection('general')
     openShellPage('settings')
@@ -1572,12 +1357,6 @@ function App() {
     setProviderDialogOpen(true)
   }
 
-  const selectPlugin = (pluginId: string) => {
-    setSelectedPluginId(pluginId)
-    setWorkflowSelected(false)
-    changeView('workspace')
-  }
-
   const updateWorkflowTurns = (
     workflowId: string,
     update: SetStateAction<WorkflowChatTurn[]>,
@@ -1589,44 +1368,6 @@ function App() {
         [workflowId]:
           typeof update === 'function' ? update(previous) : update,
       }
-    })
-  }
-
-  const reorderSidebarPlugin = (sourceId: string, targetId: string) => {
-    if (sourceId === targetId) return
-    setSidebarModelOrder((current) => {
-      const next = [...current]
-      const sourceIndex = next.indexOf(sourceId)
-      const targetIndex = next.indexOf(targetId)
-      if (sourceIndex < 0 || targetIndex < 0) return current
-      next.splice(sourceIndex, 1)
-      next.splice(targetIndex, 0, sourceId)
-      try {
-        window.localStorage.setItem(
-          SIDEBAR_MODEL_ORDER_KEY,
-          JSON.stringify(next),
-        )
-      } catch {
-        // Keep the reordered list for the current session.
-      }
-      return next
-    })
-  }
-
-  const togglePinnedModel = (pluginId: string) => {
-    setPinnedModelIds((current) => {
-      const next = current.includes(pluginId)
-        ? current.filter((id) => id !== pluginId)
-        : [...current, pluginId]
-      try {
-        window.localStorage.setItem(
-          SIDEBAR_PINNED_MODELS_KEY,
-          JSON.stringify(next),
-        )
-      } catch {
-        // Keep the pin state for the current session.
-      }
-      return next
     })
   }
 
@@ -1895,178 +1636,6 @@ function App() {
     )
     recordRun(execution.run)
     return execution
-  }
-
-  const renderPluginSidebarEntry = (plugin: ModelPlugin) => {
-    const active =
-      view === 'workspace' &&
-      !workflowSelected &&
-      selectedPlugin.id === plugin.id
-    const apiPlugin = plugin.providerId?.startsWith('api.') === true
-    const pinned = pinnedModelIds.includes(plugin.id)
-    const running = runs.some(
-      (run) =>
-        run.conversationVisible !== false &&
-        activeRunIds.has(run.id) &&
-        (run.conversationProviderId ?? run.providerId) === plugin.providerId &&
-        (!apiPlugin || run.modelId === plugin.version),
-    )
-    return (
-      <div
-        className={`installed-model-entry${draggingModelId === plugin.id ? ' dragging' : ''}${dropTargetModelId === plugin.id ? ' drop-target' : ''}`}
-        draggable
-        key={plugin.id}
-        onDragStart={(event) => {
-          setDraggingModelId(plugin.id)
-          event.dataTransfer.effectAllowed = 'move'
-          event.dataTransfer.setData(
-            'application/cosy-sidebar-model',
-            plugin.id,
-          )
-        }}
-        onDragOver={(event) => {
-          event.preventDefault()
-          event.dataTransfer.dropEffect = 'move'
-          if (draggingModelId !== plugin.id) {
-            setDropTargetModelId(plugin.id)
-          }
-        }}
-        onDragLeave={() => {
-          if (dropTargetModelId === plugin.id) {
-            setDropTargetModelId(null)
-          }
-        }}
-        onDrop={(event) => {
-          event.preventDefault()
-          const sourceId =
-            event.dataTransfer.getData('application/cosy-sidebar-model') ||
-            draggingModelId
-          if (sourceId) reorderSidebarPlugin(sourceId, plugin.id)
-          setDraggingModelId(null)
-          setDropTargetModelId(null)
-        }}
-        onDragEnd={() => {
-          setDraggingModelId(null)
-          setDropTargetModelId(null)
-        }}
-      >
-        <button
-          className={`installed-model-button${active ? ' active' : ''}`}
-          type="button"
-          aria-label={plugin.name}
-          title={plugin.name}
-          aria-current={active ? 'page' : undefined}
-          onMouseEnter={(event) => {
-            startModelNameScroll(event.currentTarget)
-          }}
-          onMouseLeave={(event) => {
-            stopModelNameScroll(event.currentTarget)
-          }}
-          onFocus={(event) => {
-            startModelNameScroll(event.currentTarget)
-          }}
-          onBlur={(event) => {
-            stopModelNameScroll(event.currentTarget)
-          }}
-          onClick={() => {
-            selectPlugin(plugin.id)
-          }}
-        >
-          <span className="activity-model-name">
-            <span className="activity-model-name-text">
-              {plugin.name}
-            </span>
-          </span>
-        </button>
-        {running && (
-          <span
-            className="installed-model-running"
-            aria-label={t("{0} 运行中", [plugin.name])}
-          >
-            <LoaderCircle className="sidebar-model-spinner" size={14} />
-          </span>
-        )}
-        {draggingModelId === null && (
-          <div className={`installed-model-actions${pinned ? ' pinned' : ''}`}>
-            <button
-              className="installed-model-pin"
-              type="button"
-              aria-label={`${pinned ? t("取消置顶") : t("置顶")} ${plugin.name}`}
-              title={pinned ? t("取消置顶") : t("置顶")}
-              aria-pressed={pinned}
-              draggable={false}
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation()
-                togglePinnedModel(plugin.id)
-              }}
-            >
-              <Pin
-                size={14}
-                strokeWidth={1.45}
-                fill={pinned ? 'currentColor' : 'none'}
-              />
-            </button>
-            <button
-              className={`installed-model-remove${pendingSidebarRemovalId === plugin.id ? ' confirming' : ''}`}
-              type="button"
-              aria-label={t("删除 {0}", [plugin.name])}
-              title={
-                running
-                  ? t("模型运行中，暂时无法删除")
-                  : pendingSidebarRemovalId === plugin.id
-                    ? t("再次点击确认删除")
-                    : t("删除模型")
-              }
-              disabled={running}
-              draggable={false}
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation()
-                const references = referencingModels(plugin.id, [
-                  ...plugins,
-                  ...cloudModelPlugins,
-                ], modelBindings)
-                if (pendingSidebarRemovalId !== plugin.id) {
-                  setPendingSidebarRemovalId(plugin.id)
-                  notify(
-                    apiPlugin
-                      ? t("再次点击垃圾桶确认从工作台移除 {0}", [plugin.name])
-                      : references.length
-                      ? t("{0} 仍被引用；再次点击将隐藏模型并保留权重", [plugin.name])
-                      : t("再次点击垃圾桶确认删除 {0} 的模型权重", [plugin.name]),
-                  )
-                  return
-                }
-                setPendingSidebarRemovalId(null)
-                if (apiPlugin) {
-                  setCloudModelInstalled(plugin.id, false)
-                  notify(t("{0} 已从侧栏移除", [plugin.name]))
-                } else {
-                  void uninstallModelPlugin(plugin.id)
-                    .then(({ plugins: next, removal }) => {
-                      setPlugins(next)
-                      if (removal.deleted) removeModelBindings(plugin.id)
-                      notify(
-                        removal.retained
-                          ? t("{0} 已隐藏；共享权重仍被 {1} 个模型引用", [plugin.name, removal.referencedBy.length])
-                          : t("{0} 的模型权重已删除", [plugin.name]),
-                      )
-                    })
-                    .catch((error) => {
-                      notify(
-                        t("删除失败：{0}", [error instanceof Error ? error.message : String(error)]),
-                      )
-                    })
-                }
-              }}
-            >
-              <Trash2 size={14} strokeWidth={1.45} />
-            </button>
-          </div>
-        )}
-      </div>
-    )
   }
 
   const settingsRows: Record<SettingsSection, ReactNode> = {
@@ -2380,92 +1949,89 @@ function App() {
       >
         <div className="activity-rail-title-spacer" data-tauri-drag-region />
 
-        {shellPage !== 'workspace' && (
-          <div className="sidebar-page-nav">
+        <div className="sidebar-brand">
+          <span className="sidebar-brand-mark">
+            <AudioLines size={18} strokeWidth={2} />
+          </span>
+          <span className="sidebar-brand-name">QwenAudio Toolkits</span>
+        </div>
+
+        {shellPage === 'settings' ? (
+          <nav className="sidebar-primary-nav sidebar-return-nav" aria-label={t("应用导航")}>
             <button
-              className="sidebar-back-button"
+              className="sidebar-primary-button sidebar-return-button"
               type="button"
-              autoFocus
-              onClick={leaveShellPage}
+              onClick={openNewTask}
             >
-              <ArrowLeft size={15} />
-              <span>{t("返回")}</span>
+              <ArrowLeft size={17} />
+              <span>{t("返回应用")}</span>
             </button>
-            <div className="sidebar-page-title">
-              {shellPage === 'extensions' ? (
-                <ShoppingBag size={15} />
-              ) : (
-                <Settings size={15} />
-              )}
-              <span>{shellPage === 'extensions' ? 'Agents' : t("设置")}</span>
-            </div>
-            {shellPage === 'extensions' ? (
-              <div
-                ref={setExtensionsNavHost}
-                className="sidebar-page-nav-body"
-              />
-            ) : (
-              <nav
-                className="sidebar-page-nav-body settings-nav"
-                aria-label={t("设置分类")}
-              >
-                {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
-                  <button
-                    key={id}
-                    className={settingsSection === id ? 'active' : ''}
-                    type="button"
-                    aria-current={settingsSection === id ? 'page' : undefined}
-                    onClick={() => setSettingsSection(id)}
-                  >
-                    <Icon size={15} />
-                    <span>{label}</span>
-                  </button>
-                ))}
-              </nav>
-            )}
-          </div>
+          </nav>
+        ) : (
+          <nav className="sidebar-primary-nav" aria-label={t("主导航")}>
+            <button
+              className={`sidebar-primary-button${
+                shellPage === 'workspace' && view === 'agents' && !agentHomeMode
+                  ? ' active'
+                  : ''
+              }`}
+              type="button"
+              aria-current={
+                shellPage === 'workspace' && view === 'agents' && !agentHomeMode
+                  ? 'page'
+                  : undefined
+              }
+              onClick={openNewTask}
+            >
+              <SquarePen size={17} />
+              <span>{t("新任务")}</span>
+            </button>
+            <button
+              ref={extensionsTriggerRef}
+              className={`sidebar-primary-button${shellPage === 'skills' ? ' active' : ''}`}
+              type="button"
+              aria-current={shellPage === 'skills' ? 'page' : undefined}
+              onClick={shellPage === 'skills' ? leaveShellPage : openSkills}
+            >
+              <Sparkles size={17} />
+              <span>{t("技能")}</span>
+            </button>
+            <button
+              className={`sidebar-primary-button${shellPage === 'models' ? ' active' : ''}`}
+              type="button"
+              aria-current={shellPage === 'models' ? 'page' : undefined}
+              onClick={shellPage === 'models' ? leaveShellPage : openModelStore}
+            >
+              <ShoppingBag size={17} />
+              <span>{t("模型商店")}</span>
+            </button>
+          </nav>
         )}
 
-
-        {shellPage === 'workspace' && (
-        <nav className="installed-models" aria-label={t("已安装 Agents")}>
-          {sidebarModelGroups.map((group) => {
-            const models = group.models
-            if (!models.length) return null
-            const collapsed = collapsedSidebarGroups.has(group.id)
-            return (
-              <section
-                className="sidebar-model-group"
-                key={group.id}
-                aria-label={group.label}
+        {shellPage === 'settings' && (
+          <nav className="sidebar-settings-nav settings-nav" aria-label={t("设置分类")}>
+            {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                className={settingsSection === id ? 'active' : ''}
+                type="button"
+                aria-current={settingsSection === id ? 'page' : undefined}
+                onClick={() => setSettingsSection(id)}
               >
-                <button
-                  className="sidebar-model-group-label"
-                  type="button"
-                  aria-expanded={!collapsed}
-                  onClick={() => toggleSidebarGroup(group.id)}
-                >
-                  <span>{group.label}</span>
-                  <span className="sidebar-group-count">{models.length}</span>
-                </button>
-                {!collapsed && (
-                  <div className="sidebar-model-group-items">
-                    {models.map(renderPluginSidebarEntry)}
-                  </div>
-                )}
-              </section>
-            )
-          })}
+                <Icon size={15} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+
+        {shellPage !== 'settings' && (
+        <nav className="installed-models sidebar-recent-tasks" aria-label={t("最近任务")}>
           <div className="sidebar-agent-history-header">
             <button
-              className={`sidebar-agents-entry${view === 'agents' ? ' active' : ''}`}
+              className="sidebar-agents-entry"
               type="button"
-              aria-current={view === 'agents' ? 'page' : undefined}
-              onClick={() => {
-                startNewAgentConversation()
-                setWorkflowSelected(false)
-                changeView('agents')
-              }}
+              disabled
             >
               <span>{t('最近')}</span>
               <ChevronDown size={14} />
@@ -2475,17 +2041,13 @@ function App() {
               type="button"
               aria-label={t('新建会话')}
               title={t('新建会话')}
-              onClick={() => {
-                startNewAgentConversation()
-                setWorkflowSelected(false)
-                changeView('agents')
-              }}
+              onClick={openNewTask}
             >
               <SquarePen size={16} />
             </button>
           </div>
           {agentConversations.length > 0 && (
-            <div className="sidebar-agent-conversations" aria-label={t('Agent 对话')}>
+            <div className="sidebar-agent-conversations" aria-label={t('技能任务')}>
               {agentConversations.map((conversation) => {
                 const active = selectedAgentConversationId === conversation.id && view === conversation.mode
                 const fileName = conversation.sourcePath
@@ -2510,10 +2072,13 @@ function App() {
               })}
             </div>
           )}
+          {agentConversations.length === 0 && (
+            <p className="sidebar-recent-empty">{t("暂无最近任务")}</p>
+          )}
         </nav>
         )}
 
-        {shellPage === 'workspace' && <div className="sidebar-spacer" />}
+        <div className="sidebar-spacer" />
 
         <nav className="sidebar-dock" aria-label={t("资源与设置")}>
           {WORKFLOWS_ENABLED && (
@@ -2533,24 +2098,13 @@ function App() {
             </button>
           )}
           <button
-            ref={extensionsTriggerRef}
-            className={`sidebar-dock-button${shellPage === 'extensions' ? ' active' : ''}`}
-            type="button"
-            aria-label={t('Agent 商店')}
-            aria-pressed={shellPage === 'extensions'}
-            data-tooltip={t('Agent 商店')}
-            onClick={shellPage === 'extensions' ? leaveShellPage : openExtensions}
-          >
-            <ShoppingBag size={18} />
-          </button>
-          <button
             ref={settingsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'settings' ? ' active' : ''}`}
             type="button"
             aria-label={t("设置")}
             aria-pressed={shellPage === 'settings'}
             data-tooltip={t("设置")}
-            onClick={shellPage === 'settings' ? leaveShellPage : openSettings}
+            onClick={openSettings}
           >
             <Settings size={18} />
           </button>
@@ -2653,14 +2207,16 @@ function App() {
           </button>
           <div className="topbar-title">
             <span>
-              {shellPage === 'extensions'
-                ? 'Agents'
+              {shellPage === 'skills'
+                ? t("技能")
+                : shellPage === 'models'
+                  ? t("模型商店")
                 : shellPage === 'settings'
                   ? t("设置 · {0}", [activeSettingsSection.label])
                   : view === 'agents'
-                    ? 'Agents'
-              : view === 'smart-cut' || view === 'ai-podcast' || view === 'video-dubbing' || view === 'meeting-notes'
-                      ? selectedAgentConversation?.title ?? t('Agent 对话')
+                    ? t("新任务")
+                    : view === 'smart-cut' || view === 'ai-podcast' || view === 'video-dubbing' || view === 'meeting-notes'
+                      ? selectedAgentConversation?.title ?? t('技能任务')
                     : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
                   ? workflows.find(
@@ -2688,8 +2244,9 @@ function App() {
               </div>
             }
           >
-          {shellPage === 'extensions' && (
+          {shellPage === 'skills' && (
             <PluginsView
+              catalogKind="skills"
               plugins={plugins}
               modelBindings={modelBindings}
               runtime={runtime}
@@ -2707,7 +2264,28 @@ function App() {
               onCloudModelInstalled={setCloudModelInstalled}
               onAppAgentInstalled={setAppAgentInstalled}
               onAction={notify}
-              taxonomyHost={extensionsNavHost}
+            />
+          )}
+          {shellPage === 'models' && (
+            <PluginsView
+              catalogKind="models"
+              plugins={plugins}
+              modelBindings={modelBindings}
+              runtime={runtime}
+              catalog={catalog}
+              apiModelCatalog={apiModelCatalog}
+              customApiModels={customApiModels}
+              appAgents={appAgents}
+              installedCloudModelIds={installedCloudModelIds}
+              onConfigureProvider={openProviderSettings}
+              onPluginsChanged={setPlugins}
+              onModelBindingsChanged={setModelBindings}
+              onRemoveModelBindings={removeModelBindings}
+              onSetModelBinding={saveModelBinding}
+              onCatalogChanged={setCatalog}
+              onCloudModelInstalled={setCloudModelInstalled}
+              onAppAgentInstalled={setAppAgentInstalled}
+              onAction={notify}
             />
           )}
           {shellPage === 'settings' && (
@@ -2729,14 +2307,11 @@ function App() {
           >
           {view === 'agents' && (
             <AgentHomeView
-              smartCutAvailable={installedAppAgents.some(
-                (agent) => agent.workspaceEntry === 'smart-cut',
-              )}
-              podcastAvailable={installedAppAgents.some(
-                (agent) => agent.workspaceEntry === 'ai-podcast',
-              )}
+              skills={appAgents}
+              selectedModeId={agentHomeMode}
+              onSelectedModeChange={setAgentHomeMode}
               onLaunch={launchCreationAgent}
-              onOpenStore={openExtensions}
+              onOpenStore={openSkills}
             />
           )}
           {view === 'workspace' && (
