@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUp,
   Check,
@@ -117,6 +117,24 @@ export function AgentHomeView({
   const [targetLanguage, setTargetLanguage] = useState('zh')
   const [prompt, setPrompt] = useState('')
   const [attachment, setAttachment] = useState<{ path: string; name: string } | null>(null)
+  const [greeting, setGreeting] = useState<string | null>(null)
+  const [composerHint, setComposerHint] = useState<string | null>(null)
+  const [hasGreeted, setHasGreeted] = useState<boolean>(() => {
+    try {
+      return globalThis.localStorage?.getItem('qwen-audio-toolkits.agent-home-greeted-v1') === '1'
+    } catch {
+      return false
+    }
+  })
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    if (greeting) textareaRef.current?.focus()
+  }, [greeting])
+
+  useEffect(() => {
+    setComposerHint(null)
+  }, [selectedModeId])
 
   const modes = useMemo(
     () =>
@@ -140,22 +158,55 @@ export function AgentHomeView({
   const available = selectedMode?.installed ?? false
   const attachmentCompatible = !attachment || !selectedEntry || attachmentMatchesMode(attachment.path, selectedEntry)
 
+  const getComposerHint = (): string | null => {
+    if (!selectedEntry) return t('请先选择一个技能')
+    if (!available) return t('请先安装对应技能')
+    if (selectedEntry !== 'meeting-notes' && !attachment) return t('该任务需要文件，请添加文件')
+    return null
+  }
+
+  const canLaunchFromComposer = (): boolean =>
+    Boolean(selectedEntry) &&
+    (selectedEntry === 'meeting-notes' || Boolean(attachment && attachmentCompatible)) &&
+    available
+
+  const showGreeting = () => {
+    setGreeting(t('你好，我是 QwenAudio Toolkits，你的本地 AI 音频工作站。我可以帮你完成语音识别、语音合成、音频增强、实时语音对话、视频配音、口播剪辑、AI 播客等任务。选择一个技能或模型开始创作吧！'))
+    setPrompt('')
+    setHasGreeted(true)
+    try {
+      globalThis.localStorage?.setItem('qwen-audio-toolkits.agent-home-greeted-v1', '1')
+    } catch {
+      // Ignore storage errors.
+    }
+  }
+
   const chooseMode = (nextMode: AgentCreationMode) => {
     if (nextMode === 'meeting-notes') setAttachment(null)
     onSelectedModeChange(nextMode)
   }
 
   const launch = () => {
-    if (!selectedEntry || (selectedEntry !== 'meeting-notes' && (!attachment || !attachmentCompatible))) return
-    onLaunch(
-      selectedEntry,
-      prompt.trim(),
-      attachment?.path ?? '',
-      selectedEntry === 'video-dubbing' ? videoDubbingMode : undefined,
-      selectedEntry === 'video-dubbing'
-        ? { source: sourceLanguage, target: targetLanguage }
-        : undefined,
-    )
+    const trimmed = prompt.trim()
+    if (!trimmed) return
+    setGreeting(null)
+    if (!selectedEntry) {
+      if (!attachment && !hasGreeted) showGreeting()
+      return
+    }
+    if (canLaunchFromComposer()) {
+      onLaunch(
+        selectedEntry,
+        trimmed,
+        attachment?.path ?? '',
+        selectedEntry === 'video-dubbing' ? videoDubbingMode : undefined,
+        selectedEntry === 'video-dubbing'
+          ? { source: sourceLanguage, target: targetLanguage }
+          : undefined,
+      )
+    } else if (!attachment && !hasGreeted) {
+      showGreeting()
+    }
   }
 
   const chooseAttachment = async () => {
@@ -179,6 +230,7 @@ export function AgentHomeView({
       path,
       name: path.split(/[\\/]/u).at(-1) || t('未命名文件'),
     })
+    setComposerHint(null)
   }
 
   return (
@@ -202,13 +254,17 @@ export function AgentHomeView({
               <button
                 type="button"
                 aria-label={t('移除附件')}
-                onClick={() => setAttachment(null)}
+                onClick={() => {
+                  setAttachment(null)
+                  setComposerHint(null)
+                }}
               >
                 <X size={13} />
               </button>
             </div>
           )}
           <textarea
+            ref={textareaRef}
             rows={3}
             value={prompt}
             placeholder={t(
@@ -218,17 +274,28 @@ export function AgentHomeView({
                   ? '描述你希望如何修改原稿'
                   : '描述任务，输入/调用技能',
             )}
-            onChange={(event) => setPrompt(event.target.value)}
+            onChange={(event) => {
+              setPrompt(event.target.value)
+              if (composerHint) setComposerHint(null)
+            }}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-              event.preventDefault()
-              if (
-                selectedEntry &&
-                (selectedEntry === 'meeting-notes' || (attachment && attachmentCompatible)) &&
-                prompt.trim() &&
-                available
-              ) {
+              const trimmed = prompt.trim()
+              if (!trimmed) return
+              if (canLaunchFromComposer()) {
+                event.preventDefault()
                 launch()
+                return
+              }
+              if (!attachment && !hasGreeted) {
+                event.preventDefault()
+                showGreeting()
+                return
+              }
+              const hint = getComposerHint()
+              if (hint) {
+                event.preventDefault()
+                setComposerHint(hint)
               }
             }}
           />
@@ -261,10 +328,8 @@ export function AgentHomeView({
               className="agent-home-submit"
               type="button"
               disabled={
-                !selectedEntry ||
-                (selectedEntry !== 'meeting-notes' && (!attachment || !attachmentCompatible)) ||
                 !prompt.trim() ||
-                !available
+                (!canLaunchFromComposer() && (hasGreeted || !!attachment))
               }
               aria-label={t('进入技能工作区')}
               onClick={launch}
@@ -273,6 +338,17 @@ export function AgentHomeView({
             </button>
           </div>
         </div>
+
+        {greeting && (
+          <div className="agent-greeting" role="status">
+            <p>{greeting}</p>
+          </div>
+        )}
+        {composerHint && (
+          <div className="agent-composer-hint" role="alert">
+            <p>{composerHint}</p>
+          </div>
+        )}
 
         <div className="agent-mode-heading">{t('选择技能')}</div>
         <div className="agent-mode-picker" aria-label={t('选择技能')}>

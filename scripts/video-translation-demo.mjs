@@ -312,9 +312,17 @@ function isCjkText(text) {
   return /[぀-ヿ㐀-䶿一-鿿가-힯]/u.test(String(text ?? ''))
 }
 
-function wrapSubtitleLines(text, role) {
-  if (isCjkText(text)) return wrapCharacters(text, role === 'primary' ? 32 : 40)
-  return wrapWords(text, role === 'primary' ? 48 : 78)
+function wrapSubtitleLines(text, role, videoSize) {
+  // Column budget follows the rendered panel width, so portrait and square
+  // videos do not overflow their subtitle panel (portrait wraps narrower).
+  const { width, height, scale } = videoSize
+  const panelTextWidth = (width - 72 * scale) * 0.88
+  const fontSize = (role === 'primary' ? 24 : 18) * (height / 540)
+  const limit = isCjkText(text)
+    ? Math.max(6, Math.floor(panelTextWidth / fontSize))
+    : Math.max(12, Math.floor(panelTextWidth / (fontSize * 0.52)))
+  if (isCjkText(text)) return wrapCharacters(text, limit)
+  return wrapWords(text, limit)
 }
 
 function subtitleFontFor(text) {
@@ -361,8 +369,8 @@ function buildAssDocument(turns, videoSize) {
   const styleLine = (name, fontname, fontsize) =>
     `Style: ${name},${fontname},${fontsize},&H00FFFFFF,&H00FFFFFF,&H61000000,&H61000000,-1,0,0,0,100,100,0,0,3,${padding},${Math.round(2 * scale)},2,${Math.round(20 * scale)},${Math.round(20 * scale)},${marginV},1`
   const events = turns.map((turn) => {
-    const primary = wrapSubtitleLines(turn.text, 'primary').map(escapeAssText).join('\\N')
-    const secondary = wrapSubtitleLines(turn.sourceText, 'secondary').map(escapeAssText).join('\\N')
+    const primary = wrapSubtitleLines(turn.text, 'primary', videoSize).map(escapeAssText).join('\\N')
+    const secondary = wrapSubtitleLines(turn.sourceText, 'secondary', videoSize).map(escapeAssText).join('\\N')
     return `Dialogue: 0,${assTimestamp(turn.start)},${assTimestamp(turn.end)},Target,,0,0,0,,${primary}\\N{\\rSource}${secondary}`
   })
   return [
@@ -400,10 +408,10 @@ function escapeFfmpegFilterPath(value) {
 function renderSubtitleImage(turn, index, videoSize) {
   const { width, height, scale } = videoSize
   const lines = [
-    ...wrapSubtitleLines(turn.text, 'primary').map((text) => ({
+    ...wrapSubtitleLines(turn.text, 'primary', videoSize).map((text) => ({
       text, size: 24 * scale, family: subtitleFontFor(turn.text), height: 31 * scale,
     })),
-    ...wrapSubtitleLines(turn.sourceText, 'secondary').map((text) => ({
+    ...wrapSubtitleLines(turn.sourceText, 'secondary', videoSize).map((text) => ({
       text, size: 18 * scale, family: subtitleFontFor(turn.sourceText), height: 24 * scale,
     })),
   ]

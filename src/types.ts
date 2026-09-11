@@ -308,6 +308,7 @@ export type HarnessCapabilityId =
   | 'speaker.embed'
   | 'speaker.diarize'
   | 'audio.separate'
+  | 'speech.converse'
 
 type HarnessRunStatus =
   | 'queued'
@@ -431,6 +432,34 @@ export interface CosyVoiceStreamEvent {
   pcmBase64?: string
   sampleRate: number
   chunkIndex?: number
+  error?: string
+}
+
+export interface RealtimeStreamStartRequest {
+  clipName: string
+  modelId?: string
+  sampleRate: number
+  systemPrompt?: string
+  voice?: string
+}
+
+export interface RealtimeStreamStartResponse {
+  sessionId: string
+  run: HarnessRun
+}
+
+export interface RealtimeStreamEvent {
+  sessionId: string
+  runId: string
+  kind:
+    | 'user_transcript'
+    | 'assistant_transcript'
+    | 'audio_delta'
+    | 'completed'
+    | 'error'
+  text?: string
+  pcmBase64?: string
+  sampleRate: number
   error?: string
 }
 

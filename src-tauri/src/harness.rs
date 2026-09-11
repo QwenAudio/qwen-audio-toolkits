@@ -55,6 +55,7 @@ pub const CAPABILITY_VAD: &str = "speech.detect";
 pub const CAPABILITY_TEXT: &str = "text.generate";
 pub const CAPABILITY_ENHANCE: &str = "audio.enhance";
 pub const CAPABILITY_LIVE: &str = "audio.live";
+pub const CAPABILITY_CONVERSATION: &str = "speech.converse";
 pub const CAPABILITY_AUDIO_TAGGING: &str = "audio.classify";
 pub const CAPABILITY_KWS: &str = "speech.keyword";
 pub const CAPABILITY_LANGUAGE_ID: &str = "speech.language";
@@ -69,6 +70,9 @@ const BAILIAN_PROVIDER_ID: &str = "api.bailian";
 const SENSEVOICE_GGUF_PROVIDER_ID: &str = "plugin.funaudiollm.sensevoice-small-gguf";
 const BAILIAN_TTS_MODEL: &str = "qwen-audio-3.0-tts-flash";
 const BAILIAN_TTS_PLUS_MODEL: &str = "qwen-audio-3.0-tts-plus";
+const BAILIAN_QWEN3_TTS_INSTRUCT_FLASH_MODEL: &str = "qwen3-tts-instruct-flash";
+const BAILIAN_QWEN3_TTS_VC_MODEL: &str = "qwen3-tts-vc-2026-01-22";
+const BAILIAN_QWEN3_TTS_VD_MODEL: &str = "qwen3-tts-vd-2026-01-26";
 const BAILIAN_QWEN_ASR_MODEL: &str = "qwen3-asr-flash";
 const BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL: &str = "qwen-audio-3.0-asr-flash-filetrans";
 const BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL: &str = "qwen-audio-3.0-asr-flash";
@@ -81,6 +85,8 @@ const BAILIAN_PARAFORMER_MODEL: &str = "paraformer-realtime-v2";
 const BAILIAN_PARAFORMER_8K_MODEL: &str = "paraformer-realtime-8k-v2";
 const BAILIAN_QWEN_36_PLUS_MODEL: &str = "qwen3.6-plus";
 const BAILIAN_QWEN_37_PLUS_MODEL: &str = "qwen3.7-plus";
+const BAILIAN_QWEN_AUDIO_REALTIME_MODEL: &str = "qwen-audio-3.0-realtime-plus";
+const BAILIAN_REALTIME_WEBSOCKET_PATH: &str = "/api-ws/v1/realtime";
 const BAILIAN_COSYVOICE_MODEL: &str = "cosyvoice-v2";
 const BAILIAN_COSYVOICE_3_PLUS_MODEL: &str = "cosyvoice-v3-plus";
 const BAILIAN_COSYVOICE_35_PLUS_MODEL: &str = "cosyvoice-v3.5-plus";
@@ -108,7 +114,11 @@ enum BailianModelKind {
 
 fn bailian_model_kind(model: &str) -> Option<BailianModelKind> {
     match model {
-        BAILIAN_TTS_MODEL | BAILIAN_TTS_PLUS_MODEL => Some(BailianModelKind::Tts),
+        BAILIAN_TTS_MODEL
+        | BAILIAN_TTS_PLUS_MODEL
+        | BAILIAN_QWEN3_TTS_INSTRUCT_FLASH_MODEL
+        | BAILIAN_QWEN3_TTS_VC_MODEL
+        | BAILIAN_QWEN3_TTS_VD_MODEL => Some(BailianModelKind::Tts),
         BAILIAN_COSYVOICE_MODEL
         | BAILIAN_COSYVOICE_3_PLUS_MODEL
         | BAILIAN_COSYVOICE_35_PLUS_MODEL
@@ -608,6 +618,7 @@ pub struct HarnessRuntime {
     funasr_streams: Mutex<HashMap<String, mpsc::Sender<FunAsrStreamCommand>>>,
     vad_streams: Mutex<HashMap<String, StreamingVad>>,
     enhancement_streams: Mutex<HashMap<String, EnhancementStreamHandle>>,
+    realtime_streams: Mutex<HashMap<String, mpsc::Sender<RealtimeStreamCommand>>>,
     initialized: Mutex<bool>,
 }
 
@@ -621,12 +632,18 @@ impl Default for HarnessRuntime {
             funasr_streams: Mutex::new(HashMap::new()),
             vad_streams: Mutex::new(HashMap::new()),
             enhancement_streams: Mutex::new(HashMap::new()),
+            realtime_streams: Mutex::new(HashMap::new()),
             initialized: Mutex::new(false),
         }
     }
 }
 
 enum FunAsrStreamCommand {
+    Audio(Vec<u8>),
+    Finish,
+}
+
+enum RealtimeStreamCommand {
     Audio(Vec<u8>),
     Finish,
 }
@@ -738,6 +755,35 @@ struct CosyVoiceStreamEvent {
     pcm_base64: Option<String>,
     sample_rate: u32,
     chunk_index: Option<u64>,
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealtimeStreamStartRequest {
+    clip_name: String,
+    model_id: Option<String>,
+    sample_rate: u32,
+    system_prompt: Option<String>,
+    voice: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RealtimeStreamStartResponse {
+    session_id: String,
+    run: HarnessRun,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RealtimeStreamEvent {
+    session_id: String,
+    run_id: String,
+    kind: &'static str,
+    text: Option<String>,
+    pcm_base64: Option<String>,
+    sample_rate: u32,
     error: Option<String>,
 }
 
@@ -1028,6 +1074,15 @@ pub(crate) fn catalog_for_app(app: &AppHandle) -> HarnessCatalog {
                 id: CAPABILITY_LIVE,
                 name: "实时音频",
                 description: "连接麦克风、监控并录制音频流",
+                input: "stream",
+                output: "stream",
+                supports_batch: false,
+                supports_streaming: true,
+            },
+            CapabilityDescriptor {
+                id: CAPABILITY_CONVERSATION,
+                name: "语音对话",
+                description: "与模型进行实时双向语音对话",
                 input: "stream",
                 output: "stream",
                 supports_batch: false,
@@ -1841,31 +1896,13 @@ pub async fn harness_list_bailian_voices(
     target_model: String,
 ) -> Result<Vec<BailianVoice>, String> {
     let config = configured_bailian_provider(&app)?;
-    let response = api_client()?
-        .post(format!(
-            "{}/api/v1/services/audio/tts/customization",
-            config.base_url
-        ))
-        .bearer_auth(&config.api_key)
-        .json(&json!({
-            "model": "voice-enrollment",
-            "input": { "action": "list_voice", "page_size": 100, "page_index": 0 }
-        }))
-        .send()
-        .await
-        .map_err(|error| format!("无法读取百炼音色: {error}"))?;
-    let raw = checked_response(response, "百炼音色列表")
-        .await?
-        .json::<Value>()
-        .await
-        .map_err(|error| format!("百炼音色列表返回无效 JSON: {error}"))?;
-    let total = raw
-        .pointer("/output/total_count")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let last_page = total.saturating_sub(1) / 100;
     let mut registry = read_bailian_voice_registry(&app)?;
-    for page_index in last_page.saturating_sub(2)..=last_page {
+    let models: Vec<&str> = if target_model.starts_with("qwen3-tts-") {
+        vec!["qwen-voice-enrollment", "qwen-voice-design"]
+    } else {
+        vec!["voice-enrollment"]
+    };
+    for model in models {
         let response = api_client()?
             .post(format!(
                 "{}/api/v1/services/audio/tts/customization",
@@ -1873,45 +1910,74 @@ pub async fn harness_list_bailian_voices(
             ))
             .bearer_auth(&config.api_key)
             .json(&json!({
-                "model": "voice-enrollment",
-                "input": {
-                    "action": "list_voice",
-                    "page_size": 100,
-                    "page_index": page_index
-                }
+                "model": model,
+                "input": { "action": "list_voice", "page_size": 100, "page_index": 0 }
             }))
             .send()
             .await
             .map_err(|error| format!("无法读取百炼音色: {error}"))?;
-        let page = checked_response(response, "百炼音色列表")
+        let raw = checked_response(response, "百炼音色列表")
             .await?
             .json::<Value>()
             .await
             .map_err(|error| format!("百炼音色列表返回无效 JSON: {error}"))?;
-        for voice in page
-            .pointer("/output/voice_list")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let Some(id) = voice.get("voice_id").and_then(Value::as_str) else {
-                continue;
-            };
-            let Some(model) = voice.get("target_model").and_then(Value::as_str) else {
-                continue;
-            };
-            if voice.get("status").and_then(Value::as_str) != Some("OK") {
-                continue;
-            }
-            registry.push(BailianVoice {
-                id: id.to_string(),
-                target_model: model.to_string(),
-                status: "OK".to_string(),
-                created_at: voice
-                    .get("gmt_create")
+        let total = raw
+            .pointer("/output/total_count")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        let last_page = total.saturating_sub(1) / 100;
+        for page_index in last_page.saturating_sub(2)..=last_page {
+            let response = api_client()?
+                .post(format!(
+                    "{}/api/v1/services/audio/tts/customization",
+                    config.base_url
+                ))
+                .bearer_auth(&config.api_key)
+                .json(&json!({
+                    "model": model,
+                    "input": {
+                        "action": "list_voice",
+                        "page_size": 100,
+                        "page_index": page_index
+                    }
+                }))
+                .send()
+                .await
+                .map_err(|error| format!("无法读取百炼音色: {error}"))?;
+            let page = checked_response(response, "百炼音色列表")
+                .await?
+                .json::<Value>()
+                .await
+                .map_err(|error| format!("百炼音色列表返回无效 JSON: {error}"))?;
+            for voice in page
+                .pointer("/output/voice_list")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let Some(id) = voice
+                    .get("voice_id")
+                    .or_else(|| voice.get("voice"))
                     .and_then(Value::as_str)
-                    .map(str::to_string),
-            });
+                else {
+                    continue;
+                };
+                let Some(model) = voice.get("target_model").and_then(Value::as_str) else {
+                    continue;
+                };
+                if voice.get("status").and_then(Value::as_str) != Some("OK") {
+                    continue;
+                }
+                registry.push(BailianVoice {
+                    id: id.to_string(),
+                    target_model: model.to_string(),
+                    status: "OK".to_string(),
+                    created_at: voice
+                        .get("gmt_create")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                });
+            }
         }
     }
     let mut unique = HashMap::new();
@@ -1930,8 +1996,18 @@ pub async fn harness_create_bailian_voice(
     request: BailianVoiceCreateRequest,
 ) -> Result<BailianVoice, String> {
     let config = configured_bailian_provider(&app)?;
+    let is_qwen3_tts = request.target_model.starts_with("qwen3-tts-");
     let prefix = request.prefix.trim();
-    if prefix.is_empty()
+    if is_qwen3_tts {
+        if prefix.is_empty()
+            || prefix.len() > 16
+            || !prefix
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        {
+            return Err("音色名称只能使用 1-16 个英文字母、数字或下划线".to_string());
+        }
+    } else if prefix.is_empty()
         || prefix.len() > 10
         || !prefix
             .chars()
@@ -1939,49 +2015,104 @@ pub async fn harness_create_bailian_voice(
     {
         return Err("音色名称只能使用 1-10 个英文字母或数字".to_string());
     }
-    let mut input = json!({
-        "action": "create_voice",
-        "target_model": request.target_model,
-        "prefix": prefix,
-        "language_hints": [request.language.as_deref().unwrap_or("zh")]
-    });
-    match request.mode.as_str() {
-        "clone" => {
-            let audio = request
-                .audio_data_url
-                .as_deref()
-                .filter(|value| value.starts_with("data:audio/"))
-                .ok_or_else(|| "请上传或录制参考音频".to_string())?;
-            input["url"] = Value::String(audio.to_string());
-            input["enable_preprocess"] = Value::Bool(true);
-            input["max_prompt_audio_length"] = json!(20.0);
+    let (model, input, voice_id_path): (String, Value, &str) = if is_qwen3_tts {
+        let mut input = json!({
+            "action": "create",
+            "target_model": request.target_model,
+            "preferred_name": prefix,
+        });
+        match request.mode.as_str() {
+            "clone" => {
+                let audio = request
+                    .audio_data_url
+                    .as_deref()
+                    .filter(|value| value.starts_with("data:audio/"))
+                    .ok_or_else(|| "请上传或录制参考音频".to_string())?;
+                input["audio"] = json!({ "data": audio });
+            }
+            "design" => {
+                let prompt = request
+                    .voice_prompt
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "请描述需要设计的声音".to_string())?;
+                let preview = request
+                    .preview_text
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "请输入试听文本".to_string())?;
+                input["voice_prompt"] = Value::String(prompt.chars().take(2048).collect());
+                input["preview_text"] = Value::String(preview.chars().take(200).collect());
+            }
+            _ => return Err("未知的音色创建方式".to_string()),
         }
-        "design" if request.target_model.starts_with("cosyvoice-v3.5-") => {
-            let prompt = request
-                .voice_prompt
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| "请描述需要设计的声音".to_string())?;
-            let preview = request
-                .preview_text
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .ok_or_else(|| "请输入试听文本".to_string())?;
-            input["voice_prompt"] = Value::String(prompt.chars().take(500).collect());
-            input["preview_text"] = Value::String(preview.chars().take(200).collect());
+        let model = if request.mode == "design" {
+            "qwen-voice-design"
+        } else {
+            "qwen-voice-enrollment"
         }
-        "design" => return Err("当前模型不支持声音设计".to_string()),
-        _ => return Err("未知的音色创建方式".to_string()),
-    }
+        .to_string();
+        (model, input, "/output/voice")
+    } else {
+        let mut input = json!({
+            "action": "create_voice",
+            "target_model": request.target_model,
+            "prefix": prefix,
+            "language_hints": [request.language.as_deref().unwrap_or("zh")]
+        });
+        match request.mode.as_str() {
+            "clone" => {
+                let audio = request
+                    .audio_data_url
+                    .as_deref()
+                    .filter(|value| value.starts_with("data:audio/"))
+                    .ok_or_else(|| "请上传或录制参考音频".to_string())?;
+                input["url"] = Value::String(audio.to_string());
+                input["enable_preprocess"] = Value::Bool(true);
+                input["max_prompt_audio_length"] = json!(20.0);
+            }
+            "design" if request.target_model.starts_with("cosyvoice-v3.5-") => {
+                let prompt = request
+                    .voice_prompt
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "请描述需要设计的声音".to_string())?;
+                let preview = request
+                    .preview_text
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| "请输入试听文本".to_string())?;
+                input["voice_prompt"] = Value::String(prompt.chars().take(500).collect());
+                input["preview_text"] = Value::String(preview.chars().take(200).collect());
+            }
+            "design" => return Err("当前模型不支持声音设计".to_string()),
+            _ => return Err("未知的音色创建方式".to_string()),
+        }
+        ("voice-enrollment".to_string(), input, "/output/voice_id")
+    };
+    let body = if request.mode == "design" && is_qwen3_tts {
+        json!({
+            "model": model,
+            "input": input,
+            "parameters": {
+                "sample_rate": 24000,
+                "response_format": "wav"
+            }
+        })
+    } else {
+        json!({ "model": model, "input": input })
+    };
     let response = api_client()?
         .post(format!(
             "{}/api/v1/services/audio/tts/customization",
             config.base_url
         ))
         .bearer_auth(&config.api_key)
-        .json(&json!({ "model": "voice-enrollment", "input": input }))
+        .json(&body)
         .send()
         .await
         .map_err(|error| format!("创建百炼音色失败: {error}"))?;
@@ -1991,7 +2122,7 @@ pub async fn harness_create_bailian_voice(
         .await
         .map_err(|error| format!("创建百炼音色返回无效 JSON: {error}"))?;
     let voice_id = raw
-        .pointer("/output/voice_id")
+        .pointer(voice_id_path)
         .and_then(Value::as_str)
         .ok_or_else(|| bailian_response_error("创建百炼音色", &raw))?;
     let created = BailianVoice {
@@ -2014,6 +2145,18 @@ pub async fn harness_delete_bailian_voice(app: AppHandle, voice_id: String) -> R
     if voice_id.is_empty() {
         return Err("音色 ID 不能为空".to_string());
     }
+    let registry = read_bailian_voice_registry(&app)?;
+    let target_model = registry
+        .iter()
+        .find(|voice| voice.id == voice_id)
+        .map(|voice| voice.target_model.as_str());
+    let model = match target_model {
+        Some(model) if model.starts_with("qwen3-tts-") && model.contains("-vd-") => {
+            "qwen-voice-design"
+        }
+        Some(model) if model.starts_with("qwen3-tts-") => "qwen-voice-enrollment",
+        _ => "voice-enrollment",
+    };
     let response = api_client()?
         .post(format!(
             "{}/api/v1/services/audio/tts/customization",
@@ -2021,7 +2164,7 @@ pub async fn harness_delete_bailian_voice(app: AppHandle, voice_id: String) -> R
         ))
         .bearer_auth(&config.api_key)
         .json(&json!({
-            "model": "voice-enrollment",
+            "model": model,
             "input": { "action": "delete_voice", "voice_id": voice_id }
         }))
         .send()
@@ -2821,6 +2964,469 @@ async fn run_cosyvoice_stream(
         &format!("百炼 · {BAILIAN_COSYVOICE_MODEL}"),
         "cosyvoice-stream",
     )
+}
+
+#[tauri::command]
+pub fn harness_start_realtime_stream(
+    app: AppHandle,
+    runtime: State<'_, Arc<HarnessRuntime>>,
+    request: RealtimeStreamStartRequest,
+) -> Result<RealtimeStreamStartResponse, String> {
+    if !(8_000..=48_000).contains(&request.sample_rate) {
+        return Err("实时语音对话输入采样率必须在 8 kHz 到 48 kHz 之间".to_string());
+    }
+    let config = configured_bailian_provider(&app)?;
+    let model_id = request
+        .model_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+        .unwrap_or(BAILIAN_QWEN_AUDIO_REALTIME_MODEL)
+        .to_string();
+    let session_id = Uuid::new_v4().to_string();
+    let run_id = new_run_id();
+    let now = timestamp_millis();
+    let clip_name = request.clip_name.trim();
+    let run = HarnessRun {
+        id: run_id.clone(),
+        conversation_provider_id: None,
+        conversation_visible: true,
+        dependency_run_ids: Vec::new(),
+        capability: CAPABILITY_CONVERSATION.to_string(),
+        title: "实时语音对话".to_string(),
+        input_summary: if clip_name.is_empty() {
+            "实时麦克风".to_string()
+        } else {
+            clip_name.to_string()
+        },
+        provider_id: BAILIAN_PROVIDER_ID.to_string(),
+        provider_name: config.name.clone(),
+        model_id: model_id.clone(),
+        status: "running".to_string(),
+        progress: 12,
+        activity: Some("正在建立实时语音对话连接".to_string()),
+        created_at: now,
+        started_at: Some(now),
+        completed_at: None,
+        duration_ms: None,
+        artifacts: Vec::new(),
+        error: None,
+        retryable: false,
+    };
+    runtime.insert(&app, run.clone())?;
+
+    let (sender, receiver) = mpsc::channel(64);
+    runtime
+        .realtime_streams
+        .lock()
+        .map_err(|_| "实时语音对话会话状态不可用".to_string())?
+        .insert(session_id.clone(), sender);
+    emit_run(&app, &run);
+
+    let task_app = app.clone();
+    let task_runtime = runtime.inner().clone();
+    let task_session_id = session_id.clone();
+    let task_run_id = run_id.clone();
+    let task_model_id = model_id;
+    tauri::async_runtime::spawn(async move {
+        let started = Instant::now();
+        let result = run_realtime_stream(
+            &task_app,
+            &task_session_id,
+            &task_run_id,
+            &config,
+            &task_model_id,
+            request,
+            receiver,
+        )
+        .await;
+        let completed_at = timestamp_millis();
+        let duration_ms = started.elapsed().as_millis() as u64;
+        let artifact = result
+            .as_ref()
+            .ok()
+            .and_then(|payload| artifact_from_payload(CAPABILITY_CONVERSATION, payload.clone()).ok());
+        let updated = task_runtime.update(&task_app, &task_run_id, |run| {
+            run.completed_at = Some(completed_at);
+            run.duration_ms = Some(duration_ms);
+            run.progress = 100;
+            run.activity = None;
+            match (&result, artifact) {
+                (Ok(_), Some(artifact)) => {
+                    run.status = "completed".to_string();
+                    run.artifacts = vec![artifact];
+                    run.error = None;
+                }
+                (Ok(_), None) => {
+                    run.status = "failed".to_string();
+                    run.error = Some("无法保存实时语音对话结果".to_string());
+                }
+                (Err(error), _) => {
+                    run.status = "failed".to_string();
+                    run.error = Some(error.clone());
+                }
+            }
+        });
+        if let Ok(run) = updated {
+            emit_run(&task_app, &run);
+        }
+        let (kind, error) = match result {
+            Ok(_) => ("completed", None),
+            Err(error) => ("error", Some(error)),
+        };
+        let _ = task_app.emit(
+            "realtime-stream-event",
+            RealtimeStreamEvent {
+                session_id: task_session_id.clone(),
+                run_id: task_run_id,
+                kind,
+                text: None,
+                pcm_base64: None,
+                sample_rate: 24_000,
+                error,
+            },
+        );
+        if let Ok(mut streams) = task_runtime.realtime_streams.lock() {
+            streams.remove(&task_session_id);
+        }
+    });
+
+    Ok(RealtimeStreamStartResponse { session_id, run })
+}
+
+#[tauri::command]
+pub fn harness_push_realtime_stream(
+    runtime: State<'_, Arc<HarnessRuntime>>,
+    session_id: String,
+    pcm_base64: String,
+) -> Result<(), String> {
+    let pcm = STANDARD
+        .decode(pcm_base64)
+        .map_err(|error| format!("实时语音对话 PCM 数据无效: {error}"))?;
+    if pcm.is_empty() || pcm.len() % 2 != 0 {
+        return Err("实时语音对话 PCM 数据必须是非空的 16-bit 音频".to_string());
+    }
+    let sender = runtime
+        .realtime_streams
+        .lock()
+        .map_err(|_| "实时语音对话会话状态不可用".to_string())?
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| "实时语音对话会话不存在或已经结束".to_string())?;
+    sender
+        .try_send(RealtimeStreamCommand::Audio(pcm))
+        .map_err(|error| match error {
+            mpsc::error::TrySendError::Full(_) => {
+                "实时语音对话处理速度跟不上输入，已触发背压保护".to_string()
+            }
+            mpsc::error::TrySendError::Closed(_) => "实时语音对话会话已经关闭".to_string(),
+        })
+}
+
+#[tauri::command]
+pub async fn harness_finish_realtime_stream(
+    runtime: State<'_, Arc<HarnessRuntime>>,
+    session_id: String,
+) -> Result<(), String> {
+    let sender = {
+        runtime
+            .realtime_streams
+            .lock()
+            .map_err(|_| "实时语音对话会话状态不可用".to_string())?
+            .get(&session_id)
+            .cloned()
+    };
+    let Some(sender) = sender else {
+        return Ok(());
+    };
+    sender
+        .send(RealtimeStreamCommand::Finish)
+        .await
+        .map_err(|_| "实时语音对话会话已经关闭".to_string())?;
+    let deadline = Instant::now() + Duration::from_secs(90);
+    while Instant::now() < deadline {
+        let completed = !runtime
+            .realtime_streams
+            .lock()
+            .map_err(|_| "实时语音对话会话状态不可用".to_string())?
+            .contains_key(&session_id);
+        if completed {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    Err("等待实时语音对话完成事件超时（90 秒）".to_string())
+}
+
+async fn run_realtime_stream(
+    app: &AppHandle,
+    session_id: &str,
+    run_id: &str,
+    config: &BailianProviderConfig,
+    model_id: &str,
+    request: RealtimeStreamStartRequest,
+    mut receiver: mpsc::Receiver<RealtimeStreamCommand>,
+) -> Result<Value, String> {
+    let input_sample_rate = request.sample_rate;
+    let target_sample_rate = 24_000;
+    let websocket_url = config
+        .base_url
+        .replacen("https://", "wss://", 1)
+        .trim_end_matches('/')
+        .to_string()
+        + BAILIAN_REALTIME_WEBSOCKET_PATH
+        + "?model="
+        + model_id;
+    let mut websocket_request = websocket_url
+        .into_client_request()
+        .map_err(|error| format!("无法创建实时语音对话 WebSocket 请求: {error}"))?;
+    websocket_request.headers_mut().insert(
+        "Authorization",
+        HeaderValue::from_str(&format!("Bearer {}", config.api_key))
+            .map_err(|error| format!("百炼 AK 格式无效: {error}"))?,
+    );
+    websocket_request.headers_mut().insert(
+        "OpenAI-Beta",
+        HeaderValue::from_static("realtime=v1"),
+    );
+    websocket_request.headers_mut().insert(
+        "User-Agent",
+        HeaderValue::from_static("qwenaudio-toolkits/0.1"),
+    );
+    let (mut socket, _) = connect_async(websocket_request)
+        .await
+        .map_err(|error| format!("实时语音对话 WebSocket 连接失败: {error}"))?;
+
+    let instructions = request
+        .system_prompt
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("你是一个简洁自然的语音助手。直接回答问题，回复适合朗读。");
+    let voice = request
+        .voice
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("alloy");
+    socket
+        .send(Message::Text(
+            json!({
+                "type": "session.update",
+                "session": {
+                    "model": model_id,
+                    "modalities": ["audio", "text"],
+                    "instructions": instructions,
+                    "voice": voice,
+                    "input_audio_format": "pcm16",
+                    "output_audio_format": "pcm16",
+                    "input_audio_transcription": { "model": "whisper-1" },
+                    "turn_detection": {
+                        "type": "server_vad",
+                        "threshold": 0.5,
+                        "prefix_padding_ms": 300,
+                        "silence_duration_ms": 500
+                    },
+                    "temperature": 0.8
+                }
+            })
+            .to_string(),
+        ))
+        .await
+        .map_err(|error| format!("无法发送实时语音对话会话配置: {error}"))?;
+
+    let (mut writer, mut reader) = socket.split();
+    let started = Instant::now();
+    let mut user_pcm = Vec::new();
+    let mut captured_text = String::new();
+    let mut assistant_text = String::new();
+    let mut finishing = false;
+    let mut response_active = false;
+    loop {
+        tokio::select! {
+            command = receiver.recv(), if !finishing => {
+                match command {
+                    Some(RealtimeStreamCommand::Audio(bytes)) => {
+                        let bytes = if input_sample_rate == target_sample_rate {
+                            bytes
+                        } else {
+                            let samples = bytes
+                                .chunks_exact(2)
+                                .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / i16::MAX as f32)
+                                .collect::<Vec<_>>();
+                            let converted = resample_audio(
+                                &PcmAudio {
+                                    samples,
+                                    sample_rate: input_sample_rate,
+                                    channels: 1,
+                                },
+                                target_sample_rate,
+                            )?;
+                            converted
+                                .samples
+                                .iter()
+                                .flat_map(|sample| {
+                                    ((sample.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16)
+                                        .to_le_bytes()
+                                })
+                                .collect()
+                        };
+                        user_pcm.extend_from_slice(&bytes);
+                        let audio_base64 = STANDARD.encode(&bytes);
+                        writer
+                            .send(Message::Text(
+                                json!({
+                                    "type": "input_audio_buffer.append",
+                                    "audio": audio_base64
+                                })
+                                .to_string(),
+                            ))
+                            .await
+                            .map_err(|error| format!("实时语音对话音频发送失败: {error}"))?;
+                    }
+                    Some(RealtimeStreamCommand::Finish) | None => {
+                        writer
+                            .send(Message::Text(
+                                json!({ "type": "input_audio_buffer.commit" }).to_string(),
+                            ))
+                            .await
+                            .map_err(|error| format!("无法提交实时语音对话音频: {error}"))?;
+                        if !response_active {
+                            writer
+                                .send(Message::Text(
+                                    json!({ "type": "response.create" }).to_string(),
+                                ))
+                                .await
+                                .map_err(|error| format!("无法请求实时语音对话回复: {error}"))?;
+                        }
+                        finishing = true;
+                    }
+                }
+            }
+            message = reader.next() => {
+                let message = message
+                    .ok_or_else(|| "实时语音对话在完成前关闭了连接".to_string())?
+                    .map_err(|error| format!("实时语音对话接收失败: {error}"))?;
+                match message {
+                    Message::Text(text) => {
+                        let event = serde_json::from_str::<Value>(&text)
+                            .map_err(|error| format!("实时语音对话返回了无效事件: {error}"))?;
+                        let event_type = event.get("type").and_then(Value::as_str);
+                        match event_type {
+                            Some("session.updated") => {
+                                let _ = app.emit(
+                                    "realtime-stream-event",
+                                    RealtimeStreamEvent {
+                                        session_id: session_id.to_string(),
+                                        run_id: run_id.to_string(),
+                                        kind: "user_transcript",
+                                        text: Some("会话已建立".to_string()),
+                                        pcm_base64: None,
+                                        sample_rate: target_sample_rate,
+                                        error: None,
+                                    },
+                                );
+                            }
+                            Some("input_audio_buffer.committed") => {}
+                            Some("response.created") => {
+                                response_active = true;
+                            }
+                            Some("response.audio.delta") => {
+                                if let Some(audio) = event.get("delta").and_then(Value::as_str) {
+                                    let _ = app.emit(
+                                        "realtime-stream-event",
+                                        RealtimeStreamEvent {
+                                            session_id: session_id.to_string(),
+                                            run_id: run_id.to_string(),
+                                            kind: "audio_delta",
+                                            text: None,
+                                            pcm_base64: Some(audio.to_string()),
+                                            sample_rate: target_sample_rate,
+                                            error: None,
+                                        },
+                                    );
+                                }
+                            }
+                            Some("response.audio.done") => {
+                                response_active = false;
+                            }
+                            Some("response.audio_transcript.delta") => {
+                                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                                    assistant_text.push_str(delta);
+                                    let _ = app.emit(
+                                        "realtime-stream-event",
+                                        RealtimeStreamEvent {
+                                            session_id: session_id.to_string(),
+                                            run_id: run_id.to_string(),
+                                            kind: "assistant_transcript",
+                                            text: Some(assistant_text.clone()),
+                                            pcm_base64: None,
+                                            sample_rate: target_sample_rate,
+                                            error: None,
+                                        },
+                                    );
+                                }
+                            }
+                            Some("conversation.item.input_audio_buffer.transcription.completed") => {
+                                if let Some(text) = event.get("transcript").and_then(Value::as_str) {
+                                    captured_text.push_str(text);
+                                    let _ = app.emit(
+                                        "realtime-stream-event",
+                                        RealtimeStreamEvent {
+                                            session_id: session_id.to_string(),
+                                            run_id: run_id.to_string(),
+                                            kind: "user_transcript",
+                                            text: Some(captured_text.clone()),
+                                            pcm_base64: None,
+                                            sample_rate: target_sample_rate,
+                                            error: None,
+                                        },
+                                    );
+                                }
+                            }
+                            Some("error") => {
+                                let error_message = event
+                                    .get("error")
+                                    .and_then(|value| value.get("message"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("实时语音对话返回错误事件");
+                                return Err(error_message.to_string());
+                            }
+                            Some("response.done") => {
+                                if finishing {
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let duration = user_pcm.len() as f32 / (2.0 * target_sample_rate as f32);
+    let captured_audio = PcmAudio {
+        samples: user_pcm
+            .chunks_exact(2)
+            .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / i16::MAX as f32)
+            .collect(),
+        sample_rate: target_sample_rate,
+        channels: 1,
+    };
+    let source_wav = encode_wav_bytes(&captured_audio)?;
+    let source_file_path = write_recording(app, &request.clip_name, &source_wav)?;
+    let inference_seconds = started.elapsed().as_secs_f32();
+    Ok(json!({
+        "clipName": request.clip_name,
+        "sourceFilePath": path_string(&source_file_path),
+        "userText": captured_text,
+        "assistantText": assistant_text,
+        "duration": duration,
+        "inferenceSeconds": inference_seconds,
+        "engine": format!("百炼 · {model_id}")
+    }))
 }
 
 async fn run_funasr_stream(
@@ -4969,25 +5575,46 @@ async fn execute_bailian_tts(
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
         .or_else(|| (model_id == BAILIAN_COSYVOICE_MODEL).then(|| "longxiaochun_v2".to_string()))
-        .ok_or_else(|| "CosyVoice v3.5 需要声音复刻或声音设计生成的音色 ID".to_string())?;
-    let instruction = optional_string(&request.parameters, "instruction")
-        .map(|value| value.chars().take(100).collect::<String>());
-    let mut input = json!({
-        "text": text,
-        "voice": voice,
-        "format": "wav",
-        "sample_rate": 24000,
-        "rate": speed
-    });
-    if let Some(instruction) = instruction {
-        input["instruction"] = json!(instruction);
-    }
+        .ok_or_else(|| match model_id {
+            BAILIAN_QWEN3_TTS_VC_MODEL => "Qwen3 TTS Voice Cloning 需要 qwen-voice-enrollment 复刻的音色 ID",
+            BAILIAN_QWEN3_TTS_VD_MODEL => "Qwen3 TTS Voice Design 需要 qwen-voice-design 设计的音色 ID",
+            _ => "CosyVoice v3.5 需要声音复刻或声音设计生成的音色 ID",
+        }
+        .to_string())?;
+    let is_qwen3_tts = model_id.starts_with("qwen3-tts-");
+    let instruction = optional_string(&request.parameters, "instruction");
+    let (url, input) = if is_qwen3_tts {
+        let mut input = json!({
+            "text": text,
+            "voice": voice,
+        });
+        if let Some(instruction) = instruction {
+            input["instructions"] = json!(instruction);
+            input["optimize_instructions"] = json!(true);
+        }
+        (
+            format!("{}/api/v1/services/aigc/multimodal-generation/generation", config.base_url),
+            input,
+        )
+    } else {
+        let mut input = json!({
+            "text": text,
+            "voice": voice,
+            "format": "wav",
+            "sample_rate": 24000,
+            "rate": speed
+        });
+        if let Some(instruction) = instruction.map(|value| value.chars().take(100).collect::<String>()) {
+            input["instruction"] = json!(instruction);
+        }
+        (
+            format!("{}/api/v1/services/audio/tts/SpeechSynthesizer", config.base_url),
+            input,
+        )
+    };
     let started = Instant::now();
     let response = api_client()?
-        .post(format!(
-            "{}/api/v1/services/audio/tts/SpeechSynthesizer",
-            config.base_url
-        ))
+        .post(url)
         .bearer_auth(&config.api_key)
         .json(&json!({ "model": model_id, "input": input }))
         .send()
@@ -6551,6 +7178,10 @@ fn artifact_from_payload(capability: &str, mut payload: Value) -> Result<Harness
         CAPABILITY_ASR => ("transcript", "application/json", "transcript.json"),
         CAPABILITY_VAD => ("data", "application/json", "speech-segments.json"),
         CAPABILITY_TEXT => ("data", "application/json", "text-output.json"),
+        CAPABILITY_CONVERSATION if payload.get("filePath").is_some() => {
+            ("audio", "audio/wav", "conversation-recording.wav")
+        }
+        CAPABILITY_CONVERSATION => ("stream", "application/json", "conversation.json"),
         CAPABILITY_LIVE if payload.get("filePath").is_some() => {
             ("audio", "audio/wav", "live-recording.wav")
         }

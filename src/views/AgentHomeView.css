@@ -156,6 +156,50 @@
 .agent-home-submit { display: grid; width: 31px; height: 31px; margin-left: auto; padding: 0; place-items: center; color: #fff; background: var(--accent, #4c7e6c); border: 0; border-radius: 50%; cursor: pointer; }
 .agent-install-link + .agent-home-submit { margin-left: 0; }
 .agent-home-submit:disabled { opacity: .32; cursor: default; }
+
+.agent-greeting {
+  width: min(760px, 100%);
+  margin: 16px auto 0;
+  padding: 16px 20px;
+  color: var(--text-primary, #202422);
+  background: var(--surface-raised, #fff);
+  border: 1px solid var(--agent-border);
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .045);
+  animation: agent-stage-in .2s ease-out both;
+}
+.agent-greeting p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.agent-greeting p::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: var(--accent, #4c7e6c);
+  border-radius: 50%;
+}
+
+.agent-composer-hint {
+  width: min(760px, 100%);
+  margin: 12px auto 0;
+  padding: 12px 16px;
+  color: #9a5a33;
+  background: color-mix(in srgb, #c98035 9%, transparent);
+  border: 1px solid color-mix(in srgb, #c98035 28%, transparent);
+  border-radius: 14px;
+  animation: agent-stage-in .2s ease-out both;
+}
+.agent-composer-hint p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 @keyframes agent-stage-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 900px) {

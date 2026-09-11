@@ -45,6 +45,51 @@
     "visible": true
   },
   {
+    "id": "bailian-qwen3-tts-instruct-flash",
+    "name": "Qwen3 TTS Instruct Flash",
+    "author": "阿里云百炼",
+    "description": "支持自然语言指令控制情绪与风格的低延迟语音合成模型，适合情绪化配音与角色化表达。",
+    "capabilities": ["TTS", "指令控制", "情绪风格", "多语言", "24 kHz"],
+    "harnessCapability": "speech.synthesize",
+    "providerId": "api.bailian",
+    "adapter": "bailian-tts",
+    "modelId": "qwen3-tts-instruct-flash",
+    "aliases": [],
+    "streamingMode": "batch",
+    "featured": true,
+    "visible": true
+  },
+  {
+    "id": "bailian-qwen3-tts-vc",
+    "name": "Qwen3 TTS Voice Cloning",
+    "author": "阿里云百炼",
+    "description": "基于 qwen-voice-enrollment 复刻音色的高保真语音合成模型，同一音色支持 11 个语种输出。",
+    "capabilities": ["TTS", "声音复刻", "多语言", "24 kHz"],
+    "harnessCapability": "speech.synthesize",
+    "providerId": "api.bailian",
+    "adapter": "bailian-tts",
+    "modelId": "qwen3-tts-vc-2026-01-22",
+    "aliases": [],
+    "streamingMode": "batch",
+    "featured": true,
+    "visible": true
+  },
+  {
+    "id": "bailian-qwen3-tts-vd",
+    "name": "Qwen3 TTS Voice Design",
+    "author": "阿里云百炼",
+    "description": "基于 qwen-voice-design 从零设计音色的语音合成模型，支持自然语言描述创建定制化音色。",
+    "capabilities": ["TTS", "声音设计", "多语言", "24 kHz"],
+    "harnessCapability": "speech.synthesize",
+    "providerId": "api.bailian",
+    "adapter": "bailian-tts",
+    "modelId": "qwen3-tts-vd-2026-01-26",
+    "aliases": [],
+    "streamingMode": "batch",
+    "featured": true,
+    "visible": true
+  },
+  {
     "id": "bailian-cosyvoice-v2",
     "name": "CosyVoice v2",
     "author": "阿里云百炼",
@@ -236,6 +281,21 @@
     "modelId": "qwen3.7-plus",
     "aliases": [],
     "streamingMode": "batch",
+    "featured": true,
+    "visible": true
+  },
+  {
+    "id": "bailian-qwen-audio-realtime-plus",
+    "name": "Qwen Audio 3.0 Realtime Plus",
+    "author": "阿里云百炼",
+    "description": "端到端实时语音对话模型，支持双向流式语音交互、自然打断与低延迟回复。",
+    "capabilities": ["语音对话", "实时", "双向流式", "低延迟"],
+    "harnessCapability": "speech.converse",
+    "providerId": "api.bailian",
+    "adapter": "bailian-realtime",
+    "modelId": "qwen-audio-3.0-realtime-plus",
+    "aliases": [],
+    "streamingMode": "streaming",
     "featured": true,
     "visible": true
   }

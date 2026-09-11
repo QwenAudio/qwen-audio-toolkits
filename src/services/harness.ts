@@ -22,6 +22,9 @@ import type {
   ModelDependencyBindings,
   ModelPlugin,
   PluginRemovalResult,
+  RealtimeStreamEvent,
+  RealtimeStreamStartRequest,
+  RealtimeStreamStartResponse,
   VadStreamStartResponse,
   VadStreamUpdate,
   EnhancementStreamStartResponse,
@@ -401,6 +404,36 @@ export function subscribeCosyVoiceStream(
   callback: (event: CosyVoiceStreamEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<CosyVoiceStreamEvent>('cosyvoice-stream-event', (event) =>
+    callback(event.payload),
+  )
+}
+
+export function startRealtimeStream(
+  request: RealtimeStreamStartRequest,
+): Promise<RealtimeStreamStartResponse> {
+  return invoke<RealtimeStreamStartResponse>('harness_start_realtime_stream', {
+    request,
+  })
+}
+
+export function pushRealtimeStream(
+  sessionId: string,
+  pcmBase64: string,
+): Promise<void> {
+  return invoke<void>('harness_push_realtime_stream', {
+    sessionId,
+    pcmBase64,
+  })
+}
+
+export function finishRealtimeStream(sessionId: string): Promise<void> {
+  return invoke<void>('harness_finish_realtime_stream', { sessionId })
+}
+
+export function subscribeRealtimeStream(
+  callback: (event: RealtimeStreamEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<RealtimeStreamEvent>('realtime-stream-event', (event) =>
     callback(event.payload),
   )
 }

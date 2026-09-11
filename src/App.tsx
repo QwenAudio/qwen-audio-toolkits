@@ -101,6 +101,7 @@ import type {
 } from './types'
 import type { WorkflowChatTurn } from './views/WorkflowChatView'
 import type { AgentCreationMode, VideoDubbingLanguages, VideoDubbingMode } from './domain/agents'
+import { capabilityDefinition } from './domain/capabilities'
 import { useAgentConversations } from './hooks/useAgentConversations'
 import appIconUrl from '../src-tauri/icons/128x128.png'
 import './App.css'
@@ -184,6 +185,7 @@ const LAST_MODEL_STORAGE_KEY = 'qwen-audio-toolkits.last-model-v1'
 const DEFAULT_VOICE_WORKFLOW_MODELS_KEY =
   'qwen-audio-toolkits.default-voice-workflow-models-v2'
 const WORKFLOWS_ENABLED = false
+const SHOW_INSTALLED_MODELS_SIDEBAR = false
 const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000
 const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000
 const DEFAULT_SIDEBAR_WIDTH = 260
@@ -517,6 +519,10 @@ function App() {
   const [sidebarDensity, setSidebarDensity] = useState<SidebarDensity>(
     getInitialSidebarDensity,
   )
+  const [installedModelsExpanded, setInstalledModelsExpanded] = useState(true)
+  const [expandedModelCategories, setExpandedModelCategories] = useState<
+    Set<string>
+  >(new Set())
   const [quitOnClose, setQuitOnClose] = useState<boolean>(
     getInitialCloseBehavior,
   )
@@ -1045,6 +1051,17 @@ function App() {
       // Keep the current session selection when storage is unavailable.
     }
   }, [orderedRunnablePlugins, pluginsLoaded, selectedPluginId])
+
+  useEffect(() => {
+    if (!pluginsLoaded || expandedModelCategories.size > 0) return
+    const categories = new Set<string>()
+    for (const plugin of runnablePlugins) {
+      const capability = plugin.harnessCapabilities[0]
+      if (!capability) continue
+      categories.add(capabilityDefinition(capability).category)
+    }
+    setExpandedModelCategories(categories)
+  }, [runnablePlugins, pluginsLoaded, expandedModelCategories])
 
   useEffect(() => {
     if (!toast) return undefined
@@ -2044,6 +2061,100 @@ function App() {
               </button>
             ))}
           </nav>
+        )}
+
+        {SHOW_INSTALLED_MODELS_SIDEBAR && shellPage !== 'settings' && (
+        <nav className="installed-models" aria-label={t("已安装模型")}>
+          <div className="sidebar-agent-history-header">
+            <button
+              className="sidebar-agents-entry"
+              type="button"
+              onClick={() => setInstalledModelsExpanded((open) => !open)}
+              aria-expanded={installedModelsExpanded}
+            >
+              <span>{t('已安装模型')}</span>
+              <ChevronDown
+                size={14}
+                className={installedModelsExpanded ? '' : 'collapsed'}
+              />
+            </button>
+          </div>
+          {installedModelsExpanded && (
+            <div className="sidebar-agent-conversations" aria-label={t('已安装模型')}>
+              {(() => {
+                const groups = new Map<string, typeof runnablePlugins>()
+                for (const plugin of runnablePlugins) {
+                  const capability = plugin.harnessCapabilities[0]
+                  const category = capability
+                    ? capabilityDefinition(capability).category
+                    : t('其他')
+                  const list = groups.get(category) ?? []
+                  list.push(plugin)
+                  groups.set(category, list)
+                }
+                return [...groups.entries()].map(([category, plugins]) => (
+                  <div key={category} className="sidebar-model-group">
+                    <button
+                      className="sidebar-model-group-label"
+                      type="button"
+                      onClick={() =>
+                        setExpandedModelCategories((current) => {
+                          const next = new Set(current)
+                          if (next.has(category)) {
+                            next.delete(category)
+                          } else {
+                            next.add(category)
+                          }
+                          return next
+                        })
+                      }
+                      aria-expanded={expandedModelCategories.has(category)}
+                    >
+                      <ChevronDown
+                        size={14}
+                        className={
+                          expandedModelCategories.has(category) ? '' : 'collapsed'
+                        }
+                      />
+                      <span>{t(category)}</span>
+                    </button>
+                    {expandedModelCategories.has(category) && (
+                      <div className="sidebar-model-group-items">
+                        {plugins.map((plugin) => {
+                          const active =
+                            shellPage === 'workspace' &&
+                            view === 'workspace' &&
+                            selectedPluginId === plugin.id
+                          return (
+                            <button
+                              className={`installed-model-button${
+                                active ? ' active' : ''
+                              }`}
+                              type="button"
+                              key={plugin.id}
+                              title={plugin.name}
+                              aria-current={active ? 'page' : undefined}
+                              onClick={() => {
+                                setSelectedPluginId(plugin.id)
+                                setAgentHomeMode(null)
+                                setSelectedAgentConversationId(null)
+                                setWorkflowSelected(false)
+                                setShellPage('workspace')
+                                changeView('workspace')
+                              }}
+                            >
+                              <span>{plugin.name}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ))
+              })()}
+            </div>
+          )}
+        </nav>
         )}
 
         {shellPage !== 'settings' && (
