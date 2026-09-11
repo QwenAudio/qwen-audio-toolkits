@@ -6161,6 +6161,17 @@ body.sidebar-resizing .model-app-frame {
   border-radius: 9px;
   box-shadow: 0 10px 24px color-mix(in srgb, var(--primary) 24%, transparent);
 }
+.sidebar-brand-mark.app-icon {
+  background: transparent;
+  box-shadow: none;
+}
+.sidebar-brand-mark.app-icon img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  object-fit: contain;
+}
 .sidebar-brand-name {
   min-width: 0;
   overflow: hidden;

@@ -229,4 +229,34 @@ button:disabled {
 * {
   scrollbar-color: var(--muted-2) transparent;
 }
+/* Desktop-app feel: UI chrome is not text-selectable; real content is. */
+body {
+  -webkit-user-select: none;
+  user-select: none;
+}
+button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.model-user-message,
+.model-result-copy,
+.run-transcript-result,
+.run-error-message,
+.detail-text-output,
+.detail-transcript-output,
+.transcript-segments,
+.model-note,
+.workflow-text-result,
+.meeting-turn,
+.meeting-markdown,
+.podcast-player-summary,
+.video-translation-source,
+.video-translation-summary,
+.video-translation-result,
+.smart-cut-segment-content,
+.smart-cut-summary,
+.smart-cut-manual-summary {
+  -webkit-user-select: text;
+  user-select: text;
+}
 
