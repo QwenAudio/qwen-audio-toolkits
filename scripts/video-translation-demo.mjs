@@ -160,6 +160,8 @@ function speakerAt(start, end, diarization) {
   return best ?? 'SPK 1'
 }
 
+const minimumRhythmPhraseSeconds = 0.6
+
 function buildRhythmSegments(tokens, turnId) {
   const groups = []
   let current = []
@@ -172,7 +174,27 @@ function buildRhythmSegments(tokens, turnId) {
       current = []
     }
   }
-  return groups.map((group, index) => ({
+  // Fold micro phrases into their neighbours. Forcing a sub-half-second TTS
+  // clip into its own window only yields rushed, speed-skewed audio, and the
+  // engine's natural punctuation pause covers the merged source pause well.
+  const merged = []
+  let carry = []
+  groups.forEach((group, index) => {
+    carry.push(...group)
+    const start = carry[0].start
+    const end = group.at(-1).end
+    if (end - start < minimumRhythmPhraseSeconds && index < groups.length - 1) return
+    merged.push(carry)
+    carry = []
+  })
+  if (merged.length >= 2) {
+    const last = merged.at(-1)
+    if (last.at(-1).end - last[0].start < minimumRhythmPhraseSeconds) {
+      merged.at(-2).push(...last)
+      merged.pop()
+    }
+  }
+  return merged.map((group, index) => ({
     id: `${turnId}-phrase-${index + 1}`,
     start: group[0].start,
     end: group.at(-1).end,
@@ -470,6 +492,7 @@ reportProgress(
 )
 
 let separated
+let vocalsEnhanced = null
 if (!shouldSeparate) {
   fs.copyFileSync(sourceAudioPath, vocalsPath)
   const duration = probeDuration(sourceAudioPath)
@@ -488,8 +511,35 @@ if (!shouldSeparate) {
   const vocals = separated.tracks?.find((track) => track.id === 'vocals')
   const background = separated.tracks?.find((track) => track.id === 'accompaniment')
   if (!vocals?.filePath || !background?.filePath) throw new Error('Source separation did not return both stems')
-  fs.copyFileSync(vocals.filePath, vocalsPath)
-  fs.copyFileSync(background.filePath, backgroundPath)
+  if (cloudMode) {
+    // Cloud mode uses the denoiser only for speaker diarization and the clone
+    // reference, where spleeter's metallic bleed misleads embeddings and
+    // timbre. ASR consumes the untouched source mix: cloud ASR is robust to
+    // music, and any preprocessing risks hurting recognition. The local
+    // spleeter accompaniment is only used for the mixback bed.
+    vocalsEnhanced = await cachedJson('01-cloud-vocals-enhance.json', () => execute({
+      capability: 'audio.enhance',
+      providerId: 'api.bailian',
+      routing: 'quality',
+      title: 'Video dubbing · cloud clean voice reference track',
+      input: audioInput(sourceAudioPath),
+      parameters: { modelId: 'fun-audio-denoising', sampleRate: 44100 },
+    }, 20 * 60_000))
+    if (!vocalsEnhanced?.filePath || !fs.existsSync(vocalsEnhanced.filePath)) {
+      throw new Error('云端人声净化没有返回音频')
+    }
+    run('ffmpeg', ['-y', '-i', vocalsEnhanced.filePath, '-ac', '2', '-ar', '44100', vocalsPath])
+  } else {
+    fs.copyFileSync(vocals.filePath, vocalsPath)
+  }
+  // Tame the metallic spleeter residue that becomes audible whenever the
+  // ducker reopens the bed between sentences, then pin the stem duration.
+  run('ffmpeg', [
+    '-y', '-i', background.filePath,
+    '-af', `afftdn=nf=-28:tn=1,apad,atrim=duration=${probeDuration(background.filePath).toFixed(6)}`,
+    '-ac', '2', '-ar', '44100',
+    backgroundPath,
+  ])
 }
 saveJson('09-background-analysis.json', backgroundAnalysis)
 
@@ -504,12 +554,13 @@ const diarization = await cachedJson('02-diarization.json', () => execute({
 }))
 
 reportProgress('transcribing', 35, '正在识别原始对白')
+const transcriptionInput = cloudMode && shouldSeparate ? sourceAudioPath : vocalsPath
 const transcription = await cachedJson('03-transcription.json', () => execute({
   capability: 'speech.transcribe',
   providerId: cloudMode ? 'api.bailian' : 'plugin.nvidia.parakeet-tdt-0.6b-v3',
   routing: cloudMode ? 'quality' : 'local',
   title: cloudMode ? 'Video dubbing · Bailian file transcription' : 'Video dubbing · transcribe separated vocals',
-  input: audioInput(vocalsPath),
+  input: audioInput(transcriptionInput),
   parameters: {
     ...(cloudMode ? { modelId: 'qwen-audio-3.0-asr-flash-filetrans' } : {}),
     ...(sourceLanguage !== 'auto' ? { language: sourceLanguage } : {}),
@@ -1115,7 +1166,7 @@ const includeBackground = backgroundAnalysis?.decision !== 'skip_separation_mix'
 // Duck the background under the dubbed voice instead of a fixed low volume, so
 // music stays present in speech gaps and recedes while someone talks.
 const audioMixFilter = includeBackground
-  ? `[1:a]asplit=2[dub][duckkey];[2:a]volume=0.55[bgraw];[bgraw][duckkey]sidechaincompress=threshold=0.03:ratio=12:attack=12:release=400[bg];[dub][bg]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration=${videoDuration.toFixed(6)}[mix]`
+  ? `[1:a]asplit=2[dub][duckkey];[2:a]volume=0.55[bgraw];[bgraw][duckkey]sidechaincompress=threshold=0.03:ratio=12:attack=12:release=600[bg];[dub][bg]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration=${videoDuration.toFixed(6)}[mix]`
   : `[1:a]alimiter=limit=0.95,apad,atrim=duration=${videoDuration.toFixed(6)}[mix]`
 
 const outputVideoPath = path.join(
@@ -1149,6 +1200,7 @@ saveJson('08-report.json', {
   detectedLanguage: speechLanguage,
   sourceDuration: videoDuration,
   separatedWith: separated.engine,
+  vocalsEnhancedWith: vocalsEnhanced?.engine,
   diarizedWith: diarization.engine,
   speakerCount: diarization.speakerCount,
   speakers,
