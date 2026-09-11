@@ -12,6 +12,7 @@ const CAPABILITIES_BY_ADAPTER = new Map([
   ['compatible-asr', new Set(['speech.transcribe'])],
   ['bailian-llm', new Set(['text.generate'])],
   ['compatible-llm', new Set(['text.generate'])],
+  ['bailian-realtime', new Set(['speech.converse'])],
 ])
 const PROVIDERS = new Set(['api.bailian', 'api.openai-compatible'])
 const MODEL_ID_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/

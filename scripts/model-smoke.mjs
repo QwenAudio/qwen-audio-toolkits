@@ -463,6 +463,9 @@ const cloudTests = [
   ...[
     ['qwen-audio-3.0-tts-flash', 'longanhuan_v3.6'],
     ['qwen-audio-3.0-tts-plus', 'longanlingxin'],
+    ['qwen3-tts-instruct-flash', 'Cherry'],
+    ['qwen3-tts-vc-2026-01-22', savedVoice('qwen3-tts-vc-2026-01-22')],
+    ['qwen3-tts-vd-2026-01-26', savedVoice('qwen3-tts-vd-2026-01-26')],
     ['cosyvoice-v2', 'longxiaochun_v2'],
     ['cosyvoice-v3-plus', 'longanyang'],
     ['cosyvoice-v3.5-flash', savedVoice('cosyvoice-v3.5-flash')],
@@ -484,6 +487,7 @@ const cloudTests = [
           voice,
           speed: 1,
           ...(modelId.startsWith('qwen-audio-3.0-tts-') ||
+          modelId.startsWith('qwen3-tts-') ||
           modelId.startsWith('cosyvoice-v3.5-')
             ? { instruction: '自然、清晰地朗读。' }
             : {}),

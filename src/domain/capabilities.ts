@@ -10,6 +10,7 @@ type CapabilityCategory =
   | '音频理解'
   | '文本智能'
   | '音频生成'
+  | '语音交互'
 
 export type WorkflowNodeKind = 'enhance' | 'vad' | 'asr' | 'llm' | 'tts'
 
@@ -131,6 +132,20 @@ const CAPABILITY_DEFINITIONS: Record<
     composer: 'audio',
     result: 'stream',
     defaultParameters: {},
+  },
+  'speech.converse': {
+    id: 'speech.converse',
+    get label() { return t("语音对话") },
+    category: "语音交互",
+    nodeKind: 'llm',
+    inputTypes: [],
+    outputType: 'text',
+    composer: 'audio',
+    result: 'stream',
+    defaultParameters: {
+      systemPrompt: VOICE_ASSISTANT_PROMPT,
+      voice: 'alloy',
+    },
   },
   'audio.classify': {
     id: 'audio.classify',
@@ -378,6 +393,21 @@ const COMMON_PARAMETER_SCHEMAS: Partial<
       min: 0.5,
       max: 1.5,
       step: 0.05,
+    },
+  ],
+  'speech.converse': [
+    {
+      name: 'systemPrompt',
+      label: 'System Prompt',
+      type: 'string',
+      default: VOICE_ASSISTANT_PROMPT,
+      multiline: true,
+    },
+    {
+      name: 'voice',
+      label: 'Voice',
+      type: 'string',
+      default: 'alloy',
     },
   ],
 }

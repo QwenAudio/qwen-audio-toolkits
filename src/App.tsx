@@ -122,6 +122,7 @@ import {
 import { agentFileKind } from './domain/agentFiles'
 import { useAgentConversations } from './hooks/useAgentConversations'
 import { audioFileToClip } from './utils/audio'
+import appIconUrl from '../src-tauri/icons/128x128.png'
 import './App.css'
 
 const ModelWorkspaceView = lazy(() =>
@@ -203,6 +204,9 @@ const LAST_MODEL_STORAGE_KEY = 'qwen-audio-toolkits.last-model-v1'
 const DEFAULT_VOICE_WORKFLOW_MODELS_KEY =
   'qwen-audio-toolkits.default-voice-workflow-models-v2'
 const WORKFLOWS_ENABLED = false
+const NATIVE_TITLEBAR_HEIGHT = 46
+const DRAG_REGION_INTERACTIVE_SELECTOR =
+  'button, a, input, select, textarea, label, video, [contenteditable], [role="button"], [role="link"], [role="tab"], [role="slider"], [role="switch"], [role="checkbox"], [role="menuitem"], [role="option"], [role="dialog"], .modal-backdrop'
 const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000
 const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000
 const DEFAULT_SIDEBAR_WIDTH = 260
@@ -650,6 +654,21 @@ function App() {
       void getCurrentWindow().setTheme(resolvedTheme)
     }
   }, [resolvedTheme])
+
+  // The overlay titlebar hides the native drag area; make the window's top
+  // strip draggable anywhere except on interactive controls.
+  useEffect(() => {
+    if (!usesOverlayTitlebar || !isTauriRuntime()) return undefined
+    const startDragFromTitlebarStrip = (event: MouseEvent) => {
+      if (event.button !== 0 || event.clientY > NATIVE_TITLEBAR_HEIGHT) return
+      const target = event.target as HTMLElement | null
+      if (!target || target.closest(DRAG_REGION_INTERACTIVE_SELECTOR)) return
+      void getCurrentWindow().startDragging().catch(() => undefined)
+    }
+    document.addEventListener('mousedown', startDragFromTitlebarStrip)
+    return () =>
+      document.removeEventListener('mousedown', startDragFromTitlebarStrip)
+  }, [usesOverlayTitlebar])
 
   const selectTheme = (theme: ThemePreference) => {
     setThemePreference(theme)
@@ -2485,8 +2504,8 @@ function App() {
         <div className="activity-rail-title-spacer" data-tauri-drag-region />
 
         <div className="sidebar-brand">
-          <span className="sidebar-brand-mark">
-            <AudioLines size={18} strokeWidth={2} />
+          <span className="sidebar-brand-mark app-icon">
+            <img src={appIconUrl} alt="QwenAudio Toolkits" />
           </span>
           <span className="sidebar-brand-name">QwenAudio Toolkits</span>
         </div>
@@ -2984,11 +3003,12 @@ function App() {
                 >
                   <VideoDubbingView
                     initialInstruction={conversation.prompt}
-                    initialSourcePath={conversation.sourcePath}
-                    initialLaunchId={1}
-                    dubbingMode={conversation.videoDubbingMode ?? 'translate'}
-                    onAction={notify}
-                  />
+	                    initialSourcePath={conversation.sourcePath}
+	                    initialLaunchId={1}
+	                    dubbingMode={conversation.videoDubbingMode ?? 'translate'}
+	                    dubbingLanguages={conversation.videoDubbingLanguages}
+	                    onAction={notify}
+	                  />
                 </div>
             ))}
           {agentConversations

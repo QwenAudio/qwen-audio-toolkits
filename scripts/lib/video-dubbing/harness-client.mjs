@@ -1,7 +1,11 @@
 const defaultDelay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 export function isRetryableApiError(message) {
-  return /error sending request|timed? out|connection|temporar|网络|连接|超时/iu.test(String(message))
+  return /error sending request|timed? out|connection|temporar|fetch failed|econn|enotfound|eai_again|socket|网络|连接|超时/iu.test(String(message))
+}
+
+function retryMessageOf(error) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 export function createHarnessClient({
@@ -18,32 +22,60 @@ export function createHarnessClient({
   }
 
   async function execute(request, timeoutMs = 10 * 60_000, attempt = 1) {
-    const runRecord = await requestJson(`${api}/runs`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(request),
-    })
+    async function retryLater() {
+      const progress = getProgress()
+      reportProgress(progress.stage, progress.progress, `API 网络波动，正在自动重试 ${attempt + 1}/3`, {
+        retryAttempt: attempt + 1,
+        retryLimit: 3,
+      })
+      await delay(attempt * 8000)
+      return execute(request, timeoutMs, attempt + 1)
+    }
+    let runRecord
+    try {
+      runRecord = await requestJson(`${api}/runs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(request),
+      })
+    } catch (error) {
+      if (attempt < 3 && isRetryableApiError(retryMessageOf(error))) return retryLater()
+      throw error
+    }
     process.stdout.write(`${request.title}: started (${runRecord.id})\n`)
     const deadline = Date.now() + timeoutMs
     const startedAt = Date.now()
     let nextHeartbeat = startedAt + 15_000
     while (Date.now() < deadline) {
-      const current = await requestJson(`${api}/runs/${runRecord.id}`)
+      let current
+      try {
+        current = await requestJson(`${api}/runs/${runRecord.id}`)
+      } catch (error) {
+        // Transient poll failures ride out until the deadline instead of
+        // discarding an in-flight harness run.
+        if (isRetryableApiError(retryMessageOf(error))) {
+          await delay(800)
+          continue
+        }
+        throw error
+      }
       if (current.status === 'completed') {
-        const result = await requestJson(`${api}/runs/${runRecord.id}/output`)
-        process.stdout.write(`${request.title}: completed\n`)
-        return result.output ?? result
+        try {
+          const result = await requestJson(`${api}/runs/${runRecord.id}/output`)
+          process.stdout.write(`${request.title}: completed\n`)
+          return result.output ?? result
+        } catch (error) {
+          if (isRetryableApiError(retryMessageOf(error))) {
+            await delay(800)
+            continue
+          }
+          throw error
+        }
       }
       if (current.status === 'failed' || current.status === 'canceled') {
         const message = current.error ?? `${request.title}: ${current.status}`
         if (current.status === 'failed' && attempt < 3 && isRetryableApiError(message)) {
-          const progress = getProgress()
-          reportProgress(progress.stage, progress.progress, `API 网络波动，正在自动重试 ${attempt + 1}/3`, {
-            retryAttempt: attempt + 1,
-            retryLimit: 3,
-          })
-          await delay(attempt * 1200)
-          return execute(request, timeoutMs, attempt + 1)
+          return retryLater()
         }
         throw new Error(message)
       }

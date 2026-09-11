@@ -59,14 +59,18 @@ import {
   playSystemAudioChunk,
   pushEnhancementStream,
   pushFunAsrStream,
+  pushRealtimeStream,
   startCosyVoiceStream,
   startEnhancementStream,
+  startRealtimeStream,
   startSystemAudio,
   stopSystemAudio,
   startFunAsrStream,
   subscribeCosyVoiceStream,
+  subscribeRealtimeStream,
   subscribeSystemAudio,
   subscribeFunAsrStream,
+  finishRealtimeStream,
 } from '../services/harness'
 import {
   audioFileToClip,
@@ -711,6 +715,7 @@ export function ModelWorkspaceView({
   const streamingEnhanceModel =
     capability === 'audio.enhance' &&
     plugin.streamingMode === 'streaming'
+  const streamingConverseModel = capability === 'speech.converse'
   const speakerComparisonModel = capability === 'speaker.embed'
   const voiceOptions = cloudVoiceOptions(plugin)
   const funAsrIs8k = plugin.version.includes('-8k-')
@@ -995,6 +1000,11 @@ export function ModelWorkspaceView({
   const ttsPlaybackGenerationRef = useRef(0)
   const ttsLastChunkIndexRef = useRef(0)
   const enhancementSessionRef = useRef<string | null>(null)
+  const converseSessionRef = useRef<string | null>(null)
+  const [converseMessages, setConverseMessages] = useState<
+    { role: 'user' | 'assistant'; text: string }[]
+  >([])
+  const [converseActive, setConverseActive] = useState(false)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [visibleRunId, setVisibleRunId] = useState<string | null>(null)
   const [vadPreviewTime, setVadPreviewTime] = useState<number>()
@@ -1692,6 +1702,73 @@ export function ModelWorkspaceView({
     }
   }, [streamingTtsModel])
 
+  useEffect(() => {
+    if (!streamingConverseModel) return undefined
+    let remove: (() => void) | undefined
+    let disposed = false
+    void subscribeRealtimeStream((event) => {
+      if (event.sessionId !== converseSessionRef.current) return
+      if (event.kind === 'audio_delta' && event.pcmBase64) {
+        const generation = ttsPlaybackGenerationRef.current
+        ttsPlaybackQueueRef.current = ttsPlaybackQueueRef.current.then(() =>
+          playStreamingPcmChunk(
+            event.pcmBase64 as string,
+            event.sampleRate,
+            generation,
+          ),
+        )
+        return
+      }
+      if (event.kind === 'user_transcript' && event.text) {
+        setConverseMessages((current) => {
+          const last = current[current.length - 1]
+          if (last && last.role === 'user') {
+            return [...current.slice(0, -1), { ...last, text: event.text as string }]
+          }
+          return [...current, { role: 'user', text: event.text as string }]
+        })
+        return
+      }
+      if (event.kind === 'assistant_transcript' && event.text) {
+        setConverseMessages((current) => {
+          const last = current[current.length - 1]
+          if (last && last.role === 'assistant') {
+            return [...current.slice(0, -1), { ...last, text: event.text as string }]
+          }
+          return [...current, { role: 'assistant', text: event.text as string }]
+        })
+        return
+      }
+      if (event.kind === 'error') {
+        converseSessionRef.current = null
+        setConverseActive(false)
+        setBusy(false)
+        stopStreamingTtsPlayback()
+        onActionRef.current(event.error || t("实时语音对话失败"))
+      } else if (event.kind === 'completed') {
+        const sessionId = event.sessionId
+        const generation = ttsPlaybackGenerationRef.current
+        void finishStreamingTtsPlayback(generation).then(() => {
+          if (converseSessionRef.current !== sessionId) return
+          converseSessionRef.current = null
+          setConverseActive(false)
+          setBusy(false)
+          onActionRef.current(t("实时语音对话完成"))
+        })
+      }
+    }).then((unlisten) => {
+      if (disposed) {
+        unlisten()
+      } else {
+        remove = unlisten
+      }
+    })
+    return () => {
+      disposed = true
+      remove?.()
+    }
+  }, [streamingConverseModel])
+
   useEffect(
     () => () => {
       if (recorderRef.current?.state === 'recording') {
@@ -1704,6 +1781,9 @@ export function ModelWorkspaceView({
       }
       if (enhancementSessionRef.current) {
         void finishEnhancementStream(enhancementSessionRef.current)
+      }
+      if (converseSessionRef.current) {
+        void finishRealtimeStream(converseSessionRef.current)
       }
       stopStreamingTtsPlayback()
       void ttsPlaybackContextRef.current?.close()
@@ -2576,6 +2656,98 @@ export function ModelWorkspaceView({
     }
   }
 
+  const startRealtimeConversation = async () => {
+    let sessionId: string | null = null
+    try {
+      setBusy(true)
+      setConverseMessages([])
+      const stream = await getMicrophoneStream({
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: false,
+      })
+      recordingStreamRef.current = stream
+      const started = await startRealtimeStream({
+        clipName: t("语音对话-{0}", [Date.now()]),
+        modelId: plugin.version,
+        sampleRate: 24_000,
+        systemPrompt: textSystemPrompt,
+        voice,
+      })
+      sessionId = started.sessionId
+      converseSessionRef.current = sessionId
+      setStreamingRunId(started.run.id)
+      streamPushFailedRef.current = false
+      streamPushQueueRef.current = Promise.resolve()
+      setSelectedRunId(null)
+
+      const audioContext = new AudioContext({ latencyHint: 'interactive' })
+      await audioContext.resume()
+      const source = audioContext.createMediaStreamSource(stream)
+      const processor = audioContext.createScriptProcessor(4096, 1, 1)
+      const gain = audioContext.createGain()
+      gain.gain.value = 0
+      processor.onaudioprocess = (event) => {
+        const activeSession = converseSessionRef.current
+        if (!activeSession || streamPushFailedRef.current) return
+        const pcmBase64 = pcm16Base64(
+          event.inputBuffer.getChannelData(0),
+          audioContext.sampleRate,
+          24_000,
+        )
+        streamPushQueueRef.current = streamPushQueueRef.current
+          .then(() => pushRealtimeStream(activeSession, pcmBase64))
+          .catch((error) => {
+            if (streamPushFailedRef.current) return
+            streamPushFailedRef.current = true
+            onActionRef.current(
+              t("实时语音对话发送失败：{0}", [error instanceof Error ? error.message : String(error)]),
+            )
+          })
+      }
+      source.connect(processor)
+      processor.connect(gain)
+      gain.connect(audioContext.destination)
+      streamAudioContextRef.current = audioContext
+      streamSourceRef.current = source
+      streamProcessorRef.current = processor
+      streamGainRef.current = gain
+      setConverseActive(true)
+      onAction(t("已开始实时语音对话"))
+    } catch (error) {
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop())
+      recordingStreamRef.current = null
+      if (sessionId) {
+        void finishRealtimeStream(sessionId)
+      }
+      converseSessionRef.current = null
+      setStreamingRunId(null)
+      setConverseActive(false)
+      setBusy(false)
+      onAction(
+        t("无法开始实时语音对话：{0}", [error instanceof Error ? error.message : String(error)]),
+      )
+    }
+  }
+
+  const stopRealtimeConversation = async () => {
+    const sessionId = converseSessionRef.current
+    if (!sessionId) return
+    setConverseActive(false)
+    setBusy(true)
+    releaseStreamingAudio()
+    try {
+      await streamPushQueueRef.current
+      await finishRealtimeStream(sessionId)
+    } catch (error) {
+      converseSessionRef.current = null
+      setBusy(false)
+      onAction(
+        t("无法结束实时语音对话：{0}", [error instanceof Error ? error.message : String(error)]),
+      )
+    }
+  }
+
   const downloadAudioResult = async (
     output: TtsGenerateResult | AudioProcessResult,
   ) => {
@@ -2861,6 +3033,28 @@ export function ModelWorkspaceView({
               </div>
             ))}
         </div>
+
+        {streamingConverseModel && (converseActive || converseMessages.length > 0) && (
+          <div className="model-conversation-active">
+            {converseMessages.map((message, index) => (
+              <div
+                key={index}
+                className={`model-conversation-message ${message.role}`}
+              >
+                <span className="model-conversation-role">
+                  {message.role === 'user' ? t("我") : t("助手")}
+                </span>
+                <p>{message.text}</p>
+              </div>
+            ))}
+            {converseActive && (
+              <div className="model-conversation-message assistant pending">
+                <span className="model-conversation-role">{t("助手")}</span>
+                <p>{t("正在聆听…")}</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {!providerReady && modelRuns.length > 0 && (
           <footer className="model-provider-required">
@@ -3706,8 +3900,30 @@ export function ModelWorkspaceView({
                   )}
                 </div>
               )}
+              {streamingConverseModel && (
+                <div className="model-parameter-bar">
+                  <label className="context-field">
+                    <span>{t("系统提示")}</span>
+                    <input
+                      value={textSystemPrompt}
+                      placeholder={t("可选：设定助手角色和回答方式")}
+                      onChange={(event) =>
+                        setTextSystemPrompt(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t("音色")}</span>
+                    <input
+                      value={voice}
+                      placeholder={t("音色 ID")}
+                      onChange={(event) => selectVoice(event.target.value)}
+                    />
+                  </label>
+                </div>
+              )}
                 <div
-                  className={`audio-model-composer codex-composer${recording ? ' recording' : ''}`}
+                  className={`audio-model-composer codex-composer${recording || converseActive ? ' recording' : ''}`}
                 >
                 {recording && (
                   <RecordingWaveform
@@ -3784,36 +4000,46 @@ export function ModelWorkspaceView({
                     {audioSource === 'system' ? t("电脑音频") : t("麦克风")}
                   </span>
                 <button
-                  className={`composer-record-button${recording ? ' active' : ''}`}
+                  className={`composer-record-button${recording || converseActive ? ' active' : ''}`}
                   type="button"
                   title={
-                    recording
-                      ? streamingEnhanceModel &&
-                        audioSource === 'system'
+                    recording || converseActive
+                      ? streamingConverseModel
+                        ? t("结束对话")
+                        : streamingEnhanceModel &&
+                          audioSource === 'system'
                         ? t("停止监听")
                         : t("停止")
-                      : streamingEnhanceModel &&
-                          audioSource === 'system'
+                      : streamingConverseModel
+                        ? t("开始对话")
+                        : streamingEnhanceModel &&
+                            audioSource === 'system'
                         ? t("开始监听")
                         : t("开始录音")
                   }
                   disabled={busy || !providerReady}
                   onClick={() =>
-                    audioSource === 'system'
-                      ? recording
-                        ? void stopSystemRecording()
-                        : void startSystemRecording()
-                      : streamingAsrModel
-                      ? recording
-                        ? void stopStreamingRecording()
-                        : void startStreamingRecording()
-                      : recording
-                        ? stopRecording()
-                        : void startRecording()
+                    streamingConverseModel
+                      ? converseActive
+                        ? void stopRealtimeConversation()
+                        : void startRealtimeConversation()
+                      : audioSource === 'system'
+                        ? recording
+                          ? void stopSystemRecording()
+                          : void startSystemRecording()
+                        : streamingAsrModel
+                        ? recording
+                          ? void stopStreamingRecording()
+                          : void startStreamingRecording()
+                        : recording
+                          ? stopRecording()
+                          : void startRecording()
                   }
                 >
-                  {recording ? (
+                  {recording || converseActive ? (
                     <CircleStop size={18} />
+                  ) : streamingConverseModel ? (
+                    <Mic size={18} />
                   ) : streamingEnhanceModel &&
                     audioSource === 'system' ? (
                     <Headphones size={17} />
@@ -3889,12 +4115,13 @@ export function ModelWorkspaceView({
                 <span>{t("名称")}</span>
                 <input
                   value={voicePrefix}
-                  maxLength={10}
+                  maxLength={plugin.version.startsWith('qwen3-tts-') ? 16 : 10}
                   placeholder="myvoice"
                   onChange={(event) => {
-                    setVoicePrefix(
-                      event.target.value.replace(/[^a-zA-Z0-9]/g, ''),
-                    )
+                    const pattern = plugin.version.startsWith('qwen3-tts-')
+                      ? /[^a-zA-Z0-9_]/g
+                      : /[^a-zA-Z0-9]/g
+                    setVoicePrefix(event.target.value.replace(pattern, ''))
                     setVoiceDialogError('')
                   }}
                 />
@@ -3975,7 +4202,11 @@ export function ModelWorkspaceView({
                     <span>{t("声音描述")}</span>
                     <textarea
                       value={voicePrompt}
-                      maxLength={500}
+                      maxLength={
+                        plugin.version === 'qwen3-tts-vd-2026-01-26'
+                          ? 2048
+                          : 500
+                      }
                       rows={3}
                       placeholder={t("例如：沉稳的中年男性播音员，音色低沉，吐字清晰")}
                       onChange={(event) => {
@@ -3983,7 +4214,12 @@ export function ModelWorkspaceView({
                         setVoiceDialogError('')
                       }}
                     />
-                    <small>{voicePrompt.trim().length}{t("/500 · 至少 10 个字")}</small>
+                    <small>
+                      {voicePrompt.trim().length}
+                      {plugin.version === 'qwen3-tts-vd-2026-01-26'
+                        ? t('/2048 · 至少 10 个字')
+                        : t('/500 · 至少 10 个字')}
+                    </small>
                   </label>
                   <label className="wide">
                     <span>{t("试听文本")}</span>

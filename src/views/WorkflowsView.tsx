@@ -89,7 +89,7 @@ interface PaletteItem {
   kind: NodeKind
   label: string
   description: string
-  category: '输入输出' | '音频处理' | '音频理解' | '文本智能' | '音频生成'
+  category: '输入输出' | '音频处理' | '音频理解' | '文本智能' | '音频生成' | '语音交互'
   capability?: HarnessCapabilityId
   providerId?: string
   modelId?: string
@@ -233,7 +233,7 @@ const paletteItems: PaletteItem[] = [
 
 function paletteItemFromModel(model: ModelPlugin): PaletteItem | null {
   const capability = model.harnessCapabilities[0]
-  if (!capability || capability === 'audio.live') return null
+  if (!capability || capability === 'audio.live' || capability === 'speech.converse') return null
   const definition = capabilityDefinition(capability)
   const parameterSchema = parameterSchemaForModel(capability, model)
   const shared = {

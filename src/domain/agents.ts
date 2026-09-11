@@ -1,6 +1,11 @@
 export type AgentCreationMode = 'smart-cut' | 'ai-podcast' | 'video-dubbing' | 'meeting-notes'
 export type VideoDubbingMode = 'translate' | 'rewrite' | 'script'
 
+export interface VideoDubbingLanguages {
+  source: string
+  target: string
+}
+
 export type GeneralAgentRole = 'user' | 'assistant'
 export type GeneralAgentActionStatus = 'pending' | 'running' | 'done' | 'failed'
 
@@ -67,6 +72,7 @@ export interface AgentConversation {
   prompt: string
   sourcePath: string
   videoDubbingMode?: VideoDubbingMode
+  videoDubbingLanguages?: VideoDubbingLanguages
 }
 
 export interface GeneralAgentTask {
