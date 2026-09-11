@@ -1,6 +1,11 @@
 export type AgentCreationMode = 'smart-cut' | 'ai-podcast' | 'video-dubbing' | 'meeting-notes'
 export type VideoDubbingMode = 'translate' | 'rewrite' | 'script'
 
+export interface VideoDubbingLanguages {
+  source: string
+  target: string
+}
+
 export interface AgentConversation {
   id: string
   mode: AgentCreationMode
@@ -8,4 +13,5 @@ export interface AgentConversation {
   prompt: string
   sourcePath: string
   videoDubbingMode?: VideoDubbingMode
+  videoDubbingLanguages?: VideoDubbingLanguages
 }

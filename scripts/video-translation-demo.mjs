@@ -8,7 +8,11 @@ import { createHarnessClient } from './lib/video-dubbing/harness-client.mjs'
 import {
   batchTurns,
   buildTransformationPrompt,
+  buildTranslationContextPrompt,
   distributeScriptAcrossTurns,
+  dubbingLanguageName,
+  formatTranslationContext,
+  normalizeDubbingLanguage,
   normalizeDubbingMode,
 } from './lib/video-dubbing/script-planner.mjs'
 
@@ -24,6 +28,10 @@ const inputPath = path.resolve(process.argv[2] ?? '')
 const outputDir = path.resolve(process.argv[3] ?? 'artifacts/video-translation-demo')
 const userInstruction = String(process.env.VIDEO_TRANSLATION_PROMPT ?? '').trim()
 const dubbingMode = normalizeDubbingMode(String(process.env.VIDEO_DUBBING_MODE ?? 'translate'))
+const sourceLanguage = normalizeDubbingLanguage(process.env.VIDEO_SOURCE_LANGUAGE, 'auto')
+const targetLanguage = dubbingMode === 'translate'
+  ? normalizeDubbingLanguage(process.env.VIDEO_TARGET_LANGUAGE, 'zh')
+  : sourceLanguage
 const progressPrefix = '@@QWEN_VIDEO_TRANSLATION@@'
 const textGenerationTimeoutMs = 12 * 60_000
 let latestStage = 'preparing'
@@ -47,6 +55,12 @@ process.on('unhandledRejection', reportFatal)
 
 if (!inputPath || !fs.existsSync(inputPath)) {
   throw new Error('Usage: node scripts/video-translation-demo.mjs <video> [output-directory]')
+}
+if (!cloudMode && sourceLanguage !== 'auto' && sourceLanguage !== 'en') {
+  throw new Error('本地配音流水线仅支持英文源视频；其他语言源视频请使用云端模式')
+}
+if (!cloudMode && dubbingMode === 'translate' && targetLanguage !== 'zh') {
+  throw new Error('本地配音流水线的翻译目标语言仅支持中文；其他目标语言请使用云端模式')
 }
 
 fs.mkdirSync(outputDir, { recursive: true })
@@ -97,7 +111,7 @@ async function createBailianVoice(reference, speaker) {
         action: 'create_voice',
         target_model: cloudTtsModel,
         prefix,
-        language_hints: dubbingMode === 'translate' ? ['en'] : ['zh', 'en'],
+        language_hints: sourceLanguage === 'auto' ? ['zh', 'en'] : [sourceLanguage],
         url: audioInput(reference.filePath).audioDataUrl,
         enable_preprocess: true,
         max_prompt_audio_length: 20,
@@ -272,26 +286,119 @@ function wrapWords(text, limit) {
   return lines
 }
 
-function renderSubtitleImage(turn, index) {
-  const zhLines = wrapCharacters(turn.text, 32)
-  const enLines = wrapWords(turn.sourceText, 78)
+function isCjkText(text) {
+  return /[぀-ヿ㐀-䶿一-鿿가-힯]/u.test(String(text ?? ''))
+}
+
+function wrapSubtitleLines(text, role) {
+  if (isCjkText(text)) return wrapCharacters(text, role === 'primary' ? 32 : 40)
+  return wrapWords(text, role === 'primary' ? 48 : 78)
+}
+
+function subtitleFontFor(text) {
+  const value = String(text ?? '')
+  if (/[぀-ヿ]/u.test(value) && !/[一-鿿]/u.test(value)) return 'Hiragino Sans'
+  if (/[가-힯]/u.test(value) && !/[一-鿿]/u.test(value)) return 'Apple SD Gothic Neo'
+  if (/[㐀-䶿一-鿿]/u.test(value)) return 'PingFang SC'
+  return 'Helvetica'
+}
+
+function probeVideoResolution(filePath) {
+  const output = run('ffprobe', [
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'stream=width,height',
+    '-of', 'json',
+    filePath,
+  ])
+  const stream = JSON.parse(output).streams?.[0] ?? {}
+  const width = Number(stream.width) || 960
+  const height = Number(stream.height) || 540
+  return { width, height, scale: height / 540 }
+}
+
+function assTimestamp(seconds) {
+  const centiseconds = Math.max(0, Math.round(seconds * 100))
+  const hours = Math.floor(centiseconds / 360_000)
+  const minutes = Math.floor((centiseconds % 360_000) / 6000)
+  const secs = Math.floor((centiseconds % 6000) / 100)
+  return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centiseconds % 100).padStart(2, '0')}`
+}
+
+function escapeAssText(value) {
+  return String(value).replaceAll('\\', '\\\\').replaceAll('{', '\\{').replaceAll('}', '\\}')
+}
+
+function buildAssDocument(turns, videoSize) {
+  const { width, height, scale } = videoSize
+  const primarySize = Math.round(24 * scale)
+  const secondarySize = Math.round(18 * scale)
+  const marginV = Math.round(22 * scale)
+  const padding = Math.round(12 * scale)
+  const primaryFont = subtitleFontFor(turns.map((turn) => turn.text).join(''))
+  const styleLine = (name, fontname, fontsize) =>
+    `Style: ${name},${fontname},${fontsize},&H00FFFFFF,&H00FFFFFF,&H61000000,&H61000000,-1,0,0,0,100,100,0,0,3,${padding},${Math.round(2 * scale)},2,${Math.round(20 * scale)},${Math.round(20 * scale)},${marginV},1`
+  const events = turns.map((turn) => {
+    const primary = wrapSubtitleLines(turn.text, 'primary').map(escapeAssText).join('\\N')
+    const secondary = wrapSubtitleLines(turn.sourceText, 'secondary').map(escapeAssText).join('\\N')
+    return `Dialogue: 0,${assTimestamp(turn.start)},${assTimestamp(turn.end)},Target,,0,0,0,,${primary}\\N{\\rSource}${secondary}`
+  })
+  return [
+    '[Script Info]',
+    'ScriptType: v4.00+',
+    'WrapStyle: 2',
+    'ScaledBorderAndShadow: yes',
+    `PlayResX: ${width}`,
+    `PlayResY: ${height}`,
+    '',
+    '[V4+ Styles]',
+    'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+    styleLine('Target', primaryFont, primarySize),
+    styleLine('Source', 'Helvetica', secondarySize),
+    '',
+    '[Events]',
+    'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+    ...events,
+    '',
+  ].join('\n')
+}
+
+function detectFilterSupport(name) {
+  try {
+    return new RegExp(`\\b${name}\\b`, 'u').test(run('ffmpeg', ['-hide_banner', '-filters']))
+  } catch {
+    return false
+  }
+}
+
+function escapeFfmpegFilterPath(value) {
+  return value.replaceAll('\\', '\\\\').replaceAll(':', '\\:').replaceAll("'", "\\'")
+}
+
+function renderSubtitleImage(turn, index, videoSize) {
+  const { width, height, scale } = videoSize
   const lines = [
-    ...zhLines.map((text) => ({ text, size: 24, family: 'PingFang SC', height: 31 })),
-    ...enLines.map((text) => ({ text, size: 18, family: 'Helvetica', height: 24 })),
+    ...wrapSubtitleLines(turn.text, 'primary').map((text) => ({
+      text, size: 24 * scale, family: subtitleFontFor(turn.text), height: 31 * scale,
+    })),
+    ...wrapSubtitleLines(turn.sourceText, 'secondary').map((text) => ({
+      text, size: 18 * scale, family: subtitleFontFor(turn.sourceText), height: 24 * scale,
+    })),
   ]
   const contentHeight = lines.reduce((sum, line) => sum + line.height, 0)
-  const panelHeight = contentHeight + 24
-  const panelY = 540 - panelHeight - 22
-  let cursorY = panelY + 20
+  const panelHeight = contentHeight + 24 * scale
+  const panelWidth = width - 72 * scale
+  const panelY = height - panelHeight - 22 * scale
+  let cursorY = panelY + 20 * scale
   const textElements = lines.map((line) => {
     cursorY += line.height
-    return `<text x="480" y="${cursorY}" text-anchor="middle" font-family="${line.family}" font-size="${line.size}" font-weight="500" fill="white">${escapeXml(line.text)}</text>`
+    return `<text x="${width / 2}" y="${cursorY}" text-anchor="middle" font-family="${line.family}" font-size="${line.size}" font-weight="500" fill="white">${escapeXml(line.text)}</text>`
   }).join('\n  ')
   const svgPath = path.join(outputDir, `subtitle-cue-${String(index + 1).padStart(2, '0')}.svg`)
   const pngPath = path.join(outputDir, `subtitle-cue-${String(index + 1).padStart(2, '0')}.png`)
-  fs.writeFileSync(svgPath, `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540">
-  <rect width="960" height="540" fill="none"/>
-  <rect x="36" y="${panelY}" width="888" height="${panelHeight}" rx="13" fill="black" fill-opacity="0.62"/>
+  fs.writeFileSync(svgPath, `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+  <rect width="${width}" height="${height}" fill="none"/>
+  <rect x="${36 * scale}" y="${panelY}" width="${panelWidth}" height="${panelHeight}" rx="${13 * scale}" fill="black" fill-opacity="0.62"/>
   ${textElements}
 </svg>\n`)
   run('sips', ['-s', 'format', 'png', svgPath, '--out', pngPath])
@@ -405,10 +512,12 @@ const transcription = await cachedJson('03-transcription.json', () => execute({
   input: audioInput(vocalsPath),
   parameters: {
     ...(cloudMode ? { modelId: 'qwen-audio-3.0-asr-flash-filetrans' } : {}),
-    ...(dubbingMode === 'translate' ? { language: 'en' } : {}),
+    ...(sourceLanguage !== 'auto' ? { language: sourceLanguage } : {}),
     punctuation: true,
   },
 }))
+const detectedLanguage = normalizeDubbingLanguage(transcription.language, sourceLanguage)
+const speechLanguage = detectedLanguage === 'auto' ? 'zh' : detectedLanguage
 
 const sourceTurns = buildUtterances(transcription, diarization)
 if (!sourceTurns.length) {
@@ -420,15 +529,64 @@ if (!sourceTurns.length) {
 }
 saveJson('04-source-turns.json', sourceTurns)
 
-const transformationSignature = shortHash(JSON.stringify({ version: 3, dubbingMode, userInstruction, sourceTurns }))
+const transformationSignature = shortHash(JSON.stringify({
+  version: 4,
+  dubbingMode,
+  userInstruction,
+  sourceLanguage,
+  targetLanguage,
+  sourceTurns,
+}))
 const transformationLabel = dubbingMode === 'translate'
-  ? '翻译并适配中文口播'
+  ? `翻译并适配${dubbingLanguageName(targetLanguage)}口播`
   : dubbingMode === 'rewrite'
     ? '改写并适配原始口播'
     : '分配新文案并适配讲话区间'
 reportProgress('translating', 48, `正在${transformationLabel}`, {
   turns: sourceTurns.map((turn) => ({ ...turn, sourceText: turn.text, text: '' })),
 })
+
+// Build a shared translation context (summary + tone + glossary) from the full
+// transcript so independently batched segments stay consistent across the video.
+const translationContext = dubbingMode !== 'translate'
+  ? null
+  : await cachedJson('05-translation-context.json', async () => {
+      const transcriptDigest = sourceTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n')
+      const signature = shortHash(JSON.stringify({ version: 1, targetLanguage, transcriptDigest }))
+      try {
+        const response = await execute({
+          capability: 'text.generate',
+          providerId: 'api.bailian',
+          routing: 'quality',
+          title: 'Video dubbing · build shared translation context',
+          input: {
+            messages: [
+              { role: 'system', content: buildTranslationContextPrompt(targetLanguage) },
+              { role: 'user', content: JSON.stringify({ transcript: transcriptDigest.slice(0, 12_000) }) },
+            ],
+          },
+          parameters: {
+            modelId: cloudMode ? 'qwen3.7-plus' : 'qwen3.6-plus',
+            temperature: 0.1,
+            maxTokens: 1200,
+            enableThinking: false,
+          },
+        }, textGenerationTimeoutMs)
+        return { version: 1, signature, engine: response.engine, context: parseJsonText(response.text) }
+      } catch (error) {
+        return {
+          version: 1,
+          signature,
+          engine: 'fallback',
+          context: null,
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }, (cached) => cached?.version === 1 && cached?.signature === shortHash(
+      JSON.stringify({ version: 1, targetLanguage, transcriptDigest: sourceTurns.map((turn) => `${turn.speaker}: ${turn.text}`).join('\n') }),
+    ))
+const translationContextBlock = formatTranslationContext(translationContext?.context)
+
 const translated = await cachedJson('05-translated-turns.json', async () => {
   if (dubbingMode === 'script') {
     const turns = distributeScriptAcrossTurns(userInstruction, sourceTurns)
@@ -440,7 +598,10 @@ const translated = await cachedJson('05-translated-turns.json', async () => {
       turns,
     }
   }
-  const translationPrompt = buildTransformationPrompt(dubbingMode, userInstruction)
+  const translationPrompt = [
+    buildTransformationPrompt(dubbingMode, userInstruction, { source: sourceLanguage, target: targetLanguage }),
+    translationContextBlock,
+  ].filter(Boolean).join('\n\n')
   const batches = batchTurns(sourceTurns)
 
   const translatedTurns = []
@@ -684,8 +845,8 @@ for (let index = 0; index < speechUnits.length; index += 1) {
             voice: cloudVoices[turn.speaker].id,
             speed,
             instruction: dubbingMode === 'translate'
-              ? '自然、清晰的中文口播，保留参考说话人的音色。'
-              : '自然、清晰的视频口播，保持文案语言并保留参考说话人的音色。',
+              ? `自然、清晰的${dubbingLanguageName(targetLanguage)}口播，保留参考说话人的音色。`
+              : `自然、清晰的${dubbingLanguageName(speechLanguage)}视频口播，保持文案语言并保留参考说话人的音色。`,
           }
         : {
             speed,
@@ -905,40 +1066,72 @@ run('ffmpeg', [
 ])
 
 const subtitlePath = path.join(outputDir, 'dubbing-script.srt')
+const assPath = path.join(outputDir, 'dubbing-script.ass')
 reportProgress('subtitles', 93, '正在生成配音字幕')
 fs.writeFileSync(subtitlePath, `${translated.turns.map((turn, index) => [
   index + 1,
   `${srtTimestamp(turn.start)} --> ${srtTimestamp(turn.end)}`,
-  keepPunctuationWithPreviousCharacter(turn.text),
+  isCjkText(turn.text) ? keepPunctuationWithPreviousCharacter(turn.text) : turn.text,
   turn.sourceText,
   '',
 ].join('\n')).join('\n')}\n`)
 
-const subtitleImages = translated.turns.map(renderSubtitleImage)
+const videoSize = probeVideoResolution(inputPath)
+fs.writeFileSync(assPath, buildAssDocument(translated.turns, videoSize))
+
+// Prefer libass (cross-platform, styled, resolution-accurate). Fall back to the
+// macOS sips overlay pipeline, then to a subtitle-track-only render.
+let subtitleRenderer = detectFilterSupport('subtitles') ? 'libass' : null
+if (!subtitleRenderer) {
+  try {
+    run('sips', ['--version'])
+    subtitleRenderer = 'sips-overlay'
+  } catch {
+    subtitleRenderer = 'mov_text-only'
+  }
+}
+
+const subtitleImages = subtitleRenderer === 'sips-overlay'
+  ? translated.turns.map((turn, index) => renderSubtitleImage(turn, index, videoSize))
+  : []
 const subtitleImageInputs = subtitleImages.flatMap((imagePath) => ['-loop', '1', '-framerate', '1', '-i', imagePath])
 let previousVideoLabel = '[0:v]'
-const videoFilters = translated.turns.map((turn, index) => {
-  const outputLabel = `[video-${index + 1}]`
-  const filter = `${previousVideoLabel}[${index + 4}:v]overlay=0:0:enable='between(t,${turn.start.toFixed(6)},${turn.end.toFixed(6)})'${outputLabel}`
-  previousVideoLabel = outputLabel
-  return filter
-})
+let videoFilters = []
+if (subtitleRenderer === 'libass') {
+  videoFilters = [`[0:v]ass=filename='${escapeFfmpegFilterPath(assPath)}'[video-out]`]
+  previousVideoLabel = '[video-out]'
+} else if (subtitleRenderer === 'sips-overlay') {
+  videoFilters = translated.turns.map((turn, index) => {
+    const outputLabel = `[video-${index + 1}]`
+    const filter = `${previousVideoLabel}[${index + 4}:v]overlay=0:0:enable='between(t,${turn.start.toFixed(6)},${turn.end.toFixed(6)})'${outputLabel}`
+    previousVideoLabel = outputLabel
+    return filter
+  })
+}
 
-const backgroundMix = backgroundAnalysis?.decision === 'skip_separation_mix' ? 0 : 0.35
+const videoMapLabel = subtitleRenderer === 'mov_text-only' ? '0:v' : previousVideoLabel
+
+const includeBackground = backgroundAnalysis?.decision !== 'skip_separation_mix'
+// Duck the background under the dubbed voice instead of a fixed low volume, so
+// music stays present in speech gaps and recedes while someone talks.
+const audioMixFilter = includeBackground
+  ? `[1:a]asplit=2[dub][duckkey];[2:a]volume=0.55[bgraw];[bgraw][duckkey]sidechaincompress=threshold=0.03:ratio=12:attack=12:release=400[bg];[dub][bg]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration=${videoDuration.toFixed(6)}[mix]`
+  : `[1:a]alimiter=limit=0.95,apad,atrim=duration=${videoDuration.toFixed(6)}[mix]`
 
 const outputVideoPath = path.join(
   outputDir,
   `${path.basename(inputPath, path.extname(inputPath))}-${
-    dubbingMode === 'translate' ? 'zh-translated' : dubbingMode === 'rewrite' ? 'rewritten' : 'new-script'
+    dubbingMode === 'translate' ? `${targetLanguage}-translated` : dubbingMode === 'rewrite' ? 'rewritten' : 'new-script'
   }-voice-clone.mp4`,
 )
-const subtitleLanguage = dubbingMode === 'translate' ? 'zho' : 'und'
+const SUBTITLE_ISO_639_2 = { zh: 'zho', en: 'eng', ja: 'jpn', ko: 'kor' }
+const subtitleLanguage = dubbingMode === 'translate' ? (SUBTITLE_ISO_639_2[targetLanguage] ?? 'und') : 'und'
 const stagingVideoPath = `${outputVideoPath}.next.mp4`
 reportProgress('rendering', 96, '正在渲染最终视频')
 run('ffmpeg', [
   '-y', '-i', inputPath, '-i', dubbedTrackPath, '-i', backgroundPath, '-i', subtitlePath, ...subtitleImageInputs,
-  '-filter_complex', `[1:a]volume=1[dub];[2:a]volume=${backgroundMix}[bg];[dub][bg]amix=inputs=2:duration=longest:normalize=0,alimiter=limit=0.95,apad,atrim=duration=${videoDuration.toFixed(6)}[mix];${videoFilters.join(';')}`,
-  '-map', previousVideoLabel, '-map', '[mix]', '-map', '3:0',
+  '-filter_complex', [audioMixFilter, ...videoFilters].join(';'),
+  '-map', videoMapLabel, '-map', '[mix]', '-map', '3:0',
   '-c:v', 'libx264', '-preset', 'medium', '-crf', '18',
   '-c:a', 'aac', '-b:a', '192k',
   '-c:s', 'mov_text', '-metadata:s:s:0', `language=${subtitleLanguage}`,
@@ -951,21 +1144,29 @@ saveJson('08-report.json', {
   inputPath,
   outputVideoPath,
   dubbingMode,
+  sourceLanguage,
+  targetLanguage: dubbingMode === 'translate' ? targetLanguage : undefined,
+  detectedLanguage: speechLanguage,
   sourceDuration: videoDuration,
   separatedWith: separated.engine,
   diarizedWith: diarization.engine,
   speakerCount: diarization.speakerCount,
   speakers,
   transcribedWith: transcription.engine,
+  translationContextWith: translationContext?.engine,
+  translationGlossarySize: translationContext?.context?.glossary?.length ?? 0,
   translatedWith: translated.engine,
   synthesizedWith: cloudMode ? `Bailian ${cloudTtsModel} cloned voice` : 'ZipVoice Distill INT8 zh-en (4 steps)',
   turnCount: translated.turns.length,
   rhythmSegmentCount: speechUnits.length,
   preservedInternalPauseCount: speechUnits.length - translated.turns.length,
   rhythmPauseThresholdSeconds: minimumInternalPauseSeconds,
-  backgroundMix,
+  backgroundDucking: includeBackground,
   backgroundDecision: backgroundAnalysis?.decision ?? 'separate_and_mix',
   backgroundAnalysis,
+  subtitleRenderer,
+  subtitlePath,
+  assPath,
 })
 
 reportProgress('completed', 100, '视频配音已完成', {

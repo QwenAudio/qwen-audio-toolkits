@@ -29,6 +29,8 @@ pub struct StartVideoTranslationRequest {
     prompt: Option<String>,
     mode: Option<String>,
     dubbing_mode: Option<String>,
+    source_language: Option<String>,
+    target_language: Option<String>,
     output_dir: Option<String>,
 }
 
@@ -147,6 +149,14 @@ pub fn start_video_translation(
             .env(
                 "VIDEO_DUBBING_MODE",
                 request.dubbing_mode.as_deref().unwrap_or("translate"),
+            )
+            .env(
+                "VIDEO_SOURCE_LANGUAGE",
+                request.source_language.unwrap_or_default(),
+            )
+            .env(
+                "VIDEO_TARGET_LANGUAGE",
+                request.target_language.unwrap_or_default(),
             )
             .env(
                 "PATH",

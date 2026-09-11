@@ -117,7 +117,7 @@ const APP_AGENT_DEFINITIONS = [
     name: '视频配音',
     author: 'QwenAudio',
     description:
-      '翻译、改写或替换口播，并自动克隆音色、对齐节奏。',
+      '翻译、改写或替换口播，支持中英日韩多语言，自动克隆音色、对齐节奏。',
     license: 'Apache-2.0',
     capabilities: ['视频配音', '语音识别', '文本翻译', '语音合成', '字幕生成'],
     harnessCapabilities: [],
@@ -149,6 +149,7 @@ const APP_AGENT_DEFINITIONS = [
         ],
         examples: [
           '把英文产品演示视频翻译成自然中文配音。',
+          '把中文课程视频翻译成英语或日语配音，保留原说话人音色。',
           '用新文案替换原视频口播，并保留画面节奏。',
         ],
       },

@@ -7,8 +7,12 @@ import { isRetryableApiError } from './lib/video-dubbing/harness-client.mjs'
 import {
   batchTurns,
   buildTransformationPrompt,
+  buildTranslationContextPrompt,
   distributeScriptAcrossTurns,
+  formatTranslationContext,
+  normalizeDubbingLanguage,
   normalizeDubbingMode,
+  speechRateGuidance,
 } from './lib/video-dubbing/script-planner.mjs'
 
 assert.equal(normalizeDubbingMode('rewrite'), 'rewrite')
@@ -16,7 +20,38 @@ assert.equal(normalizeDubbingMode('unknown'), 'translate')
 assert.match(buildTransformationPrompt('translate'), /简体中文/u)
 assert.match(buildTransformationPrompt('rewrite', '更简洁'), /保持原始语言/u)
 assert.match(buildTransformationPrompt('rewrite', '更简洁'), /用户要求：更简洁/u)
+
+assert.match(
+  buildTransformationPrompt('translate', '', { source: 'en', target: 'ja' }),
+  /把英语口播翻译成/u,
+)
+assert.match(
+  buildTransformationPrompt('translate', '', { source: 'en', target: 'ja' }),
+  /日语/u,
+)
+assert.match(buildTranslationContextPrompt('ko'), /韩语/u)
+assert.equal(normalizeDubbingLanguage('auto'), 'auto')
+assert.equal(normalizeDubbingLanguage('JA'), 'ja')
+assert.equal(normalizeDubbingLanguage('fr', 'zh'), 'zh')
+assert.equal(speechRateGuidance('en'), '每秒约 2 至 2.5 个单词')
+
+assert.equal(formatTranslationContext(null), '')
+assert.equal(formatTranslationContext({}), '')
+const formattedContext = formatTranslationContext({
+  summary: '访谈节目',
+  tone: '口语化',
+  glossary: [
+    { source: 'Qwen', target: '通义千问' },
+    { source: 'skip-me' },
+    ...Array.from({ length: 40 }, (_, index) => ({ source: `term-${index}`, target: `译-${index}` })),
+  ],
+})
+assert.match(formattedContext, /内容梗概：访谈节目/u)
+assert.match(formattedContext, /Qwen => 通义千问/u)
+assert.doesNotMatch(formattedContext, /skip-me/u)
+assert.equal(formattedContext.split('\n').filter((line) => line.startsWith('- ')).length, 30)
 assert.equal(isRetryableApiError('connection timed out'), true)
+assert.equal(isRetryableApiError('fetch failed'), true)
 assert.equal(isRetryableApiError('invalid request'), false)
 
 const sourceTurns = [

@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react'
 import { open } from '@tauri-apps/plugin-dialog'
-import type { AgentCreationMode, VideoDubbingMode } from '../domain/agents'
+import type { AgentCreationMode, VideoDubbingLanguages, VideoDubbingMode } from '../domain/agents'
 import { t, useLocale } from '../i18n'
 import type { ModelPlugin } from '../types'
 import './AgentHomeView.css'
@@ -29,6 +29,7 @@ interface AgentHomeViewProps {
     prompt: string,
     sourcePath: string,
     videoDubbingMode?: VideoDubbingMode,
+    videoDubbingLanguages?: VideoDubbingLanguages,
   ) => void
   onOpenStore: () => void
 }
@@ -87,6 +88,13 @@ const VIDEO_DUBBING_MODES: ReadonlyArray<{
   { id: 'script', name: '使用新文案', description: '替换为你提供的完整文案' },
 ]
 
+const DUBBING_LANGUAGE_OPTIONS: ReadonlyArray<{ code: string; name: string }> = [
+  { code: 'zh', name: '中文' },
+  { code: 'en', name: 'English' },
+  { code: 'ja', name: '日本語' },
+  { code: 'ko', name: '한국어' },
+]
+
 function attachmentMatchesMode(path: string, mode: AgentCreationMode): boolean {
   const extension = path.split('.').at(-1)?.toLowerCase() ?? ''
   return mode === 'meeting-notes'
@@ -105,6 +113,8 @@ export function AgentHomeView({
 }: AgentHomeViewProps) {
   useLocale()
   const [videoDubbingMode, setVideoDubbingMode] = useState<VideoDubbingMode>('translate')
+  const [sourceLanguage, setSourceLanguage] = useState('auto')
+  const [targetLanguage, setTargetLanguage] = useState('zh')
   const [prompt, setPrompt] = useState('')
   const [attachment, setAttachment] = useState<{ path: string; name: string } | null>(null)
 
@@ -142,6 +152,9 @@ export function AgentHomeView({
       prompt.trim(),
       attachment?.path ?? '',
       selectedEntry === 'video-dubbing' ? videoDubbingMode : undefined,
+      selectedEntry === 'video-dubbing'
+        ? { source: sourceLanguage, target: targetLanguage }
+        : undefined,
     )
   }
 
@@ -313,6 +326,33 @@ export function AgentHomeView({
                       <small>{t(item.description)}</small>
                     </button>
                   ))}
+                </div>
+                <div className="agent-dubbing-language-row">
+                  <label>
+                    {t('源语言')}
+                    <select
+                      value={sourceLanguage}
+                      onChange={(event) => setSourceLanguage(event.target.value)}
+                    >
+                      <option value="auto">{t('自动检测')}</option>
+                      {DUBBING_LANGUAGE_OPTIONS.map((option) => (
+                        <option key={option.code} value={option.code}>{option.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {videoDubbingMode === 'translate' && (
+                    <label>
+                      {t('目标语言')}
+                      <select
+                        value={targetLanguage}
+                        onChange={(event) => setTargetLanguage(event.target.value)}
+                      >
+                        {DUBBING_LANGUAGE_OPTIONS.map((option) => (
+                          <option key={option.code} value={option.code}>{option.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </div>
                 {videoDubbingMode === 'script' && (
                   <p className="agent-dubbing-note">

@@ -100,7 +100,7 @@ import type {
   VadDetectionResult,
 } from './types'
 import type { WorkflowChatTurn } from './views/WorkflowChatView'
-import type { AgentCreationMode, VideoDubbingMode } from './domain/agents'
+import type { AgentCreationMode, VideoDubbingLanguages, VideoDubbingMode } from './domain/agents'
 import { useAgentConversations } from './hooks/useAgentConversations'
 import './App.css'
 
@@ -1255,6 +1255,7 @@ function App() {
     prompt: string,
     sourcePath: string,
     videoDubbingMode?: VideoDubbingMode,
+    videoDubbingLanguages?: VideoDubbingLanguages,
   ) => {
     const modeLabel =
       appAgents.find((agent) => agent.workspaceEntry === mode)?.name ??
@@ -1269,6 +1270,7 @@ function App() {
       prompt,
       sourcePath,
       videoDubbingMode,
+      videoDubbingLanguages,
     })
     setWorkflowSelected(false)
     changeView(mode)
@@ -2405,6 +2407,7 @@ function App() {
                     initialSourcePath={conversation.sourcePath}
                     initialLaunchId={1}
                     dubbingMode={conversation.videoDubbingMode ?? 'translate'}
+                    dubbingLanguages={conversation.videoDubbingLanguages}
                     onAction={notify}
                   />
                 </div>

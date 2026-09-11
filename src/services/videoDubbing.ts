@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import type { VideoDubbingMode } from '../domain/agents'
+import type { VideoDubbingLanguages, VideoDubbingMode } from '../domain/agents'
 
 export type VideoDubbingStatus = 'running' | 'completed' | 'failed' | 'canceled'
 
@@ -90,9 +90,18 @@ export async function startVideoDubbing(
   prompt: string,
   dubbingMode: VideoDubbingMode,
   outputDir?: string,
+  languages?: VideoDubbingLanguages,
 ): Promise<VideoDubbingStartResult> {
   return invoke<VideoDubbingStartResult>('start_video_translation', {
-    request: { inputPath, prompt, mode: 'bailian', dubbingMode, outputDir },
+    request: {
+      inputPath,
+      prompt,
+      mode: 'bailian',
+      dubbingMode,
+      outputDir,
+      sourceLanguage: languages?.source,
+      targetLanguage: languages?.target,
+    },
   })
 }
 

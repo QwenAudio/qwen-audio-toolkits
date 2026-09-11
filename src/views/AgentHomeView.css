@@ -106,6 +106,16 @@
 .agent-dubbing-mode-picker strong { color: var(--text-primary, #202422); font-size: 12px; }
 .agent-dubbing-mode-picker small { font-size: 10px; line-height: 1.4; }
 .agent-dubbing-note { margin: -3px 2px 12px; color: var(--agent-muted); font-size: 10px; line-height: 1.5; }
+.agent-dubbing-language-row { display: flex; gap: 10px; margin: 0 0 12px; }
+.agent-dubbing-language-row label { display: grid; gap: 4px; color: var(--agent-muted); font-size: 10px; }
+.agent-dubbing-language-row select {
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--text-primary, #202422) 12%, transparent);
+  border-radius: 9px;
+  background: var(--surface-raised, #fff);
+  color: var(--text-primary, #202422);
+  font-size: 12px;
+}
 .agent-prompt-list { display: grid; gap: 7px; }
 .agent-prompt-list > button {
   display: flex;
