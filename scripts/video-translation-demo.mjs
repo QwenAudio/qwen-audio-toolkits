@@ -19,7 +19,7 @@ import {
 const api = process.env.QWEN_AUDIO_TOOLKITS_API ?? 'http://127.0.0.1:3847/v1'
 const cloudMode = process.env.VIDEO_TRANSLATION_MODE === 'bailian'
 const cloudTtsModel = 'qwen-audio-3.0-tts-plus'
-const rhythmPlanVersion = 1
+const rhythmPlanVersion = 2
 const minimumInternalPauseSeconds = 0.32
 const speechEdgeTrimVersion = 2
 const speechEdgeThreshold = '-55dB'
@@ -627,7 +627,7 @@ if (!sourceTurns.length) {
 saveJson('04-source-turns.json', sourceTurns)
 
 const transformationSignature = shortHash(JSON.stringify({
-  version: 5,
+  version: 6,
   dubbingMode,
   userInstruction,
   sourceLanguage,
@@ -708,38 +708,59 @@ const translated = await cachedJson('05-translated-turns.json', async () => {
     const batchResult = await cachedJson(
       `05-translated-turns-batch-${batchIndex + 1}.json`,
       async () => {
-        const response = await execute({
-          capability: 'text.generate',
-          providerId: 'api.bailian',
-          routing: 'quality',
-          title: `Video dubbing · ${dubbingMode} batch ${batchIndex + 1}/${batches.length}`,
-          input: {
-            messages: [
-              { role: 'system', content: translationPrompt },
-              {
-                role: 'user',
-                content: JSON.stringify({
-                  turns: batch,
-                  // Read-only neighbour transcripts so sentences cut mid-way
-                  // by ASR segmentation can still be rendered coherently.
-                  contextPrevious: sourceTurns[sourceTurns.findIndex((turn) => turn.id === batch[0].id) - 1]?.text,
-                  contextNext: sourceTurns[sourceTurns.findIndex((turn) => turn.id === batch.at(-1).id) + 1]?.text,
-                }),
-              },
-            ],
-          },
-          parameters: {
-            modelId: cloudMode ? 'qwen3.7-plus' : 'qwen3.6-plus',
-            temperature: 0.1,
-            maxTokens: Math.max(600, Math.min(1200, batch.length * 400)),
-            enableThinking: false,
-          },
-        }, textGenerationTimeoutMs)
-        const parsed = parseJsonText(response.text)
+        const expectedCjk = dubbingMode === 'translate'
+          ? (targetLanguage === 'zh' || targetLanguage === 'ja')
+          : null
+        const matchesTargetScript = (turns) =>
+          expectedCjk === null ||
+          turns.every((turn) => turn?.text?.trim() && isCjkText(turn.text) === expectedCjk)
+        let parsed
+        let engine
+        for (let languageAttempt = 1; languageAttempt <= 2; languageAttempt += 1) {
+          const response = await execute({
+            capability: 'text.generate',
+            providerId: 'api.bailian',
+            routing: 'quality',
+            title: `Video dubbing · ${dubbingMode} batch ${batchIndex + 1}/${batches.length}`,
+            input: {
+              messages: [
+                {
+                  role: 'system',
+                  content: languageAttempt === 1
+                    ? translationPrompt
+                    : `${translationPrompt}\n\n再次强调：所有 text 字段必须 100% 使用目标语言，严禁保留任何原文片段。`,
+                },
+                {
+                  role: 'user',
+                  content: JSON.stringify({
+                    turns: batch,
+                    // Read-only neighbour transcripts so sentences cut mid-way
+                    // by ASR segmentation can still be rendered coherently.
+                    contextPrevious: sourceTurns[sourceTurns.findIndex((turn) => turn.id === batch[0].id) - 1]?.text,
+                    contextNext: sourceTurns[sourceTurns.findIndex((turn) => turn.id === batch.at(-1).id) + 1]?.text,
+                  }),
+                },
+              ],
+            },
+            parameters: {
+              modelId: cloudMode ? 'qwen3.7-plus' : 'qwen3.6-plus',
+              temperature: 0.1,
+              maxTokens: Math.max(600, Math.min(1200, batch.length * 400)),
+              enableThinking: false,
+            },
+          }, textGenerationTimeoutMs)
+          parsed = parseJsonText(response.text)
+          engine = response.engine
+          if (matchesTargetScript(parsed.turns ?? [])) break
+          if (languageAttempt === 2) {
+            throw new Error(`第 ${batchIndex + 1} 批翻译反复混入源语言，请稍后重试`)
+          }
+          reportProgress('translating', 48, `第 ${batchIndex + 1} 批译文混入原文，附加强调后重试`)
+        }
         const byId = new Map((parsed.turns ?? []).map((turn) => [turn.id, turn]))
         return {
           signature,
-          engine: response.engine,
+          engine,
           turns: batch.map((sourceTurn) => {
             const transformed = byId.get(sourceTurn.id)
             if (!transformed?.text?.trim()) throw new Error(`配音文案缺少 ${sourceTurn.id}`)
@@ -864,7 +885,7 @@ const rhythmPlan = await cachedJson('05-rhythm-plan.json', async () => {
         id: turn.id,
         segments: turn.rhythmSegments.map((segment) => {
           const text = textById.get(segment.id)
-          if (!text) throw new Error(`Rhythm plan did not translate ${segment.id}`)
+          if (!text) return { ...segment, text: '' }
           return { ...segment, text }
         }),
       }
@@ -878,19 +899,61 @@ for (const turn of translated.turns) {
   if (!planned || planned.segments.length !== turn.rhythmSegments.length) {
     throw new Error(`Invalid rhythm plan for ${turn.id}`)
   }
-  turn.rhythmSegments = planned.segments
+  let plannedSegments = planned.segments
+  // Guard against planner lapses: echoed source text (observed on zh→en) or
+  // missing phrase texts (observed on loud music). The joined phrases must
+  // cover the script in the same writing system, otherwise spread the script
+  // deterministically and keep going.
+  if (
+    plannedSegments.some((segment) => !segment.text?.trim()) ||
+    isCjkText(plannedSegments.map((segment) => segment.text).join('')) !== isCjkText(turn.text)
+  ) {
+    try {
+      const reallocated = distributeScriptAcrossTurns(turn.text, plannedSegments)
+      plannedSegments = plannedSegments.map((segment, index) => ({
+        ...segment,
+        text: reallocated[index].text,
+      }))
+    } catch {
+      plannedSegments = [{ ...plannedSegments[0], start: turn.start, end: turn.end, text: turn.text }]
+    }
+  }
+  turn.rhythmSegments = plannedSegments
   turn.rhythmSegments = splitLongRhythmSegments(turn.rhythmSegments)
 }
 
 const speakers = [...new Set(translated.turns.map((turn) => turn.speaker))]
 reportProgress('voices', 66, `正在准备 ${speakers.length} 位说话人的音色`, { turns: translated.turns })
+const minimumReferenceSeconds = 3
+const fallbackCloudVoice = (speaker, reason) => ({
+  // tts-plus only accepts enrolled voices, so fall back to the instruct-flash
+  // stock voice for speakers without clonable reference material.
+  id: 'Cherry',
+  targetModel: 'qwen3-tts-instruct-flash',
+  speaker,
+  stock: true,
+  reason,
+})
 const references = new Map()
 for (const speaker of speakers) {
+  // Prefer an utterance close to 6.5s; when this speaker barely speaks,
+  // fall back to their diarization span which can be wider than any turn.
+  const byCloseness = (left, right) =>
+    Math.abs(6.5 - (left.end - left.start)) - Math.abs(6.5 - (right.end - right.start))
   const candidates = sourceTurns
-    .filter((turn) => turn.speaker === speaker && turn.end - turn.start >= 3)
-    .sort((left, right) => Math.abs(6.5 - (left.end - left.start)) - Math.abs(6.5 - (right.end - right.start)))
-  const reference = candidates[0] ?? sourceTurns.find((turn) => turn.speaker === speaker)
-  if (!reference) throw new Error(`No reference speech for ${speaker}`)
+    .filter((turn) => turn.speaker === speaker && turn.end - turn.start >= minimumReferenceSeconds)
+    .sort(byCloseness)
+  let reference = candidates[0]
+  if (!reference) {
+    const diarizationCandidate = (diarization.segments ?? [])
+      .filter((segment) => segment.speaker === speaker && segment.end - segment.start >= minimumReferenceSeconds)
+      .sort(byCloseness)[0]
+    if (diarizationCandidate) reference = { ...diarizationCandidate, text: '', end: Math.min(diarizationCandidate.end, diarizationCandidate.start + 10) }
+  }
+  if (!reference) {
+    references.set(speaker, null)
+    continue
+  }
   const referencePath = path.join(outputDir, `reference-${speaker.replace(/\s+/gu, '-').toLowerCase()}.wav`)
   run('ffmpeg', [
     '-y', '-i', vocalsPath,
@@ -912,8 +975,20 @@ if (cloudMode) {
     cloudVoices = cachedVoices
   } else {
     for (const speaker of speakers) {
-      cloudVoices[speaker] = await createBailianVoice(references.get(speaker), speaker)
-      process.stdout.write(`Bailian voice enrolled for ${speaker}: ${cloudVoices[speaker].id}\n`)
+      const reference = references.get(speaker)
+      if (!reference?.filePath) {
+        cloudVoices[speaker] = fallbackCloudVoice(speaker, `可用参考音频不足 ${minimumReferenceSeconds} 秒，改用系统音色`)
+        process.stdout.write(`Bailian voice fallback for ${speaker}: stock voice (${cloudVoices[speaker].reason})\n`)
+        continue
+      }
+      try {
+        cloudVoices[speaker] = await createBailianVoice(reference, speaker)
+        process.stdout.write(`Bailian voice enrolled for ${speaker}: ${cloudVoices[speaker].id}\n`)
+      } catch (error) {
+        if (!/too short/iu.test(error instanceof Error ? error.message : String(error))) throw error
+        cloudVoices[speaker] = fallbackCloudVoice(speaker, `克隆参考被云端拒绝（${reference.end - reference.start < 10 ? '有效时长不足' : '质量不合格'}），改用系统音色`)
+        process.stdout.write(`Bailian voice fallback for ${speaker}: stock voice (${cloudVoices[speaker].reason})\n`)
+      }
     }
     saveJson('06-bailian-voices.json', cloudVoices)
   }
@@ -931,12 +1006,19 @@ for (let index = 0; index < speechUnits.length; index += 1) {
     { completedUnits: index, totalUnits: speechUnits.length },
   )
   const { turn, segment } = speechUnits[index]
+  // Speakers without a usable reference share the first available one in
+  // local mode (ZipVoice cannot synthesize without speaker material); in
+  // cloud mode they already have a stock voice assigned.
   const reference = references.get(turn.speaker)
+    ?? references.get(speakers.find((candidate) => references.get(candidate)?.filePath))
+  if (!cloudMode && !reference?.filePath) {
+    throw new Error(`${turn.speaker} 没有可用于克隆的参考音频，且没有其他说话人可借用`)
+  }
   const unitNumber = String(index + 1).padStart(2, '0')
 
   async function synthesize(text, speed, pass) {
     const engineName = cloudMode ? 'bailian' : 'zipvoice'
-    const signature = shortHash(JSON.stringify({ text, speaker: turn.speaker, reference: reference.text }))
+    const signature = shortHash(JSON.stringify({ text, speaker: turn.speaker, reference: reference?.text ?? '' }))
     const cachePath = path.join(outputDir, `${engineName}-${pass}-${unitNumber}-${signature}-${speed.toFixed(3)}.json`)
     const cachedOutput = readJsonIfValid(cachePath)
     if (cachedOutput) return cachedOutput
@@ -948,7 +1030,7 @@ for (let index = 0; index < speechUnits.length; index += 1) {
       input: { text },
       parameters: cloudMode
         ? {
-            modelId: cloudTtsModel,
+            modelId: cloudVoices[turn.speaker].targetModel ?? cloudTtsModel,
             voice: cloudVoices[turn.speaker].id,
             speed,
             instruction: dubbingMode === 'translate'
@@ -1042,6 +1124,9 @@ for (let index = 0; index < speechUnits.length; index += 1) {
     }, textGenerationTimeoutMs)
     const rewritten = parseJsonText(response.text).text?.trim()
     if (!rewritten) throw new Error(`Duration rewrite returned no text for ${segment.id}`)
+    // A rewrite that silently switches language (referenceText echo) is
+    // worse than no rewrite: keep the original script and stop refining.
+    if (isCjkText(rewritten) !== isCjkText(text)) return text
     saveJson(path.basename(cachePath), { text: rewritten })
     return rewritten
   }
@@ -1267,6 +1352,16 @@ saveJson('08-report.json', {
   diarizedWith: diarization.engine,
   speakerCount: diarization.speakerCount,
   speakers,
+  speakerVoices: Object.fromEntries(
+    speakers.map((speaker) => [
+      speaker,
+      {
+        voice: cloudVoices[speaker]?.id,
+        stock: cloudVoices[speaker]?.stock === true,
+        ...(cloudVoices[speaker]?.reason ? { reason: cloudVoices[speaker].reason } : {}),
+      },
+    ]),
+  ),
   transcribedWith: transcription.engine,
   translationContextWith: translationContext?.engine,
   translationGlossarySize: translationContext?.context?.glossary?.length ?? 0,

@@ -86,6 +86,9 @@ export function buildTransformationPrompt(dubbingMode, userInstruction = '', lan
     '每段必须语义完整，禁止以“并且与”“以及”“因为”等未完成连接词结尾，也禁止以省略号或“的”“了”等悬挂成分结尾。',
     '输入可能附带 contextPrevious/contextNext，是相邻段的原文（只读、禁止翻译输出）。若某段原文恰在句中截断，允许参照相邻段把它译成完整自然的口语：可与相邻段共享少量承接信息（例如点出横跨两段的那个宾语），但不得整句复制相邻段内容。',
     dubbingMode === 'translate'
+      ? `所有 text 字段必须 100% 是${targetName}译文，严禁保留任何${sourceName}原文片段（含短语、词语）；专有名词按术语表译出。`
+      : '',
+    dubbingMode === 'translate'
       ? `每段译文要尽量适配该段时长，正常语速按${speechRateGuidance(targetLanguage)}控制。`
       : '改写结果要尽量适配原始讲话时长，不能增加原文没有的事实。',
     userInstruction ? `用户要求：${userInstruction}` : '',
