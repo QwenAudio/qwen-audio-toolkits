@@ -111,7 +111,7 @@ async function createBailianVoice(reference, speaker) {
         action: 'create_voice',
         target_model: cloudTtsModel,
         prefix,
-        language_hints: sourceLanguage === 'auto' ? ['zh', 'en'] : [sourceLanguage],
+        language_hints: [speechLanguage],
         url: audioInput(reference.filePath).audioDataUrl,
         enable_preprocess: true,
         max_prompt_audio_length: 20,
@@ -161,6 +161,44 @@ function speakerAt(start, end, diarization) {
 }
 
 const minimumRhythmPhraseSeconds = 0.6
+const longRhythmPhraseSeconds = 4
+const minimumSplitPartSeconds = 0.5
+
+function splitTextAtClauseMarks(text) {
+  const pieces = String(text).match(/[^，。！？；：…—,.!?;:]+[，。！？；：…—,.!?;:]?/gu) ?? []
+  return pieces.map((piece) => piece.trim()).filter(Boolean)
+}
+
+// Long uninterrupted phrases would otherwise squeeze an entire window's
+// timing error into one TTS clip. Split their scripts at clause marks and
+// give each sub-phrase a proportional share of the window, so every clip
+// fits at a near-natural pace on its own.
+function splitLongRhythmSegments(segments) {
+  return segments.flatMap((segment) => {
+    const windowSeconds = segment.end - segment.start
+    if (windowSeconds <= longRhythmPhraseSeconds) return [segment]
+    const pieces = splitTextAtClauseMarks(segment.text)
+    if (pieces.length < 2 || pieces.length > 4) return [segment]
+    const totalChars = pieces.reduce((sum, piece) => sum + [...piece].length, 0)
+    const parts = []
+    let cursor = segment.start
+    pieces.forEach((piece, index) => {
+      const end = index === pieces.length - 1
+        ? segment.end
+        : cursor + (windowSeconds * [...piece].length) / totalChars
+      parts.push({
+        ...segment,
+        id: `${segment.id}-part-${index + 1}`,
+        start: cursor,
+        end,
+        text: piece,
+        sourceText: index === 0 ? segment.sourceText : '',
+      })
+      cursor = end
+    })
+    return parts.every((part) => part.end - part.start >= minimumSplitPartSeconds) ? parts : [segment]
+  })
+}
 
 function buildRhythmSegments(tokens, turnId) {
   const groups = []
@@ -841,6 +879,7 @@ for (const turn of translated.turns) {
     throw new Error(`Invalid rhythm plan for ${turn.id}`)
   }
   turn.rhythmSegments = planned.segments
+  turn.rhythmSegments = splitLongRhythmSegments(turn.rhythmSegments)
 }
 
 const speakers = [...new Set(translated.turns.map((turn) => turn.speaker))]
