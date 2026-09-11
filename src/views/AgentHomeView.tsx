@@ -119,13 +119,7 @@ export function AgentHomeView({
   const [attachment, setAttachment] = useState<{ path: string; name: string } | null>(null)
   const [greeting, setGreeting] = useState<string | null>(null)
   const [composerHint, setComposerHint] = useState<string | null>(null)
-  const [hasGreeted, setHasGreeted] = useState<boolean>(() => {
-    try {
-      return globalThis.localStorage?.getItem('qwen-audio-toolkits.agent-home-greeted-v1') === '1'
-    } catch {
-      return false
-    }
-  })
+  const [hasGreeted, setHasGreeted] = useState<boolean>(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -174,11 +168,6 @@ export function AgentHomeView({
     setGreeting(t('你好，我是 QwenAudio Toolkits，你的本地 AI 音频工作站。我可以帮你完成语音识别、语音合成、音频增强、实时语音对话、视频配音、口播剪辑、AI 播客等任务。选择一个技能或模型开始创作吧！'))
     setPrompt('')
     setHasGreeted(true)
-    try {
-      globalThis.localStorage?.setItem('qwen-audio-toolkits.agent-home-greeted-v1', '1')
-    } catch {
-      // Ignore storage errors.
-    }
   }
 
   const chooseMode = (nextMode: AgentCreationMode) => {
