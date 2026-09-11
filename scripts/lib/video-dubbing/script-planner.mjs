@@ -83,7 +83,8 @@ export function buildTransformationPrompt(dubbingMode, userInstruction = '', lan
       ? `你是视频配音翻译编辑。把${sourceName}口播翻译成自然、准确、适合朗读的${targetName}。`
       : '你是视频口播编辑。根据用户要求改写原始台词，必须保持原始语言，不要翻译成其他语言。',
     '保持每个 id、speaker、start、end 不变。可以删除无意义的口吃，但不要遗漏事实。',
-    '每段必须语义完整，禁止以“并且与”“以及”“因为”等未完成连接词结尾。',
+    '每段必须语义完整，禁止以“并且与”“以及”“因为”等未完成连接词结尾，也禁止以省略号或“的”“了”等悬挂成分结尾。',
+    '输入可能附带 contextPrevious/contextNext，是相邻段的原文（只读、禁止翻译输出）。若某段原文恰在句中截断，允许参照相邻段把它译成完整自然的口语：可与相邻段共享少量承接信息（例如点出横跨两段的那个宾语），但不得整句复制相邻段内容。',
     dubbingMode === 'translate'
       ? `每段译文要尽量适配该段时长，正常语速按${speechRateGuidance(targetLanguage)}控制。`
       : '改写结果要尽量适配原始讲话时长，不能增加原文没有的事实。',

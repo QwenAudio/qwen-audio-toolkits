@@ -581,7 +581,7 @@ if (!sourceTurns.length) {
 saveJson('04-source-turns.json', sourceTurns)
 
 const transformationSignature = shortHash(JSON.stringify({
-  version: 4,
+  version: 5,
   dubbingMode,
   userInstruction,
   sourceLanguage,
@@ -670,7 +670,16 @@ const translated = await cachedJson('05-translated-turns.json', async () => {
           input: {
             messages: [
               { role: 'system', content: translationPrompt },
-              { role: 'user', content: JSON.stringify({ turns: batch }) },
+              {
+                role: 'user',
+                content: JSON.stringify({
+                  turns: batch,
+                  // Read-only neighbour transcripts so sentences cut mid-way
+                  // by ASR segmentation can still be rendered coherently.
+                  contextPrevious: sourceTurns[sourceTurns.findIndex((turn) => turn.id === batch[0].id) - 1]?.text,
+                  contextNext: sourceTurns[sourceTurns.findIndex((turn) => turn.id === batch.at(-1).id) + 1]?.text,
+                }),
+              },
             ],
           },
           parameters: {
@@ -959,7 +968,7 @@ for (let index = 0; index < speechUnits.length; index += 1) {
               dubbingMode === 'script'
                 ? '必须忠实保留 currentScript 的原意；过长时精简，过短时只能补充自然表达，禁止改回 referenceText 的内容或添加新事实。'
                 : '必须忠实保留 referenceText 的原意；过长时精简，过短时补回原文中的语气和细节，但禁止凑字、重复或添加新事实。',
-              '结果必须自然；短节奏片段可以是完整短语，长片段必须是完整口语句子，不能以未完成的连接词结尾。只返回 JSON：{"text":"..."}。',
+              '结果必须自然；短节奏片段可以是完整短语，长片段必须是完整口语句子，不能以未完成的连接词结尾，也禁止以省略号或“的”等悬挂成分结尾。只返回 JSON：{"text":"..."}。',
             ].join(''),
           },
           {
@@ -1069,10 +1078,12 @@ for (let index = 0; index < speechUnits.length; index += 1) {
   }
   // The second TTS pass handles most of the timing change in the model. A
   // pitch-preserving tempo filter removes only the small residual mismatch.
+  // Slowing down below 0.9× sounds worse than a slightly longer pause, so
+  // underfull speech keeps its pace and the window tail simply stays silent.
   const alignedPath = path.join(outputDir, `aligned-rhythm-${unitNumber}.wav`)
   run('ffmpeg', [
     '-y', '-i', preparedGenerated.filePath,
-    '-af', `${atempoChain(factor)},apad,atrim=duration=${targetDuration.toFixed(6)},adelay=${Math.round(segment.start * 1000)}:all=1`,
+    '-af', `${atempoChain(Math.max(factor, 0.9))},apad,atrim=duration=${targetDuration.toFixed(6)},adelay=${Math.round(segment.start * 1000)}:all=1`,
     '-ac', '1', '-ar', '44100',
     alignedPath,
   ])
@@ -1090,7 +1101,7 @@ for (let index = 0; index < speechUnits.length; index += 1) {
     desiredSpeechDuration,
     initialRequestedSpeed,
     requestedSpeed,
-    tempoFactor: factor,
+    tempoFactor: Math.max(factor, 0.9),
     alignedPath,
   })
   segment.timingFinalized = true
