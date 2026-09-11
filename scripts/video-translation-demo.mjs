@@ -1007,9 +1007,12 @@ for (let index = 0; index < speechUnits.length; index += 1) {
       duration: naturalDuration,
       error: Math.abs(Math.log(naturalDuration / desiredSpeechDuration)),
     }
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
+    // Rewrite until natural speech lands within ±5% of the window (up to 4
+    // rounds): a faithful re-write in the speaker's own cadence always
+    // sounds better than speed-skewing the voice itself.
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
       const measuredSpeed = best.duration / desiredSpeechDuration
-      if (measuredSpeed >= 0.88 && measuredSpeed <= 1.12) break
+      if (measuredSpeed >= 0.95 && measuredSpeed <= 1.05) break
       const rewritten = await rewriteForDuration(best.text, best.duration, desiredSpeechDuration, attempt)
       if (rewritten === best.text) break
       const candidateNatural = await synthesize(rewritten, 1, 'natural')
@@ -1033,10 +1036,12 @@ for (let index = 0; index < speechUnits.length; index += 1) {
   }
   // ZipVoice duration responds approximately to the inverse square of its
   // speed control, so use a square-root correction instead of a linear one.
+  // Cloud TTS speed is kept within ±8%: the rewrite loop already did the
+  // heavy lifting, and larger speed offsets tint the cloned voice.
   let initialRequestedSpeed = clamp(
     Math.pow(naturalDuration / desiredSpeechDuration, cloudMode ? 1 : 0.5),
-    cloudMode ? 0.88 : 0.5,
-    cloudMode ? 1.12 : 2,
+    cloudMode ? 0.92 : 0.5,
+    cloudMode ? 1.08 : 2,
   )
   let requestedSpeed = initialRequestedSpeed
   let generated = Math.abs(requestedSpeed - 1) >= 0.04
@@ -1051,8 +1056,8 @@ for (let index = 0; index < speechUnits.length; index += 1) {
     if (Number.isFinite(observedExponent) && observedExponent > 0.5) {
       requestedSpeed = clamp(
         initialRequestedSpeed * Math.pow(factor, 1 / observedExponent),
-        cloudMode ? 0.88 : 0.5,
-        cloudMode ? 1.12 : 2,
+        cloudMode ? 0.92 : 0.5,
+        cloudMode ? 1.08 : 2,
       )
       if (Math.abs(requestedSpeed - initialRequestedSpeed) >= 0.01) {
         generated = await synthesize(segment.text, requestedSpeed, 'calibrated')
