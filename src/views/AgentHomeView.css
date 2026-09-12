@@ -190,7 +190,7 @@
   background: color-mix(in srgb, var(--agent-ink) 7%, transparent);
 }
 .agent-file-preview > button:disabled { opacity: .45; cursor: wait; }
-.agent-home-composer-toolbar { display: flex; flex-wrap: wrap; min-height: 32px; align-items: center; gap: 9px; border-top: 1px solid color-mix(in srgb, var(--agent-border) 60%, transparent); padding-top: 10px; margin-top: 4px; }
+.agent-home-composer-toolbar { display: flex; flex-wrap: wrap; min-height: 32px; align-items: center; gap: 9px; border-top: 1px solid color-mix(in srgb, var(--agent-border) 60%, transparent); padding-top: 10px; margin-top: 24px; }
 .agent-attach-button { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 9px; color: var(--agent-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .agent-attach-button:hover { color: var(--agent-ink); background: color-mix(in srgb, var(--agent-ink) 5%, transparent); }
 .agent-attach-button:disabled { opacity: .38; cursor: default; }
@@ -214,8 +214,6 @@
 }
 .agent-composer-status { min-width: 0; overflow-wrap: anywhere; }
 .agent-composer-status.invalid { color: #b84f4f; }
-.agent-composer-keyboard-hint { flex: 0 0 auto; font-size: 10px; white-space: nowrap; }
-.agent-composer-keyboard-hint kbd { font: inherit; }
 .agent-home-composer button:focus-visible,
 .agent-file-preview > button:focus-visible,
 .agent-jump-to-latest:focus-visible,
@@ -662,10 +660,6 @@
   padding: 0;
 }
 
-.agent-context-row.compact {
-  gap: 6px;
-  margin-bottom: 0;
-}
 
 .agent-context-chip {
   --mode-accent: var(--accent, #4c7e6c);
@@ -716,11 +710,6 @@
 }
 .agent-context-chip.active svg {
   background: color-mix(in srgb, var(--mode-accent) 16%, transparent);
-}
-.agent-context-row.compact .agent-context-chip {
-  min-height: 24px;
-  padding: 0 8px;
-  font-size: 10px;
 }
 
 @media (max-width: 900px) {

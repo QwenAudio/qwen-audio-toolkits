@@ -288,7 +288,7 @@ export function AgentHomeView({
   const inWorkspace = workspaceTitle !== undefined
   const hasConversation = inWorkspace || messages.length > 0 || submitting
   const visibleMessageCount = messages.length + (submitting ? 1 : 0)
-  const showSkillRow = !inWorkspace && modes.length > 0
+  const showSkillRow = !hasConversation && modes.length > 0
 
   useEffect(() => {
     setExpandedModelChoices(new Set())
@@ -737,7 +737,7 @@ export function AgentHomeView({
               value={draftPrompt}
               disabled={submitting}
               aria-label={t('描述任务')}
-              aria-describedby="agent-composer-status agent-composer-keyboard-hint"
+              aria-describedby={composerError || !attachmentCompatible || chatModelUnavailable ? 'agent-composer-status' : undefined}
               aria-invalid={!attachmentCompatible}
               placeholder={workspaceCanOperate ? t('告诉 AI 怎样修改右侧内容…') : inWorkspace ? t('继续补充任务要求，或与 Agent 讨论…') : t('描述你想完成的音视频任务，例如：把这个视频翻译成中文配音版，并保留原说话节奏')}
               onChange={(event) => onDraftPromptChange(event.target.value)}
@@ -773,7 +773,7 @@ export function AgentHomeView({
                 <div className="agent-chat-model-selectors" role="group" aria-label={t('ACP Agent 与模型')}>
                   <label>
                     <span>Agent</span>
-                    <select aria-label={t('ACP Agent')} title={t('ACP Agent')} value={chatModel?.providerId ?? ''} disabled={submitting}
+                    <select aria-label={t('ACP Agent')} title={t('ACP Agent')} value={chatModel?.providerId ?? ''} disabled={hasConversation}
                       onChange={event => {
                         onChatModelChange({ transport: 'acp', providerId: event.target.value, modelId: '' })
                         setComposerError(null)
@@ -814,21 +814,16 @@ export function AgentHomeView({
             {chatModelError && <div className="agent-model-notice" role="status">
               <span>{chatModelError}</span><button type="button" disabled={chatModelLoading || submitting} onClick={onRetryModels}>{t('重试')}</button>
             </div>}
-            <div className="agent-home-composer-footer">
-              <span
-                id="agent-composer-status"
-                className={`agent-composer-status${composerError || !attachmentCompatible || chatModelUnavailable ? ' invalid' : ''}`}
-                role={composerError || !attachmentCompatible || chatModelUnavailable ? 'alert' : 'status'}
-              >
-                {composerError ?? (submitting ? t('正在处理当前任务…') : chatModelUnavailable ? t('所选对话模型不可用，请重新选择 Agent 和模型。') : attachmentHelp)}
-              </span>
-              <span id="agent-composer-keyboard-hint" className="agent-composer-keyboard-hint">
-                <kbd>Enter</kbd> {t('发送')}<span aria-hidden="true"> · </span><kbd>Shift + Enter</kbd> {t('换行')}
-              </span>
-            </div>
+            {(composerError || !attachmentCompatible || chatModelUnavailable) && (
+              <div className="agent-home-composer-footer">
+                <span id="agent-composer-status" className="agent-composer-status invalid" role="alert">
+                  {composerError ?? (chatModelUnavailable ? t('所选对话模型不可用，请重新选择 Agent 和模型。') : attachmentHelp)}
+                </span>
+              </div>
+            )}
           </div>
           {showSkillRow && (
-            <div className={`agent-context-row${hasConversation ? ' compact' : ''}`} aria-label={t('技能选择')}>
+            <div className="agent-context-row" aria-label={t('技能选择')}>
               {modes.filter(item => item.workspaceEntry !== 'agent-chat').map((item) => {
                 const modeId = item.workspaceEntry
                 const Icon = MODE_ICONS[modeId]

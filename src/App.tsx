@@ -3924,6 +3924,8 @@ function App() {
                   onCancelAcp={() => { if (selectedGeneralTask) acpTurns.current.get(selectedGeneralTask.id)?.abort(); }}
                   onChatModelChange={chatModel => {
                     const task = materializeGeneralTask();
+                    const agentLocked = isWorkspaceTaskView || task.messages.length > 0 || task.submitting;
+                    if (agentLocked && getAgentSelection(chatModel).providerId !== getAgentSelection(task.chatModel).providerId) return;
                     pendingGeneralTaskRef.current = { ...task, chatModel };
                     updateGeneralTask(task.id, { chatModel });
                   }}
