@@ -2,12 +2,14 @@ import assert from 'node:assert/strict'
 import {
   createOnDemandModelExecutionPlan,
   createInstallModelAction,
+  detectOnDemandModelNeeds,
   enhancedAudioFileName,
   isInstallApproval,
   planOnDemandModelAction,
   resolveOnDemandModelExecution,
   resolveOnDemandModelExecutions,
   resolveOnDemandModelNeed,
+  resolveOnDemandModelNeeds,
 } from '../src/domain/onDemandModels'
 import type { ModelPlugin } from '../src/types'
 
@@ -220,6 +222,44 @@ assert.deepEqual(
   transcribeCandidateList.map(({ model }) => model.id),
   ['funaudiollm.sensevoice-small-gguf', 'k2-fsa.funasr-nano'],
 )
+assert.deepEqual(
+  detectOnDemandModelNeeds('先给这段录音做降噪，然后识别一下内容').map((need) => need.id),
+  ['audio-denoise', 'speech-transcribe'],
+)
+const multiStepResolutions = resolveOnDemandModelNeeds(
+  '先给这段录音做降噪，然后识别一下内容',
+  [
+    model('rikorose.deepfilternet3', 'audio.enhance', true, {
+      adapter: 'deepfilternet',
+    }),
+    model('funaudiollm.sensevoice-small-gguf', 'speech.transcribe', true, {
+      adapter: 'funasr-sensevoice-gguf',
+    }),
+  ],
+)
+assert.deepEqual(
+  multiStepResolutions.map(({ need, installedModel }) => [need.id, installedModel?.id]),
+  [
+    ['audio-denoise', 'rikorose.deepfilternet3'],
+    ['speech-transcribe', 'funaudiollm.sensevoice-small-gguf'],
+  ],
+)
+assert.equal(
+  createOnDemandModelExecutionPlan(
+    multiStepResolutions[0],
+    multiStepResolutions[0].installedModel!,
+    { path: '/tmp/longanhuan.wav', name: 'longanhuan.wav' },
+  )?.capability,
+  'audio.enhance',
+)
+assert.equal(
+  createOnDemandModelExecutionPlan(
+    multiStepResolutions[1],
+    multiStepResolutions[1].installedModel!,
+    { path: '/tmp/longanhuan_enhanced.wav', name: 'longanhuan_enhanced.wav' },
+  )?.capability,
+  'speech.transcribe',
+)
 assert.equal(
   resolveOnDemandModelExecution(
     '确认后做一次人声分离。',
@@ -236,4 +276,4 @@ assert.equal(planOnDemandModelAction('请降噪', [], 'ask').kind, 'unavailable'
 assert.equal(isInstallApproval('帮我安装'), true)
 assert.equal(isInstallApproval('先不用'), false)
 
-console.log(JSON.stringify({ status: 'passed', checks: 40 }, null, 2))
+console.log(JSON.stringify({ status: 'passed', checks: 45 }, null, 2))

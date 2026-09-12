@@ -113,6 +113,35 @@ const NEED_KEYWORDS: Record<string, RegExp[]> = {
   ],
 }
 
+const NEED_ORDER_KEYWORDS: Record<string, RegExp[]> = {
+  'audio-denoise': [
+    /降噪/u,
+    /去噪/u,
+    /消噪/u,
+    /噪声/u,
+    /底噪/u,
+    /风噪/u,
+    /电流声/u,
+    /\bdenoise\b/iu,
+    /\bnoise\s*reduction\b/iu,
+  ],
+  'speech-transcribe': [
+    /转写/u,
+    /听写/u,
+    /识别/u,
+    /字幕/u,
+    /\basr\b/iu,
+    /\btranscri(?:be|ption)\b/iu,
+  ],
+  'audio-separate': [
+    /人声分离/u,
+    /伴奏分离/u,
+    /分离/u,
+    /\bsource\s*separation\b/iu,
+    /\bvocal\s*separation\b/iu,
+  ],
+}
+
 function scoreModelForNeed(model: ModelPlugin, need: OnDemandModelNeed): number {
   const preferredIndex = need.preferredModelIds.indexOf(model.id)
   const preferredScore = preferredIndex >= 0 ? 100 - preferredIndex : 0
@@ -217,19 +246,58 @@ function sortCandidatesForNeed(models: ModelPlugin[], need: OnDemandModelNeed): 
 }
 
 export function detectOnDemandModelNeed(content: string): OnDemandModelNeed | null {
+  return detectOnDemandModelNeeds(content)[0] ?? null
+}
+
+function firstKeywordIndex(content: string, need: OnDemandModelNeed): number | null {
+  const patterns = NEED_ORDER_KEYWORDS[need.id] ?? NEED_KEYWORDS[need.id]
+  const indexes = patterns
+    ?.map((pattern) => {
+      pattern.lastIndex = 0
+      const match = pattern.exec(content)
+      return match?.index ?? -1
+    })
+    .filter((index) => index >= 0) ?? []
+  if (!indexes.length) return null
+  return Math.min(...indexes)
+}
+
+export function detectOnDemandModelNeeds(content: string): OnDemandModelNeed[] {
   const trimmed = content.trim()
-  if (!trimmed) return null
-  return ON_DEMAND_NEEDS.find((need) =>
-    NEED_KEYWORDS[need.id]?.some((pattern) => pattern.test(trimmed)),
-  ) ?? null
+  if (!trimmed) return []
+  return ON_DEMAND_NEEDS
+    .map((need, order) => ({
+      need,
+      order,
+      index: firstKeywordIndex(trimmed, need),
+    }))
+    .filter((item): item is { need: OnDemandModelNeed; order: number; index: number } =>
+      item.index !== null,
+    )
+    .sort((left, right) => left.index - right.index || left.order - right.order)
+    .map(({ need }) => need)
 }
 
 export function resolveOnDemandModelNeed(
   content: string,
   models: ModelPlugin[],
 ): OnDemandModelResolution | null {
-  const need = detectOnDemandModelNeed(content)
-  if (!need) return null
+  return resolveOnDemandModelNeeds(content, models)[0] ?? null
+}
+
+export function resolveOnDemandModelNeeds(
+  content: string,
+  models: ModelPlugin[],
+): OnDemandModelResolution[] {
+  const needs = detectOnDemandModelNeeds(content)
+  if (!needs.length) return []
+  return needs.map((need) => resolveOnDemandModelResolution(need, models))
+}
+
+function resolveOnDemandModelResolution(
+  need: OnDemandModelNeed,
+  models: ModelPlugin[],
+): OnDemandModelResolution {
   const candidates = sortCandidatesForNeed(models, need)
   const primaryModel = candidates.find((model) => model.id === need.preferredModelIds[0]) ?? null
   const installedModel =

@@ -116,6 +116,7 @@ import {
   createInstallModelAction,
   isInstallApproval,
   planOnDemandModelAction,
+  resolveOnDemandModelNeeds,
   resolveOnDemandModelExecutions,
   type OnDemandModelExecutionCandidate,
   type OnDemandModelInstallMode,
@@ -459,6 +460,9 @@ interface PendingOnDemandInstall {
   selectedModeName: string | null
   attachmentHint: string
   attachment: GeneralAgentAttachment | null
+  chain?: {
+    resolutions: OnDemandModelResolution[]
+  }
 }
 
 const SIDEBAR_DENSITY_OPTIONS: {
@@ -1673,12 +1677,74 @@ function App() {
       ],
     }
   }
+  const runOnDemandModelExecutionSequence = async (
+    pending: PendingOnDemandInstall,
+    resolutions: OnDemandModelResolution[],
+    installMissing: boolean,
+  ): Promise<{ content: string; attachments: GeneralAgentAttachment[] } | null> => {
+    let currentAttachment = pending.attachment
+    const contents: string[] = []
+    const attachments: GeneralAgentAttachment[] = []
+    for (const resolution of resolutions) {
+      const model = resolution.installedModel ?? (
+        installMissing ? await installOnDemandModel(resolution) : null
+      )
+      if (!model) return null
+      const result = await runOnDemandModelExecution({
+        ...pending,
+        resolution: {
+          ...resolution,
+          installedModel: model,
+          recommendedModel: model,
+        },
+        attachment: currentAttachment,
+      }, model)
+      if (!result) return null
+      contents.push(result.content)
+      if (result.attachments.length) {
+        attachments.push(...result.attachments)
+        currentAttachment = result.attachments[0]
+      }
+    }
+    if (contents.length === 1) {
+      return { content: contents[0], attachments }
+    }
+    return {
+      content: t('已完成 {0} 个步骤：\n\n{1}', [
+        String(contents.length),
+        contents.map((content, index) => `${index + 1}. ${content}`).join('\n\n'),
+      ]),
+      attachments,
+    }
+  }
   const continueWithInstalledOnDemandModel = (
     task: GeneralAgentTask,
     pending: PendingOnDemandInstall,
     model: ModelPlugin,
   ) => {
     pendingOnDemandModelRef.current.delete(task.id)
+    if (pending.chain) {
+      const resolutions = pending.chain.resolutions.map((resolution) =>
+        resolution.need.id === pending.resolution.need.id
+          ? { ...resolution, installedModel: model, recommendedModel: model }
+          : resolution,
+      )
+      void submitGeneralPrompt({
+        task,
+        content: pending.prompt,
+        selectedModeName: pending.selectedModeName,
+        attachmentHint: pending.attachmentHint,
+        attachment: pending.attachment,
+        appendUserMessage: false,
+        localResponse: async () =>
+          (await runOnDemandModelExecutionSequence(pending, resolutions, true)) ??
+          t('已安装 {0}。当前任务还需要 Agent 继续规划，请补充处理参数。', [
+            model.name,
+          ]),
+        onError: notify,
+      })
+      return
+    }
     const directPlan = createOnDemandModelExecutionPlan(
       pending.resolution,
       model,
@@ -1745,6 +1811,7 @@ function App() {
     const action = message.action
     updateGeneralMessageActionStatus(task.id, message.id, 'running')
     const model = plugins.find((candidate) => candidate.id === action.modelId)
+    const pendingFromPrompt = pendingOnDemandModelRef.current.get(task.id)
     const resolution: OnDemandModelResolution = {
       need: {
         id: action.id,
@@ -1760,13 +1827,19 @@ function App() {
       try {
         const installed = await installOnDemandModel(resolution)
         updateGeneralMessageActionStatus(task.id, message.id, 'done')
-        continueWithInstalledOnDemandModel(task, {
-          resolution,
-          prompt: action.prompt,
-          selectedModeName: action.selectedModeName,
-          attachmentHint: action.attachmentHint,
-          attachment: action.attachment ?? null,
-        }, installed)
+        continueWithInstalledOnDemandModel(
+          task,
+          pendingFromPrompt?.resolution.recommendedModel?.id === action.modelId
+            ? pendingFromPrompt
+            : {
+                resolution,
+                prompt: action.prompt,
+                selectedModeName: action.selectedModeName,
+                attachmentHint: action.attachmentHint,
+                attachment: action.attachment ?? null,
+              },
+          installed,
+        )
       } catch (error) {
         updateGeneralMessageActionStatus(task.id, message.id, 'failed')
         notify(
@@ -1802,6 +1875,92 @@ function App() {
             model.name,
           ])
         },
+        onError: notify,
+      })
+      return
+    }
+
+    const modelSequence = resolveOnDemandModelNeeds(request.content, plugins)
+    if (modelSequence.length > 1) {
+      const unavailable = modelSequence.find((resolution) =>
+        !resolution.installedModel && !resolution.recommendedModel,
+      )
+      if (unavailable) {
+        void submitGeneralPrompt({
+          task,
+          content: request.content,
+          selectedModeName: request.selectedModeName,
+          attachmentHint: '',
+          attachment: request.attachment,
+          localResponse: () =>
+            t('模型商店暂时没有可用于 {0} 的开源模型', [unavailable.need.label]),
+          onError: notify,
+        })
+        return
+      }
+
+      const missing = modelSequence.find((resolution) => !resolution.installedModel)
+      const missingModel = missing?.recommendedModel ?? null
+      if (missing && agentModelInstallMode === 'ask' && missingModel) {
+        const pendingInstallRequest: PendingOnDemandInstall = {
+          resolution: missing,
+          prompt: request.content,
+          selectedModeName: request.selectedModeName,
+          attachmentHint: request.attachmentHint,
+          attachment: request.attachment,
+          chain: { resolutions: modelSequence },
+        }
+        pendingOnDemandModelRef.current.set(task.id, pendingInstallRequest)
+        void submitGeneralPrompt({
+          task,
+          content: request.content,
+          selectedModeName: request.selectedModeName,
+          attachmentHint: '',
+          attachment: request.attachment,
+          localResponse: () => ({
+            content: t('需要先安装开源模型 {0} 才能处理「{1}」。点击下方按钮即可安装并继续，或回复“安装”。', [
+              missingModel.name,
+              missing.need.label,
+            ]),
+            action: createInstallModelAction(missing, missingModel, {
+              prompt: request.content,
+              selectedModeName: request.selectedModeName,
+              attachmentHint: request.attachmentHint,
+              attachment: request.attachment,
+            }),
+          }),
+          onError: notify,
+        })
+        return
+      }
+
+      const pendingExecution: PendingOnDemandInstall = {
+        resolution: modelSequence[0],
+        prompt: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: request.attachmentHint,
+        attachment: request.attachment,
+        chain: { resolutions: modelSequence },
+      }
+      const context = modelSequence
+        .map((resolution) => {
+          const model = resolution.installedModel ?? resolution.recommendedModel
+          return model ? onDemandModelContext(resolution, model) : ''
+        })
+        .join('')
+      void submitGeneralPrompt({
+        task,
+        content: request.content,
+        selectedModeName: request.selectedModeName,
+        attachmentHint: request.attachmentHint + context,
+        attachment: request.attachment,
+        localResponse: async () =>
+          (await runOnDemandModelExecutionSequence(
+            pendingExecution,
+            modelSequence,
+            agentModelInstallMode === 'auto',
+          )) ??
+          t('当前任务还需要 Agent 继续规划，请补充处理参数。'),
         onError: notify,
       })
       return
