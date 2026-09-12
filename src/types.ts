@@ -1,601 +1,654 @@
-type ClipKind = 'recording' | 'generated' | 'music' | 'stream'
+type ClipKind = "recording" | "generated" | "music" | "stream";
 
 export interface AudioClip {
-  id: string
-  name: string
-  duration: number
-  sampleRate: number
-  channels: number
-  kind: ClipKind
-  samples: number[]
-  color: string
-  sizeLabel: string
-  sourceLabel: string
-  url?: string
-  processingAudioUrl?: string
-  transcriptionAudioUrl?: string
+  id: string;
+  name: string;
+  duration: number;
+  sampleRate: number;
+  channels: number;
+  kind: ClipKind;
+  samples: number[];
+  color: string;
+  sizeLabel: string;
+  sourceLabel: string;
+  url?: string;
+  processingAudioUrl?: string;
+  transcriptionAudioUrl?: string;
 }
 
 export interface AgentProject {
-  task: string
+  task: string;
   usage: {
-    inputRequirements: string[]
-    limitations: string[]
-    examples: string[]
-  }
+    inputRequirements: string[];
+    limitations: string[];
+    examples: string[];
+  };
   harness:
     | {
-        kind: 'host-adapter'
-        adapter: string
-        capability: HarnessCapabilityId
+        kind: "host-adapter";
+        adapter: string;
+        capability: HarnessCapabilityId;
       }
     | {
-        kind: 'app-workflow'
-        entry: WorkspaceAgentEntry
-      }
+        kind: "app-workflow";
+        entry: WorkspaceAgentEntry;
+      };
 }
 
 export type WorkspaceAgentEntry =
-  | 'smart-cut'
-  | 'ai-podcast'
-  | 'video-dubbing'
-  | 'meeting-notes'
+  "smart-cut" | "ai-podcast" | "video-dubbing" | "meeting-notes" | "agent-chat";
 
 /** An extension is an Agent project; model fields remain compatible with v1/v2 packages. */
 export interface AgentExtension {
-  agent?: AgentProject | null
-  id: string
-  name: string
-  author: string
-  engineAuthor?: string
-  description: string
-  license?: string
-  capabilities: string[]
-  harnessCapabilities: HarnessCapabilityId[]
-  runtime: string
-  acceleration: string[]
-  version: string
-  size: string
-  installed: boolean
-  enabled: boolean
-  sidebarVisible?: boolean
-  builtin: boolean
-  featured?: boolean
-  installCount?: number
-  tone: 'green' | 'coral' | 'yellow' | 'blue' | 'violet'
-  providerId?: string
-  adapter: string
-  installPath: string
-  catalogManaged?: boolean
-  streamingMode?: 'streaming' | 'batch'
-  apiAliases?: string[]
-  defaultVoice?: string
-  variants?: ModelVariant[]
-  selectedVariantId?: string
-  defaultVariantId?: string
-  installable?: boolean
-  inputs?: PluginPortDefinition[]
-  outputs?: PluginPortDefinition[]
-  parameterSchema?: PluginParameterDefinition[]
-  recommendedDependencies?: ModelDependencyDefinition[]
+  agent?: AgentProject | null;
+  id: string;
+  name: string;
+  author: string;
+  engineAuthor?: string;
+  description: string;
+  license?: string;
+  capabilities: string[];
+  harnessCapabilities: HarnessCapabilityId[];
+  runtime: string;
+  acceleration: string[];
+  version: string;
+  size: string;
+  installed: boolean;
+  enabled: boolean;
+  sidebarVisible?: boolean;
+  builtin: boolean;
+  featured?: boolean;
+  installCount?: number;
+  tone: "green" | "coral" | "yellow" | "blue" | "violet";
+  providerId?: string;
+  adapter: string;
+  installPath: string;
+  catalogManaged?: boolean;
+  streamingMode?: "streaming" | "batch";
+  apiAliases?: string[];
+  defaultVoice?: string;
+  variants?: ModelVariant[];
+  selectedVariantId?: string;
+  defaultVariantId?: string;
+  installable?: boolean;
+  inputs?: PluginPortDefinition[];
+  outputs?: PluginPortDefinition[];
+  parameterSchema?: PluginParameterDefinition[];
+  recommendedDependencies?: ModelDependencyDefinition[];
   /** App workflows are installed from the same catalog but open a dedicated workspace. */
-  extensionKind?: 'model' | 'workspace-agent'
-  workspaceEntry?: WorkspaceAgentEntry
+  extensionKind?: "model" | "workspace-agent";
+  workspaceEntry?: WorkspaceAgentEntry;
 }
 
 /** Compatibility alias for existing model execution components. */
-export type ModelPlugin = AgentExtension
+export type ModelPlugin = AgentExtension;
 
 interface ModelDependencyDefinition {
-  role: 'speech-segmentation' | 'reference-transcription' | string
-  label: string
-  pluginId: string
-  capability: HarnessCapabilityId
-  default: boolean
-  optional: boolean
+  role: "speech-segmentation" | "reference-transcription" | string;
+  label: string;
+  pluginId: string;
+  capability: HarnessCapabilityId;
+  default: boolean;
+  optional: boolean;
 }
 
-export type ModelDependencyBindings = Record<string, Record<string, string>>
+export type ModelDependencyBindings = Record<string, Record<string, string>>;
 
 export interface PluginRemovalResult {
-  plugins: ModelPlugin[]
+  plugins: ModelPlugin[];
   removal: {
-    pluginId: string
-    deleted: boolean
-    retained: boolean
-    referencedBy: string[]
-  }
+    pluginId: string;
+    deleted: boolean;
+    retained: boolean;
+    referencedBy: string[];
+  };
 }
 
 export interface ApiModelCatalogEntry {
-  id: string
-  name: string
-  author: string
-  description: string
-  capabilities: string[]
-  harnessCapability: HarnessCapabilityId
-  providerId: string
-  adapter: string
-  modelId: string
-  aliases: string[]
-  streamingMode: 'streaming' | 'batch'
-  featured: boolean
-  visible: boolean
+  id: string;
+  name: string;
+  author: string;
+  description: string;
+  capabilities: string[];
+  harnessCapability: HarnessCapabilityId;
+  providerId: string;
+  adapter: string;
+  modelId: string;
+  aliases: string[];
+  streamingMode: "streaming" | "batch";
+  featured: boolean;
+  visible: boolean;
 }
 
 export interface CustomApiModelDefinition {
-  id: string
-  name: string
-  modelId: string
-  providerId: string
+  id: string;
+  name: string;
+  modelId: string;
+  providerId: string;
   capability: Extract<
     HarnessCapabilityId,
-    'text.generate' | 'speech.transcribe' | 'speech.synthesize'
-  >
-  defaultVoice?: string
+    "text.generate" | "speech.transcribe" | "speech.synthesize"
+  >;
+  defaultVoice?: string;
 }
 
 type PluginPortType =
-  | 'audio'
-  | 'video'
-  | 'speech-segments'
-  | 'transcript'
-  | 'text'
-  | 'boolean'
-  | 'keyword-events'
-  | 'audio-tags'
-  | 'language'
-  | 'speaker-embedding'
-  | 'speaker-segments'
-  | 'audio-tracks'
+  | "audio"
+  | "video"
+  | "speech-segments"
+  | "transcript"
+  | "text"
+  | "boolean"
+  | "keyword-events"
+  | "audio-tags"
+  | "language"
+  | "speaker-embedding"
+  | "speaker-segments"
+  | "audio-tracks";
 
 export interface PluginPortDefinition {
-  name: string
-  label?: string
-  type: PluginPortType
-  modes?: Array<'batch' | 'stream'>
-  optional?: boolean
+  name: string;
+  label?: string;
+  type: PluginPortType;
+  modes?: Array<"batch" | "stream">;
+  optional?: boolean;
 }
 
 interface PluginParameterOption {
-  label: string
-  value: string | number | boolean
+  label: string;
+  value: string | number | boolean;
 }
 
 export interface PluginParameterDefinition {
-  name: string
-  label: string
-  type: 'string' | 'number' | 'boolean' | 'enum'
-  description?: string
-  default?: string | number | boolean
-  min?: number
-  max?: number
-  step?: number
-  options?: PluginParameterOption[]
-  multiline?: boolean
+  name: string;
+  label: string;
+  type: "string" | "number" | "boolean" | "enum";
+  description?: string;
+  default?: string | number | boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: PluginParameterOption[];
+  multiline?: boolean;
 }
 
 interface ModelVariant {
-  id: string
-  name: string
-  precision: string
-  size: string
+  id: string;
+  name: string;
+  precision: string;
+  size: string;
 }
 
 export interface RuntimeStatus {
-  apiUrl: string
-  backend: string
-  device: string
-  platform: string
-  version: string
+  apiUrl: string;
+  backend: string;
+  device: string;
+  platform: string;
+  version: string;
 }
 
 export interface TtsGenerateResult {
-  fileName: string
-  filePath: string
-  dataUrl: string
-  duration: number
-  sampleRate: number
-  channels: number
-  sizeBytes: number
-  waveform: number[]
-  inferenceSeconds: number
-  realTimeFactor: number
-  sid: number
-  engine: string
+  fileName: string;
+  filePath: string;
+  dataUrl: string;
+  duration: number;
+  sampleRate: number;
+  channels: number;
+  sizeBytes: number;
+  waveform: number[];
+  inferenceSeconds: number;
+  realTimeFactor: number;
+  sid: number;
+  engine: string;
 }
 
 interface AsrToken {
-  text: string
-  start: number
-  end: number
+  text: string;
+  start: number;
+  end: number;
 }
 
 interface AsrSegment {
-  id: string
-  start: number
-  end: number
-  text: string
-  tokens: AsrToken[]
+  id: string;
+  start: number;
+  end: number;
+  text: string;
+  tokens: AsrToken[];
 }
 
 export interface AsrTranscriptionResult {
-  clipName: string
-  sourceAudioDataUrl?: string
-  sourceAudioFilePath?: string
-  text: string
-  language: string
-  duration: number
-  speechSeconds: number
-  waveform?: number[]
-  segments: AsrSegment[]
-  inferenceSeconds: number
-  realTimeFactor: number
-  engine: string
+  clipName: string;
+  sourceAudioDataUrl?: string;
+  sourceAudioFilePath?: string;
+  text: string;
+  language: string;
+  duration: number;
+  speechSeconds: number;
+  waveform?: number[];
+  segments: AsrSegment[];
+  inferenceSeconds: number;
+  realTimeFactor: number;
+  engine: string;
 }
 
 export interface VadSegment {
-  id: string
-  start: number
-  end: number
-  duration: number
+  id: string;
+  start: number;
+  end: number;
+  duration: number;
 }
 
 export interface VadDetectionResult {
-  clipName: string
-  sourceAudioDataUrl?: string
-  sourceAudioFilePath?: string
-  duration: number
-  speechSeconds: number
-  silenceSeconds: number
-  segments: VadSegment[]
-  waveform: number[]
-  inferenceSeconds: number
-  realTimeFactor: number
-  threshold: number
-  engine: string
+  clipName: string;
+  sourceAudioDataUrl?: string;
+  sourceAudioFilePath?: string;
+  duration: number;
+  speechSeconds: number;
+  silenceSeconds: number;
+  segments: VadSegment[];
+  waveform: number[];
+  inferenceSeconds: number;
+  realTimeFactor: number;
+  threshold: number;
+  engine: string;
 }
 
 export interface TextGenerateResult {
-  text: string
-  model: string
-  inferenceSeconds: number
-  inputTokens?: number
-  outputTokens?: number
-  engine: string
+  text: string;
+  model: string;
+  inferenceSeconds: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  engine: string;
 }
 
 export interface PunctuationResult {
-  text: string
-  originalText: string
-  engine: string
-  inferenceSeconds: number
+  text: string;
+  originalText: string;
+  engine: string;
+  inferenceSeconds: number;
 }
 
 export interface AudioProcessResult {
-  fileName: string
-  filePath: string
-  dataUrl: string
-  duration: number
-  inputDuration: number
-  sampleRate: number
-  channels: number
-  sizeBytes: number
-  waveform: number[]
-  inferenceSeconds: number
-  operation: string
-  engine: string
-  detail: string
-  peakBeforeDb: number
-  peakAfterDb: number
-  loudnessBeforeDb: number
-  loudnessAfterDb: number
-  removedSeconds: number
+  fileName: string;
+  filePath: string;
+  dataUrl: string;
+  duration: number;
+  inputDuration: number;
+  sampleRate: number;
+  channels: number;
+  sizeBytes: number;
+  waveform: number[];
+  inferenceSeconds: number;
+  operation: string;
+  engine: string;
+  detail: string;
+  peakBeforeDb: number;
+  peakAfterDb: number;
+  loudnessBeforeDb: number;
+  loudnessAfterDb: number;
+  removedSeconds: number;
 }
 
 export type HarnessCapabilityId =
-  | 'speech.synthesize'
-  | 'speech.transcribe'
-  | 'speech.detect'
-  | 'text.generate'
-  | 'audio.enhance'
-  | 'audio.live'
-  | 'audio.classify'
-  | 'speech.keyword'
-  | 'speech.language'
-  | 'text.punctuate'
-  | 'text.normalize'
-  | 'speaker.embed'
-  | 'speaker.diarize'
-  | 'audio.separate'
-  | 'speech.converse'
+  | "speech.synthesize"
+  | "speech.transcribe"
+  | "speech.detect"
+  | "text.generate"
+  | "audio.enhance"
+  | "audio.live"
+  | "audio.classify"
+  | "speech.keyword"
+  | "speech.language"
+  | "text.punctuate"
+  | "text.normalize"
+  | "speaker.embed"
+  | "speaker.diarize"
+  | "audio.separate"
+  | "speech.converse";
 
 type HarnessRunStatus =
-  | 'queued'
-  | 'running'
-  | 'canceling'
-  | 'completed'
-  | 'failed'
-  | 'canceled'
+  "queued" | "running" | "canceling" | "completed" | "failed" | "canceled";
 
 export interface HarnessTaskRequest {
-  runId?: string
-  conversationProviderId?: string
-  conversationVisible?: boolean
-  dependencyRunIds?: string[]
-  capability: HarnessCapabilityId
-  providerId?: string
-  routing?: 'smart' | 'local' | 'quality'
-  title?: string
-  input: Record<string, unknown>
-  parameters?: Record<string, unknown>
+  runId?: string;
+  conversationProviderId?: string;
+  conversationVisible?: boolean;
+  dependencyRunIds?: string[];
+  capability: HarnessCapabilityId;
+  providerId?: string;
+  routing?: "smart" | "local" | "quality";
+  title?: string;
+  input: Record<string, unknown>;
+  parameters?: Record<string, unknown>;
 }
 
 interface HarnessArtifact {
-  id: string
-  kind: 'audio' | 'transcript' | 'stream' | 'data'
-  name: string
-  mimeType: string
-  filePath?: string
-  duration?: number
-  sizeBytes?: number
-  payload: Record<string, unknown>
+  id: string;
+  kind: "audio" | "transcript" | "stream" | "data";
+  name: string;
+  mimeType: string;
+  filePath?: string;
+  duration?: number;
+  sizeBytes?: number;
+  payload: Record<string, unknown>;
 }
 
 export interface HarnessRun {
-  id: string
-  conversationProviderId?: string
-  conversationVisible?: boolean
-  dependencyRunIds?: string[]
-  capability: HarnessCapabilityId
-  title: string
-  inputSummary: string
-  providerId: string
-  providerName: string
-  modelId: string
-  status: HarnessRunStatus
-  progress: number
-  activity?: string
-  createdAt: number
-  startedAt?: number
-  completedAt?: number
-  durationMs?: number
-  artifacts: HarnessArtifact[]
-  error?: string
-  retryable: boolean
+  id: string;
+  conversationProviderId?: string;
+  conversationVisible?: boolean;
+  dependencyRunIds?: string[];
+  capability: HarnessCapabilityId;
+  title: string;
+  inputSummary: string;
+  providerId: string;
+  providerName: string;
+  modelId: string;
+  status: HarnessRunStatus;
+  progress: number;
+  activity?: string;
+  createdAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  durationMs?: number;
+  artifacts: HarnessArtifact[];
+  error?: string;
+  retryable: boolean;
 }
 
 export interface HarnessExecution<T = unknown> {
-  run: HarnessRun
-  output: T
+  run: HarnessRun;
+  output: T;
 }
 
 export interface FunAsrStreamStartRequest {
-  clipName: string
-  providerId?: string
-  modelId?: string
-  sampleRate: number
-  language?: string
-  context?: string
-  semanticPunctuation?: boolean
+  clipName: string;
+  providerId?: string;
+  modelId?: string;
+  sampleRate: number;
+  language?: string;
+  context?: string;
+  semanticPunctuation?: boolean;
 }
 
 export interface FunAsrStreamStartResponse {
-  sessionId: string
-  run: HarnessRun
+  sessionId: string;
+  run: HarnessRun;
 }
 
 export interface FunAsrStreamEvent {
-  sessionId: string
-  runId: string
-  kind: 'partial' | 'final' | 'completed' | 'error'
-  text: string
-  error?: string
+  sessionId: string;
+  runId: string;
+  kind: "partial" | "final" | "completed" | "error";
+  text: string;
+  error?: string;
 }
 
 export interface VadStreamStartResponse {
-  sessionId: string
+  sessionId: string;
 }
 
 export interface VadStreamUpdate {
-  speechDetected: boolean
-  speechStarted: boolean
-  speechEnded: boolean
+  speechDetected: boolean;
+  speechStarted: boolean;
+  speechEnded: boolean;
 }
 
 export interface EnhancementStreamStartResponse {
-  sessionId: string
-  sampleRate: number
+  sessionId: string;
+  sampleRate: number;
 }
 
 export interface EnhancementStreamChunk {
-  pcmBase64: string
-  sampleRate: number
+  pcmBase64: string;
+  sampleRate: number;
 }
 
 export interface CosyVoiceStreamStartRequest {
-  text: string
-  modelId?: string
-  voice?: string
-  speed?: number
+  text: string;
+  modelId?: string;
+  voice?: string;
+  speed?: number;
 }
 
 export interface CosyVoiceStreamStartResponse {
-  sessionId: string
-  run: HarnessRun
+  sessionId: string;
+  run: HarnessRun;
 }
 
 export interface CosyVoiceStreamEvent {
-  sessionId: string
-  runId: string
-  kind: 'audio' | 'completed' | 'error'
-  pcmBase64?: string
-  sampleRate: number
-  chunkIndex?: number
-  error?: string
+  sessionId: string;
+  runId: string;
+  kind: "audio" | "completed" | "error";
+  pcmBase64?: string;
+  sampleRate: number;
+  chunkIndex?: number;
+  error?: string;
 }
 
 export interface RealtimeStreamStartRequest {
-  clipName: string
-  modelId?: string
-  sampleRate: number
-  systemPrompt?: string
-  voice?: string
+  clipName: string;
+  modelId?: string;
+  sampleRate: number;
+  systemPrompt?: string;
+  voice?: string;
 }
 
 export interface RealtimeStreamStartResponse {
-  sessionId: string
-  run: HarnessRun
+  sessionId: string;
+  run: HarnessRun;
 }
 
 export interface RealtimeStreamEvent {
-  sessionId: string
-  runId: string
+  sessionId: string;
+  runId: string;
   kind:
-    | 'user_transcript'
-    | 'assistant_transcript'
-    | 'audio_delta'
-    | 'completed'
-    | 'error'
-  text?: string
-  pcmBase64?: string
-  sampleRate: number
-  error?: string
+    | "user_transcript"
+    | "assistant_transcript"
+    | "audio_delta"
+    | "completed"
+    | "error";
+  text?: string;
+  pcmBase64?: string;
+  sampleRate: number;
+  error?: string;
+}
+
+export interface AcpProviderInfo {
+  id: string;
+  name: string;
+  available: boolean;
+}
+
+export interface AcpSessionStartRequest {
+  providerId: string;
+  cwd?: string;
+}
+
+export interface AcpSessionStartResponse {
+  sessionId: string;
+  providerId: string;
+  providerName: string;
+  models: string[];
+  modes: Array<{ id?: string; name?: string }>;
+}
+
+export interface AcpPermissionOption {
+  optionId: string;
+  name: string;
+  kind: string;
+}
+
+export interface AcpPlanEntry {
+  content?: string;
+  status?: string;
+}
+
+export interface AcpSessionEvent {
+  sessionId: string;
+  kind:
+    | "agent_message_chunk"
+    | "agent_thought_chunk"
+    | "tool_call"
+    | "tool_call_update"
+    | "plan"
+    | "turn_completed"
+    | "turn_failed"
+    | "permission_requested"
+    | "permission_resolved"
+    | "panel_requested"
+    | "closed"
+    | "error";
+  messageId?: string;
+  text?: string;
+  toolCallId?: string;
+  toolTitle?: string;
+  toolKind?: string;
+  status?: string;
+  content?: string;
+  plan?: AcpPlanEntry[];
+  stopReason?: string;
+  error?: string;
+  requestId?: string;
+  title?: string;
+  options?: AcpPermissionOption[];
+  panel?: "meeting-notes";
 }
 
 interface HarnessCapability {
-  id: HarnessCapabilityId
-  name: string
-  description: string
-  input: string
-  output: string
-  supportsBatch: boolean
-  supportsStreaming: boolean
+  id: HarnessCapabilityId;
+  name: string;
+  description: string;
+  input: string;
+  output: string;
+  supportsBatch: boolean;
+  supportsStreaming: boolean;
 }
 
 interface HarnessModel {
-  id: string
-  name: string
-  installed: boolean
-  loaded: boolean
+  id: string;
+  name: string;
+  installed: boolean;
+  loaded: boolean;
 }
 
 export interface HarnessProvider {
-  id: string
-  name: string
-  kind: 'local-model' | 'local-runtime' | 'plugin' | 'api'
-  runtime: string
-  status: 'ready' | 'missing' | 'disabled' | 'unconfigured'
-  configured: boolean
-  local: boolean
-  capabilities: HarnessCapabilityId[]
-  models: HarnessModel[]
+  id: string;
+  name: string;
+  kind: "local-model" | "local-runtime" | "plugin" | "api";
+  runtime: string;
+  status: "ready" | "missing" | "disabled" | "unconfigured";
+  configured: boolean;
+  local: boolean;
+  capabilities: HarnessCapabilityId[];
+  models: HarnessModel[];
 }
 
 export interface HarnessCatalog {
-  capabilities: HarnessCapability[]
-  providers: HarnessProvider[]
+  capabilities: HarnessCapability[];
+  providers: HarnessProvider[];
 }
 
 export interface ApiProviderSettings {
-  id: string
-  name: string
-  baseUrl: string
-  apiKeyConfigured: boolean
-  ttsModel: string
-  ttsVoice: string
-  asrModel: string
-  llmModel: string
-  enabled: boolean
-  status: 'ready' | 'unconfigured'
-  llmEnabled: boolean
-  asrEnabled: boolean
-  ttsEnabled: boolean
-  authType: ApiAuthType
-  authHeader: string
-  extraHeaders: Record<string, string>
-  llmPath: string
-  asrMode: ApiAsrMode
-  asrPath: string
-  asrBodyTemplate: string
-  asrModelField: string
-  asrLanguageField: string
-  asrPromptField: string
-  asrTextPointer: string
-  ttsMode: ApiTtsMode
-  ttsPath: string
-  ttsBodyTemplate: string
-  ttsResponseEncoding: ApiAudioResponseEncoding
-  ttsAudioPointer: string
-  ttsAudioFormat: ApiAudioFormat
-  ttsSampleRate: number
+  id: string;
+  name: string;
+  baseUrl: string;
+  apiKeyConfigured: boolean;
+  ttsModel: string;
+  ttsVoice: string;
+  asrModel: string;
+  llmModel: string;
+  enabled: boolean;
+  status: "ready" | "unconfigured";
+  llmEnabled: boolean;
+  asrEnabled: boolean;
+  ttsEnabled: boolean;
+  authType: ApiAuthType;
+  authHeader: string;
+  extraHeaders: Record<string, string>;
+  llmPath: string;
+  asrMode: ApiAsrMode;
+  asrPath: string;
+  asrBodyTemplate: string;
+  asrModelField: string;
+  asrLanguageField: string;
+  asrPromptField: string;
+  asrTextPointer: string;
+  ttsMode: ApiTtsMode;
+  ttsPath: string;
+  ttsBodyTemplate: string;
+  ttsResponseEncoding: ApiAudioResponseEncoding;
+  ttsAudioPointer: string;
+  ttsAudioFormat: ApiAudioFormat;
+  ttsSampleRate: number;
 }
 
-type ApiAuthType = 'bearer' | 'token' | 'custom-header' | 'none'
-type ApiAsrMode = 'multipart' | 'binary' | 'template-json-base64'
+type ApiAuthType = "bearer" | "token" | "custom-header" | "none";
+type ApiAsrMode = "multipart" | "binary" | "template-json-base64";
 type ApiTtsMode =
-  | 'standard-json'
-  | 'voice-path-json'
-  | 'nested-voice-json'
-  | 'query-model-json'
-  | 'template-json'
-type ApiAudioResponseEncoding = 'raw' | 'hex' | 'base64' | 'stream-base64'
-type ApiAudioFormat = 'wav' | 'pcm16'
+  | "standard-json"
+  | "voice-path-json"
+  | "nested-voice-json"
+  | "query-model-json"
+  | "template-json";
+type ApiAudioResponseEncoding = "raw" | "hex" | "base64" | "stream-base64";
+type ApiAudioFormat = "wav" | "pcm16";
 
 export interface ApiProviderUpdate {
-  id?: string
-  name: string
-  baseUrl: string
-  apiKey?: string
-  enabled: boolean
-  llmEnabled: boolean
-  asrEnabled: boolean
-  ttsEnabled: boolean
-  authType: ApiAuthType
-  authHeader: string
-  extraHeaders: Record<string, string>
-  llmPath: string
-  asrMode: ApiAsrMode
-  asrPath: string
-  asrBodyTemplate: string
-  asrModelField: string
-  asrLanguageField: string
-  asrPromptField: string
-  asrTextPointer: string
-  ttsMode: ApiTtsMode
-  ttsPath: string
-  ttsBodyTemplate: string
-  ttsResponseEncoding: ApiAudioResponseEncoding
-  ttsAudioPointer: string
-  ttsAudioFormat: ApiAudioFormat
-  ttsSampleRate: number
+  id?: string;
+  name: string;
+  baseUrl: string;
+  apiKey?: string;
+  enabled: boolean;
+  llmEnabled: boolean;
+  asrEnabled: boolean;
+  ttsEnabled: boolean;
+  authType: ApiAuthType;
+  authHeader: string;
+  extraHeaders: Record<string, string>;
+  llmPath: string;
+  asrMode: ApiAsrMode;
+  asrPath: string;
+  asrBodyTemplate: string;
+  asrModelField: string;
+  asrLanguageField: string;
+  asrPromptField: string;
+  asrTextPointer: string;
+  ttsMode: ApiTtsMode;
+  ttsPath: string;
+  ttsBodyTemplate: string;
+  ttsResponseEncoding: ApiAudioResponseEncoding;
+  ttsAudioPointer: string;
+  ttsAudioFormat: ApiAudioFormat;
+  ttsSampleRate: number;
 }
 
 export interface BailianProviderSettings {
-  id: string
-  name: string
-  apiKeyConfigured: boolean
-  enabled: boolean
-  status: 'ready' | 'unconfigured'
+  id: string;
+  name: string;
+  apiKeyConfigured: boolean;
+  enabled: boolean;
+  status: "ready" | "unconfigured";
 }
 
 export interface BailianProviderUpdate {
-  apiKey?: string
+  apiKey?: string;
 }
 
 export interface BailianVoice {
-  id: string
-  targetModel: string
-  status: string
-  createdAt?: string
+  id: string;
+  targetModel: string;
+  status: string;
+  createdAt?: string;
 }
 
 export interface BailianVoiceCreateRequest {
-  targetModel: string
-  mode: 'clone' | 'design'
-  prefix: string
-  language?: string
-  audioDataUrl?: string
-  voicePrompt?: string
-  previewText?: string
+  targetModel: string;
+  mode: "clone" | "design";
+  prefix: string;
+  language?: string;
+  audioDataUrl?: string;
+  voicePrompt?: string;
+  previewText?: string;
 }

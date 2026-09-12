@@ -23,6 +23,7 @@ const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'markdown'] as const
 interface AgentHomeViewProps {
   skills: ModelPlugin[]
   selectedModeId: AgentCreationMode | null
+  chatAvailable: boolean
   onSelectedModeChange: (mode: AgentCreationMode | null) => void
   onLaunch: (
     mode: AgentCreationMode,
@@ -36,6 +37,7 @@ interface AgentHomeViewProps {
 }
 
 const MODE_ORDER: AgentCreationMode[] = [
+  'agent-chat',
   'smart-cut',
   'ai-podcast',
   'video-dubbing',
@@ -43,6 +45,7 @@ const MODE_ORDER: AgentCreationMode[] = [
 ]
 
 const MODE_ICONS = {
+  'agent-chat': MessageSquareText,
   'smart-cut': Scissors,
   'ai-podcast': Radio,
   'video-dubbing': Languages,
@@ -77,6 +80,11 @@ const PROMPTS: Record<AgentCreationMode, ReadonlyArray<{
     { title: '需求评审', detail: '记录需求共识、争议点、最终结论和仍待确认的问题' },
     { title: '客户访谈', detail: '提炼客户痛点、原话证据、需求优先级和后续跟进事项' },
   ],
+  'agent-chat': [
+    { title: '自我介绍', detail: '你好，介绍一下你自己能做什么' },
+    { title: '写个示例', detail: '帮我用 Python 写一个快速排序，并解释你的实现思路' },
+    { title: '排查问题', detail: '帮我分析一段报错日志，列出可能的原因和排查步骤' },
+  ],
 }
 
 const VIDEO_DUBBING_MODES: ReadonlyArray<{
@@ -106,14 +114,17 @@ function attachmentMatchesMode(path: string, mode: AgentCreationMode): boolean {
   const extension = path.split('.').at(-1)?.toLowerCase() ?? ''
   return mode === 'meeting-notes'
     ? false
-    : mode === 'ai-podcast'
-      ? DOCUMENT_EXTENSIONS.includes(extension as (typeof DOCUMENT_EXTENSIONS)[number])
-      : VIDEO_EXTENSIONS.includes(extension as (typeof VIDEO_EXTENSIONS)[number])
+    : mode === 'agent-chat'
+      ? true
+      : mode === 'ai-podcast'
+        ? DOCUMENT_EXTENSIONS.includes(extension as (typeof DOCUMENT_EXTENSIONS)[number])
+        : VIDEO_EXTENSIONS.includes(extension as (typeof VIDEO_EXTENSIONS)[number])
 }
 
 export function AgentHomeView({
   skills,
   selectedModeId,
+  chatAvailable,
   onSelectedModeChange,
   onLaunch,
   onOpenStore,
@@ -157,20 +168,37 @@ export function AgentHomeView({
     [modes, selectedModeId],
   )
   const selectedEntry = selectedMode?.workspaceEntry ?? null
-  const available = selectedMode?.installed ?? false
+  const available =
+    selectedEntry === 'agent-chat' ? chatAvailable : (selectedMode?.installed ?? false)
   const attachmentCompatible = !attachment || !selectedEntry || attachmentMatchesMode(attachment.path, selectedEntry)
 
   const getComposerHint = (): string | null => {
-    if (!selectedEntry) return t('请先选择一个技能')
-    if (!available) return t('请先安装对应技能')
-    if (selectedEntry !== 'meeting-notes' && !attachment) return t('该任务需要文件，请添加文件')
+    if (!selectedEntry) {
+      if (chatAvailable && !attachment) return null
+      return t('请先选择一个技能')
+    }
+    if (!available) {
+      return selectedEntry === 'agent-chat'
+        ? t('未检测到可用的 Agent CLI，请先安装并登录（如 kimi）')
+        : t('请先安装对应技能')
+    }
+    if (
+      selectedEntry !== 'meeting-notes' &&
+      selectedEntry !== 'agent-chat' &&
+      !attachment
+    ) {
+      return t('该任务需要文件，请添加文件')
+    }
     return null
   }
 
   const canLaunchFromComposer = (): boolean =>
-    Boolean(selectedEntry) &&
-    (selectedEntry === 'meeting-notes' || Boolean(attachment && attachmentCompatible)) &&
-    available
+    (!selectedEntry && chatAvailable) ||
+    (Boolean(selectedEntry) &&
+      (selectedEntry === 'meeting-notes' ||
+        selectedEntry === 'agent-chat' ||
+        Boolean(attachment && attachmentCompatible)) &&
+      available)
 
   const showGreeting = () => {
     setGreeting(t('你好，我是 QwenAudio Toolkits，你的本地 AI 音频工作站。我可以帮你完成语音识别、语音合成、音频增强、实时语音对话、视频配音、口播剪辑、AI 播客等任务。选择一个技能或模型开始创作吧！'))
@@ -188,6 +216,10 @@ export function AgentHomeView({
     if (!trimmed) return
     setGreeting(null)
     if (!selectedEntry) {
+      if (chatAvailable) {
+        onLaunch('agent-chat', trimmed, attachment?.path ?? '')
+        return
+      }
       if (!attachment && !hasGreeted) showGreeting()
       return
     }
@@ -212,10 +244,7 @@ export function AgentHomeView({
       ? [{ name: t('文档'), extensions: [...DOCUMENT_EXTENSIONS] }]
       : selectedEntry === 'smart-cut' || selectedEntry === 'video-dubbing'
         ? [{ name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] }]
-        : [
-            { name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] },
-            { name: t('文档'), extensions: [...DOCUMENT_EXTENSIONS] },
-          ]
+        : [{ name: t('所有文件'), extensions: ['*'] }]
     const selection = await open({
       title: t('添加创作素材'),
       multiple: false,
@@ -270,7 +299,9 @@ export function AgentHomeView({
                 ? '粘贴完整配音文案'
                 : selectedEntry === 'video-dubbing' && videoDubbingMode === 'rewrite'
                   ? '描述你希望如何修改原稿'
-                  : '描述任务，输入/调用技能',
+                  : !selectedEntry && chatAvailable
+                    ? '描述任务，或直接输入与 Agent 对话'
+                    : '描述任务，输入/调用技能',
             )}
             onChange={(event) => {
               setPrompt(event.target.value)
@@ -298,7 +329,12 @@ export function AgentHomeView({
             }}
           />
           <div className="agent-home-composer-toolbar">
-            <button type="button" className="agent-attach-button" disabled={selectedEntry === 'meeting-notes'} onClick={() => void chooseAttachment()}>
+            <button
+              type="button"
+              className="agent-attach-button"
+              disabled={selectedEntry === 'meeting-notes'}
+              onClick={() => void chooseAttachment()}
+            >
               <Paperclip size={14} />
               {t('添加文件')}
             </button>
@@ -308,16 +344,20 @@ export function AgentHomeView({
                 : !attachmentCompatible
                   ? t('此任务仅支持视频文件，请更换附件')
                   : attachment
-                    ? t('文件将与 Prompt 一起提交')
-                    : selectedEntry === 'meeting-notes'
-                      ? t('实时会议无需添加文件')
-                    : selectedEntry === 'ai-podcast'
-                      ? t('支持 PDF、DOCX、TXT 和 Markdown')
-                      : selectedEntry
-                        ? t('支持 MP4、MOV、M4V、WebM 和 MKV')
-                        : t('支持视频、PDF 和文档')}
+                    ? selectedEntry === 'agent-chat' || !selectedEntry
+                      ? t('文件路径会随消息一起发给 Agent')
+                      : t('文件将与 Prompt 一起提交')
+                    : selectedEntry === 'agent-chat' || (!selectedEntry && chatAvailable)
+                      ? t('直接输入开始对话，也可以附加文件让 Agent 处理')
+                      : selectedEntry === 'meeting-notes'
+                        ? t('实时会议无需添加文件')
+                        : selectedEntry === 'ai-podcast'
+                          ? t('支持 PDF、DOCX、TXT 和 Markdown')
+                          : selectedEntry
+                            ? t('支持 MP4、MOV、M4V、WebM 和 MKV')
+                            : t('支持视频、PDF 和文档')}
             </span>
-            {selectedMode && !available && (
+            {selectedMode && !available && selectedEntry !== 'agent-chat' && (
               <button type="button" className="agent-install-link" onClick={onOpenStore}>
                 {t('安装对应技能')}
               </button>
