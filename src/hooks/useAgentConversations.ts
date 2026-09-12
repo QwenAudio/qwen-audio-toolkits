@@ -7,6 +7,7 @@ import type {
   GeneralAgentAttachment,
   GeneralAgentMessage,
   GeneralAgentMessageAction,
+  GeneralAgentStructuredPlanAction,
   GeneralAgentTask,
 } from '../domain/agents'
 import { inferAgentMessageAction } from '../domain/agentMessageActions'
@@ -158,6 +159,37 @@ export function useAgentConversations() {
       }),
     )
   }, [])
+  const updateStructuredPlanStep = useCallback((
+    taskId: string,
+    messageId: string,
+    stepId: string,
+    update: { status: GeneralAgentActionStatus; result?: string },
+  ) => {
+    setGeneralTasks((current) =>
+      current.map((task) => {
+        if (task.id !== taskId) return task
+        return {
+          ...task,
+          updatedAt: Date.now(),
+          messages: task.messages.map((message) => {
+            if (message.id !== messageId || message.action?.kind !== 'structured-agent-plan') {
+              return message
+            }
+            const action = message.action as GeneralAgentStructuredPlanAction
+            return {
+              ...message,
+              action: {
+                ...action,
+                steps: action.steps.map((step) =>
+                  step.id === stepId ? { ...step, ...update } : step,
+                ),
+              },
+            }
+          }),
+        }
+      }),
+    )
+  }, [])
   const submitGeneralPrompt = useCallback(async (request: {
     task: GeneralAgentTask
     content: string
@@ -256,6 +288,7 @@ export function useAgentConversations() {
     ensureGeneralTask,
     updateGeneralTask,
     updateGeneralMessageActionStatus,
+    updateStructuredPlanStep,
     submitGeneralPrompt,
     selectConversation: setSelectedId,
     startNewConversation,

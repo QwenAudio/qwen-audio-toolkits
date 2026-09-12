@@ -2,18 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUp,
   Bot,
+  Check,
   Copy,
   File,
   FileAudio,
   FileText,
   FileVideo,
   Languages,
+  ListChecks,
   LoaderCircle,
   MessageSquareText,
   Mic2,
   PackagePlus,
   Paperclip,
-  Check,
+  Play,
   Radio,
   Scissors,
   Sparkles,
@@ -380,7 +382,66 @@ export function AgentHomeView({
 	                      ]).map((file) => (
 	                        <AgentFilePreview file={file} key={`${file.path}-${file.name}`} />
 	                      ))}
-	                      {message.action && (() => {
+	                      {message.action && message.action.kind === 'structured-agent-plan' && (() => {
+                        const action = message.action
+                        const isRunning = action.status === 'running'
+                        const isDone = action.status === 'done'
+                        return (
+                          <div className={`agent-message-action ${action.status}`}>
+                            <div className="agent-message-plan-steps">
+                              <div className="agent-plan-header">
+                                <ListChecks size={14} />
+                                <strong>{t('执行计划')}</strong>
+                                <span>{t('{0} 个步骤', [String(action.steps.length)])}</span>
+                              </div>
+                              <ol className="agent-plan-step-list">
+                                {action.steps.map((step, index) => (
+                                  <li className={`agent-plan-step ${step.status}`} key={step.id}>
+                                    <span className="agent-plan-step-index">{index + 1}</span>
+                                    <div className="agent-plan-step-body">
+                                      <span className="agent-plan-step-desc">{step.description}</span>
+                                      <small className="agent-plan-step-cap">{step.capability}</small>
+                                      {step.result && (
+                                        <pre className="agent-plan-step-result">{step.result}</pre>
+                                      )}
+                                    </div>
+                                    <span className="agent-plan-step-status">
+                                      {step.status === 'running' ? (
+                                        <LoaderCircle className="model-spin" size={12} />
+                                      ) : step.status === 'done' ? (
+                                        <Check size={12} />
+                                      ) : step.status === 'failed' ? (
+                                        <X size={12} />
+                                      ) : null}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={submitting || isRunning || isDone}
+                              onClick={() => onRunMessageAction(message)}
+                            >
+                              {isRunning ? (
+                                <LoaderCircle className="model-spin" size={14} />
+                              ) : isDone ? (
+                                <Check size={14} />
+                              ) : (
+                                <Play size={14} />
+                              )}
+                              {isDone
+                                ? t('已完成')
+                                : isRunning
+                                  ? t('执行中')
+                                  : action.status === 'failed'
+                                    ? t('重试')
+                                    : t('执行计划')}
+                            </button>
+                          </div>
+                        )
+                      })()}
+                      {message.action && message.action.kind !== 'structured-agent-plan' && (() => {
 	                        const modelOptions = messageModelOptions[message.id]
 	                        const expanded = expandedModelChoices.has(message.id)
 	                        const visibleChoices = modelOptions

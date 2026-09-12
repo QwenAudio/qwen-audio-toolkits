@@ -38,9 +38,28 @@ export interface GeneralAgentConfirmAction {
   confirmationText: string
 }
 
+export interface AgentPlanStep {
+  id: string
+  capability: string
+  description: string
+  modelPreference?: string[]
+  parameters?: Record<string, unknown>
+  status: GeneralAgentActionStatus
+  result?: string
+}
+
+export interface GeneralAgentStructuredPlanAction {
+  id: string
+  kind: 'structured-agent-plan'
+  status: GeneralAgentActionStatus
+  steps: AgentPlanStep[]
+  confirmationText: string
+}
+
 export type GeneralAgentMessageAction =
   | GeneralAgentInstallModelAction
   | GeneralAgentConfirmAction
+  | GeneralAgentStructuredPlanAction
 
 export interface GeneralAgentAttachment {
   path: string

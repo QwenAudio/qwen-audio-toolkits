@@ -193,7 +193,14 @@ fn prompt_text(messages: &[AcpAgentMessage]) -> Result<String, String> {
          当前阶段只进行对话、规划和建议；不要修改仓库文件，不要运行命令，不要假装已经执行音视频处理。\n\
          如果用户只是寒暄、确认或追问一句很短的问题，请用一到两句话简短回复，不要展开完整 workflow。\n\
          默认用 120 到 180 个中文字回答，先给高层计划和最关键的确认点；只有用户明确要求详细方案时再展开。\n\
-         如果用户需要具体处理，请输出清晰的计划、所需模型能力、需要用户确认的地方。\n\n\
+         如果用户需要具体处理，请输出清晰的计划、所需模型能力、需要用户确认的地方。\n\
+         当需要执行多步处理时，在回复末尾用 ```plan 和 ``` 代码块输出 JSON 计划，格式如下：\n\
+         ```plan\n\
+         {{\"steps\":[{{\"id\":\"step-1\",\"capability\":\"speech.transcribe\",\"description\":\"转写音频为文本\",\"modelPreference\":[\"funaudiollm.sensevoice-small-gguf\"],\"parameters\":{{\"language\":\"auto\"}}}}]}}\n\
+         ```\n\
+         capability 必须是以下之一：speech.transcribe, speech.synthesize, audio.enhance, audio.separate, text.generate, speech.detect, text.normalize, speaker.embed\n\
+         不要在没有明确处理意图时输出 plan 块；简单对话和闲聊不需要。\n\
+         单步处理也可以输出只有一个 step 的 plan 块。\n\n\
          历史对话：\n{transcript}\n\
          当前用户请求：\n{}\n",
         current.content.trim()

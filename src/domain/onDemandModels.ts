@@ -34,11 +34,62 @@ export type OnDemandModelExecutionPlan =
     }
   }
   | {
+    capability: 'audio.separate'
+    outputFileName: string
+    parameters: {
+      operations: ['separate']
+      outputFileName: string
+    }
+  }
+  | {
     capability: 'speech.transcribe'
     parameters: {
       language: 'auto'
     }
   }
+  | {
+    capability: 'speech.synthesize'
+    parameters: {
+      sid?: number
+      speed?: number
+    }
+  }
+  | {
+    capability: 'speech.detect'
+    parameters: {
+      threshold?: number
+      minSpeechDuration?: number
+    }
+  }
+  | {
+    capability: 'text.generate'
+    parameters: {
+      temperature?: number
+      maxTokens?: number
+    }
+  }
+  | {
+    capability: 'text.normalize'
+    parameters: Record<string, never>
+  }
+  | {
+    capability: 'speaker.embed'
+    parameters: Record<string, never>
+  }
+
+export const TEXT_INPUT_CAPABILITIES = new Set([
+  'speech.synthesize',
+  'text.generate',
+  'text.normalize',
+])
+
+const AUDIO_INPUT_NEEDS = new Set([
+  'audio-denoise',
+  'speech-transcribe',
+  'audio-separate',
+  'voice-detect',
+  'speaker-embed',
+])
 
 export type OnDemandModelAction =
   | { kind: 'none' }
@@ -80,6 +131,54 @@ const ON_DEMAND_NEEDS: OnDemandModelNeed[] = [
       'k2-fsa.spleeter-2stems',
     ],
   },
+  {
+    id: 'speech-synthesize',
+    capability: 'speech.synthesize',
+    label: '语音合成',
+    actionLabel: '合成',
+    preferredModelIds: [
+      'lourdle.fun-cosyvoice3-local',
+      'bailian-qwen-audio-tts',
+      'bailian-cosyvoice-v2',
+    ],
+  },
+  {
+    id: 'text-generate',
+    capability: 'text.generate',
+    label: '文本生成',
+    actionLabel: '生成',
+    preferredModelIds: [
+      'bailian-qwen36-plus',
+      'bailian-qwen37-plus',
+    ],
+  },
+  {
+    id: 'voice-detect',
+    capability: 'speech.detect',
+    label: '语音检测',
+    actionLabel: '检测',
+    preferredModelIds: [
+      'funaudiollm.fsmn-vad-gguf',
+    ],
+  },
+  {
+    id: 'text-normalize',
+    capability: 'text.normalize',
+    label: '文本规范化',
+    actionLabel: '规范化',
+    preferredModelIds: [
+      'wetext.text-normalization',
+    ],
+  },
+  {
+    id: 'speaker-embed',
+    capability: 'speaker.embed',
+    label: '声纹识别',
+    actionLabel: '声纹',
+    preferredModelIds: [
+      'k2-fsa.speaker-embedding',
+    ],
+  },
 ]
 
 const NEED_KEYWORDS: Record<string, RegExp[]> = {
@@ -111,6 +210,49 @@ const NEED_KEYWORDS: Record<string, RegExp[]> = {
     /\bsource\s*separation\b/iu,
     /\bvocal\s*separation\b/iu,
   ],
+  'speech-synthesize': [
+    /合成语音/u,
+    /朗读/u,
+    /配音/u,
+    /念出来/u,
+    /语音播报/u,
+    /读出来/u,
+    /\btts\b/iu,
+    /\bsynthesi[sz]e\b/iu,
+    /\btext.to.speech\b/iu,
+  ],
+  'text-generate': [
+    /帮我写/u,
+    /写一段/u,
+    /生成文本/u,
+    /翻译/u,
+    /总结/u,
+    /改写/u,
+    /润色/u,
+    /扩写/u,
+    /写一个/u,
+  ],
+  'voice-detect': [
+    /检测语音/u,
+    /语音端点/u,
+    /静音检测/u,
+    /语音活动/u,
+    /\bvad\b/iu,
+    /\bvoice\s*activity\b/iu,
+  ],
+  'text-normalize': [
+    /文本规范化/u,
+    /文本标准化/u,
+    /规范化处理/u,
+    /\btext\s*normali[sz]ation\b/iu,
+  ],
+  'speaker-embed': [
+    /声纹/u,
+    /说话人识别/u,
+    /声纹识别/u,
+    /说话人特征/u,
+    /\bspeaker\s*embedding\b/iu,
+  ],
 }
 
 function scoreModelForNeed(model: ModelPlugin, need: OnDemandModelNeed): number {
@@ -133,15 +275,27 @@ export function enhancedAudioFileName(fileName: string): string {
   return `${safeStem || 'audio'}_enhanced.wav`
 }
 
+export function separatedAudioFileName(fileName: string): string {
+  const baseName = fileName.split(/[\\/]/u).at(-1) || 'audio.wav'
+  const stem = baseName.replace(/\.[^.\\/]+$/u, '').trim() || 'audio'
+  const safeStem = stem.replace(/[^\p{Letter}\p{Number}_-]+/gu, '_').replace(/^_+|_+$/gu, '')
+  return `${safeStem || 'audio'}_separated.wav`
+}
+
 export function createOnDemandModelExecutionPlan(
   resolution: OnDemandModelResolution,
   model: ModelPlugin,
   attachment: GeneralAgentAttachment | null,
+  promptText?: string,
 ): OnDemandModelExecutionPlan | null {
-  if (!attachment) return null
-  if (resolution.need.id === 'audio-denoise') {
+  const needId = resolution.need.id
+  const isTextInput = TEXT_INPUT_CAPABILITIES.has(resolution.need.capability)
+  if (AUDIO_INPUT_NEEDS.has(needId) && !attachment) return null
+  if (isTextInput && !promptText?.trim()) return null
+
+  if (needId === 'audio-denoise') {
     if (model.id !== 'rikorose.deepfilternet3' && model.adapter !== 'deepfilternet') return null
-    const fileName = fileNameFromAttachment(attachment)
+    const fileName = fileNameFromAttachment(attachment!)
     if (!/\.wav$/iu.test(fileName)) return null
     const outputFileName = enhancedAudioFileName(fileName)
     return {
@@ -154,7 +308,7 @@ export function createOnDemandModelExecutionPlan(
       },
     }
   }
-  if (resolution.need.id === 'speech-transcribe') {
+  if (needId === 'speech-transcribe') {
     const isPreferredLocalModel =
       resolution.need.preferredModelIds.includes(model.id) ||
       model.adapter === 'funasr-sensevoice-gguf' ||
@@ -166,6 +320,54 @@ export function createOnDemandModelExecutionPlan(
       parameters: {
         language: 'auto',
       },
+    }
+  }
+  if (needId === 'audio-separate') {
+    if (!model.harnessCapabilities.includes('audio.separate')) return null
+    const fileName = fileNameFromAttachment(attachment!)
+    const outputFileName = separatedAudioFileName(fileName)
+    return {
+      capability: 'audio.separate',
+      outputFileName,
+      parameters: {
+        operations: ['separate'],
+        outputFileName,
+      },
+    }
+  }
+  if (needId === 'speech-synthesize') {
+    if (!model.harnessCapabilities.includes('speech.synthesize')) return null
+    return {
+      capability: 'speech.synthesize',
+      parameters: {},
+    }
+  }
+  if (needId === 'text-generate') {
+    if (!model.harnessCapabilities.includes('text.generate')) return null
+    return {
+      capability: 'text.generate',
+      parameters: { temperature: 0.3, maxTokens: 1200 },
+    }
+  }
+  if (needId === 'voice-detect') {
+    if (!model.harnessCapabilities.includes('speech.detect')) return null
+    return {
+      capability: 'speech.detect',
+      parameters: {},
+    }
+  }
+  if (needId === 'text-normalize') {
+    if (!model.harnessCapabilities.includes('text.normalize')) return null
+    return {
+      capability: 'text.normalize',
+      parameters: {},
+    }
+  }
+  if (needId === 'speaker-embed') {
+    if (!model.harnessCapabilities.includes('speaker.embed')) return null
+    return {
+      capability: 'speaker.embed',
+      parameters: {},
     }
   }
   return null
@@ -199,7 +401,7 @@ export function resolveOnDemandModelExecutions(
         installedModel: model.installed ? model : null,
         recommendedModel: model,
       }
-      const plan = createOnDemandModelExecutionPlan(resolution, model, attachment)
+      const plan = createOnDemandModelExecutionPlan(resolution, model, attachment, content)
       return plan ? [{ resolution, model, plan }] : []
     })
     .filter(({ model }) =>

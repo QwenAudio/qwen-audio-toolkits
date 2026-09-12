@@ -487,6 +487,25 @@
   border-color: color-mix(in srgb, #b84f4f 24%, transparent);
 }
 
+.agent-message-plan-steps { display: grid; gap: 8px; }
+.agent-plan-header { display: flex; align-items: center; gap: 7px; color: var(--accent, #4c7e6c); font-size: 12px; }
+.agent-plan-header strong { font-weight: 660; }
+.agent-plan-header span { color: var(--agent-muted); font-size: 11px; }
+.agent-plan-step-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.agent-plan-step { display: flex; align-items: flex-start; gap: 9px; padding: 7px 9px; background: color-mix(in srgb, var(--text-primary, #202422) 3%, transparent); border-radius: 8px; font-size: 12px; }
+.agent-plan-step-index { display: grid; width: 20px; height: 20px; flex: 0 0 auto; place-items: center; color: var(--agent-muted); background: color-mix(in srgb, var(--text-primary, #202422) 6%, transparent); border-radius: 6px; font-size: 10px; font-weight: 700; }
+.agent-plan-step-body { display: grid; min-width: 0; flex: 1 1 0; gap: 2px; }
+.agent-plan-step-desc { color: var(--agent-ink); font-size: 12px; line-height: 1.5; }
+.agent-plan-step-cap { color: var(--agent-muted); font-size: 10px; }
+.agent-plan-step-status { display: grid; width: 18px; height: 18px; flex: 0 0 auto; place-items: center; color: var(--agent-muted); }
+.agent-plan-step.done .agent-plan-step-index { color: #fff; background: var(--accent, #4c7e6c); }
+.agent-plan-step.done .agent-plan-step-status { color: var(--accent, #4c7e6c); }
+.agent-plan-step.failed .agent-plan-step-index { color: #fff; background: #b84f4f; }
+.agent-plan-step.failed .agent-plan-step-status { color: #b84f4f; }
+.agent-plan-step.running .agent-plan-step-index { color: var(--accent, #4c7e6c); }
+.agent-plan-step.running .agent-plan-step-status { color: var(--accent, #4c7e6c); }
+.agent-plan-step-result { margin: 5px 0 0; padding: 6px 8px; overflow: auto; color: var(--agent-muted); background: color-mix(in srgb, var(--text-primary, #202422) 4%, transparent); border-radius: 6px; font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+
 .agent-thinking {
   display: inline-flex;
   align-items: center;

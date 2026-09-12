@@ -105,6 +105,7 @@ import type {
   GeneralAgentAttachment,
   GeneralAgentMessage,
   GeneralAgentMessageModelOptions,
+  GeneralAgentStructuredPlanAction,
   GeneralAgentTask,
   VideoDubbingLanguages,
   VideoDubbingMode,
@@ -117,6 +118,7 @@ import {
   isInstallApproval,
   planOnDemandModelAction,
   resolveOnDemandModelExecutions,
+  TEXT_INPUT_CAPABILITIES,
   type OnDemandModelExecutionCandidate,
   type OnDemandModelInstallMode,
   type OnDemandModelResolution,
@@ -528,6 +530,7 @@ function App() {
     ensureGeneralTask,
     updateGeneralTask,
     updateGeneralMessageActionStatus,
+    updateStructuredPlanStep,
     submitGeneralPrompt,
     selectConversation: setSelectedAgentConversationId,
     createConversation: createAgentConversation,
@@ -1591,16 +1594,96 @@ function App() {
   const runOnDemandModelExecution = async (
     pending: PendingOnDemandInstall,
     model: ModelPlugin,
+    promptText?: string,
   ): Promise<{ content: string; attachments: GeneralAgentAttachment[] } | null> => {
     const plan = createOnDemandModelExecutionPlan(
       pending.resolution,
       model,
       pending.attachment,
+      promptText ?? pending.prompt,
     )
     if (!plan) return null
-    const attachment = pending.attachment
-    if (!attachment) return null
     const providerId = model.providerId ?? model.id
+    const isTextInput = TEXT_INPUT_CAPABILITIES.has(plan.capability)
+    const attachment = pending.attachment
+
+    if (isTextInput) {
+      const text = promptText?.trim() || pending.prompt.trim()
+      if (!text) return null
+      notify(t('正在使用 {0} 处理', [model.name]))
+      if (plan.capability === 'speech.synthesize') {
+        const execution = await executeHarnessTask<TtsGenerateResult>(
+          {
+            capability: plan.capability,
+            providerId,
+            conversationProviderId: providerId,
+            conversationVisible: true,
+            routing: 'local',
+            title: t('语音合成'),
+            input: { text },
+            parameters: {
+              modelId: model.version || model.id,
+              ...plan.parameters,
+            },
+          },
+          recordRun,
+        )
+        recordRun(execution.run)
+        const filePath = (execution.output as { filePath?: string }).filePath ?? ''
+        return {
+          content: t('已完成语音合成，输出文件：{0}', [filePath]),
+          attachments: filePath ? [{ path: filePath, name: filePath.split(/[\\/]/u).at(-1) ?? 'tts.wav' }] : [],
+        }
+      }
+      if (plan.capability === 'text.generate') {
+        const execution = await executeHarnessTask<TextGenerateResult | Record<string, unknown>>(
+          {
+            capability: plan.capability,
+            providerId,
+            conversationProviderId: providerId,
+            conversationVisible: true,
+            routing: 'local',
+            title: t('文本生成'),
+            input: { text },
+            parameters: {
+              modelId: model.version || model.id,
+              ...plan.parameters,
+            },
+          },
+          recordRun,
+        )
+        recordRun(execution.run)
+        const generatedText = (execution.output as { text?: string }).text?.trim() || ''
+        return {
+          content: generatedText || t('模型未返回有效文本。'),
+          attachments: [],
+        }
+      }
+      const execution = await executeHarnessTask<Record<string, unknown>>(
+        {
+          capability: plan.capability,
+          providerId,
+          conversationProviderId: providerId,
+          conversationVisible: true,
+          routing: 'local',
+          title: t('文本规范化'),
+          input: { text },
+          parameters: {
+            modelId: model.version || model.id,
+            ...plan.parameters,
+          },
+        },
+        recordRun,
+      )
+      recordRun(execution.run)
+      const outputText = (execution.output as { text?: string }).text?.trim() || JSON.stringify(execution.output)
+      return {
+        content: t('已完成文本规范化：\n\n{0}', [outputText]),
+        attachments: [],
+      }
+    }
+
+    if (!attachment) return null
     notify(t('正在使用 {0} 处理 {1}', [model.name, attachment.name]))
     const file = await readDroppedAudioFile(attachment.path)
     const clip = await audioFileToClip(file)
@@ -1639,6 +1722,65 @@ function App() {
         attachments: [],
       }
     }
+    if (plan.capability === 'speech.detect') {
+      const execution = await executeHarnessTask<VadDetectionResult>(
+        {
+          capability: plan.capability,
+          providerId,
+          conversationProviderId: providerId,
+          conversationVisible: true,
+          routing: 'local',
+          title: t('{0} · 语音检测', [attachment.name]),
+          input: {
+            audioDataUrl,
+            clipName: attachment.name,
+            duration: clip.duration,
+          },
+          parameters: {
+            modelId: model.version || model.id,
+            ...plan.parameters,
+          },
+        },
+        recordRun,
+      )
+      recordRun(execution.run)
+      const segments = execution.output.segments ?? []
+      const summary = segments.length
+        ? segments.map((seg: { start: number; end: number }) =>
+            `${seg.start.toFixed(2)}s - ${seg.end.toFixed(2)}s`).join('\n')
+        : t('未检测到语音活动段。')
+      return {
+        content: t('已完成语音活动检测，共 {0} 段：\n\n{1}', [String(segments.length), summary]),
+        attachments: [],
+      }
+    }
+    if (plan.capability === 'speaker.embed') {
+      const execution = await executeHarnessTask<Record<string, unknown>>(
+        {
+          capability: plan.capability,
+          providerId,
+          conversationProviderId: providerId,
+          conversationVisible: true,
+          routing: 'local',
+          title: t('{0} · 声纹识别', [attachment.name]),
+          input: {
+            audioDataUrl,
+            clipName: attachment.name,
+            duration: clip.duration,
+          },
+          parameters: {
+            modelId: model.version || model.id,
+            ...plan.parameters,
+          },
+        },
+        recordRun,
+      )
+      recordRun(execution.run)
+      return {
+        content: t('已完成声纹特征提取。'),
+        attachments: [],
+      }
+    }
     const execution = await executeHarnessTask<AudioProcessResult>(
       {
         capability: plan.capability,
@@ -1646,7 +1788,9 @@ function App() {
         conversationProviderId: providerId,
         conversationVisible: true,
         routing: 'local',
-        title: t('{0} · 音频降噪', [attachment.name]),
+        title: plan.capability === 'audio.separate'
+          ? t('{0} · 音频分离', [attachment.name])
+          : t('{0} · 音频降噪', [attachment.name]),
         input: {
           audioDataUrl,
           clipName: attachment.name,
@@ -1660,11 +1804,17 @@ function App() {
       recordRun,
     )
     recordRun(execution.run)
+    const actionLabel = plan.capability === 'audio.separate'
+      ? t('已完成音频分离，输出新文件 `{0}`。文件位置：{1}', [
+          execution.output.fileName,
+          execution.output.filePath,
+        ])
+      : t('已完成降噪，输出新文件 `{0}`。文件位置：{1}', [
+          execution.output.fileName,
+          execution.output.filePath,
+        ])
     return {
-      content: t('已完成降噪，输出新文件 `{0}`。文件位置：{1}', [
-        execution.output.fileName,
-        execution.output.filePath,
-      ]),
+      content: actionLabel,
       attachments: [
         {
           path: execution.output.filePath,
@@ -1683,6 +1833,7 @@ function App() {
       pending.resolution,
       model,
       pending.attachment,
+      pending.prompt,
     )
     void submitGeneralPrompt({
       task,
@@ -1696,7 +1847,7 @@ function App() {
       ...(directPlan
         ? {
             localResponse: async () =>
-              (await runOnDemandModelExecution(pending, model)) ??
+              (await runOnDemandModelExecution(pending, model, pending.prompt)) ??
               t('已安装 {0}。当前任务还需要 Agent 继续规划，请补充处理参数。', [
                 model.name,
               ]),
@@ -1705,12 +1856,187 @@ function App() {
       onError: notify,
     })
   }
+  const executeStructuredPlan = async (
+    task: GeneralAgentTask,
+    message: GeneralAgentMessage,
+  ) => {
+    const action = message.action as GeneralAgentStructuredPlanAction | undefined
+    if (!action || action.kind !== 'structured-agent-plan') return
+    updateGeneralMessageActionStatus(task.id, message.id, 'running')
+    const attachments = (() => {
+      const candidates: GeneralAgentAttachment[] = []
+      if (task.attachment) candidates.push(task.attachment)
+      const messageIndex = task.messages.findIndex((item) => item.id === message.id)
+      const previousMessages = messageIndex >= 0
+        ? task.messages.slice(0, messageIndex + 1)
+        : task.messages
+      for (const item of previousMessages) {
+        if (item.attachment) candidates.push(item.attachment)
+        if (item.attachments?.length) candidates.push(...item.attachments)
+      }
+      return candidates.reverse().filter((file) =>
+        ['audio', 'video', 'document'].includes(agentFileKind(file)),
+      )
+    })()
+    const primaryAttachment = attachments[0] ?? null
+    let previousOutput: { kind: 'text' | 'audio'; value: string; attachment?: GeneralAgentAttachment } | null = null
+    try {
+      for (const step of action.steps) {
+        updateStructuredPlanStep(task.id, message.id, step.id, { status: 'running' })
+        const isAudioInput = !TEXT_INPUT_CAPABILITIES.has(step.capability)
+        const candidateModel = step.modelPreference?.length
+          ? plugins.find((p) => step.modelPreference!.includes(p.id) && p.harnessCapabilities.includes(step.capability as ModelPlugin['harnessCapabilities'][number]))
+          : null
+        const model = candidateModel
+          ?? plugins.find((p) => p.installed && p.harnessCapabilities.includes(step.capability as ModelPlugin['harnessCapabilities'][number]))
+          ?? plugins.find((p) => p.harnessCapabilities.includes(step.capability as ModelPlugin['harnessCapabilities'][number]))
+        if (!model) {
+          updateStructuredPlanStep(task.id, message.id, step.id, {
+            status: 'failed',
+            result: t('未找到可用模型'),
+          })
+          updateGeneralMessageActionStatus(task.id, message.id, 'failed')
+          return
+        }
+        const resolvedModel = model.installed ? model : await installOnDemandModel({
+          need: {
+            id: step.capability,
+            capability: step.capability as ModelPlugin['harnessCapabilities'][number],
+            label: step.description,
+            actionLabel: step.description,
+            preferredModelIds: [model.id],
+          },
+          installedModel: null,
+          recommendedModel: model,
+        })
+        const providerId = resolvedModel.providerId ?? resolvedModel.id
+        let input: Record<string, unknown> = {}
+        if (isAudioInput) {
+          const audioSource = previousOutput?.kind === 'audio' && previousOutput.attachment
+            ? previousOutput.attachment
+            : primaryAttachment
+          if (!audioSource) {
+            updateStructuredPlanStep(task.id, message.id, step.id, {
+              status: 'failed',
+              result: t('缺少音频输入文件'),
+            })
+            updateGeneralMessageActionStatus(task.id, message.id, 'failed')
+            return
+          }
+          const file = await readDroppedAudioFile(audioSource.path)
+          const clip = await audioFileToClip(file)
+          const audioDataUrl = step.capability === 'speech.transcribe'
+            ? clip.transcriptionAudioUrl
+            : clip.processingAudioUrl ?? clip.transcriptionAudioUrl
+          if (!audioDataUrl) {
+            updateStructuredPlanStep(task.id, message.id, step.id, {
+              status: 'failed',
+              result: t('无法解码音频'),
+            })
+            updateGeneralMessageActionStatus(task.id, message.id, 'failed')
+            return
+          }
+          input = { audioDataUrl, clipName: audioSource.name, duration: clip.duration }
+        } else {
+          const text = previousOutput?.kind === 'text' ? previousOutput.value : ''
+          if (!text) {
+            updateStructuredPlanStep(task.id, message.id, step.id, {
+              status: 'failed',
+              result: t('缺少文本输入'),
+            })
+            updateGeneralMessageActionStatus(task.id, message.id, 'failed')
+            return
+          }
+          input = { text }
+        }
+        const execution = await executeHarnessTask<Record<string, unknown>>(
+          {
+            capability: step.capability as ModelPlugin['harnessCapabilities'][number],
+            providerId,
+            conversationProviderId: providerId,
+            conversationVisible: true,
+            routing: 'local',
+            title: step.description,
+            input,
+            parameters: {
+              modelId: resolvedModel.version || resolvedModel.id,
+              ...step.parameters,
+            },
+          },
+          recordRun,
+        )
+        recordRun(execution.run)
+        const output = execution.output
+        const textOutput = typeof output.text === 'string' ? output.text.trim() : ''
+        const filePath = typeof output.filePath === 'string' ? output.filePath : ''
+        const fileName = typeof output.fileName === 'string' ? output.fileName : ''
+        let resultText = ''
+        if (step.capability === 'speech.transcribe') {
+          resultText = textOutput || t('未识别到文本')
+          previousOutput = { kind: 'text', value: resultText }
+        } else if (TEXT_INPUT_CAPABILITIES.has(step.capability)) {
+          if (step.capability === 'speech.synthesize') {
+            resultText = filePath ? t('输出文件：{0}', [filePath]) : t('合成完成')
+            previousOutput = filePath
+              ? { kind: 'audio', value: filePath, attachment: { path: filePath, name: fileName || filePath.split(/[\\/]/u).at(-1) || 'tts.wav' } }
+              : null
+          } else {
+            resultText = textOutput || JSON.stringify(output)
+            previousOutput = { kind: 'text', value: resultText }
+          }
+        } else if (filePath) {
+          resultText = t('输出文件：{0}', [filePath])
+          previousOutput = {
+            kind: 'audio',
+            value: filePath,
+            attachment: { path: filePath, name: fileName || filePath.split(/[\\/]/u).at(-1) || 'output.wav' },
+          }
+        } else if (textOutput) {
+          resultText = textOutput
+          previousOutput = { kind: 'text', value: textOutput }
+        } else {
+          resultText = JSON.stringify(output).slice(0, 200)
+          previousOutput = { kind: 'text', value: resultText }
+        }
+        updateStructuredPlanStep(task.id, message.id, step.id, {
+          status: 'done',
+          result: resultText,
+        })
+      }
+      updateGeneralMessageActionStatus(task.id, message.id, 'done')
+      if (previousOutput?.kind === 'text' && previousOutput.value) {
+        void submitGeneralPrompt({
+          task,
+          content: previousOutput.value,
+          selectedModeName: null,
+          appendUserMessage: false,
+          localResponse: () => t('以上是多步执行计划的最终结果。'),
+          onError: notify,
+        })
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      const currentStep = action.steps.find((s) => s.status === 'running')
+      if (currentStep) {
+        updateStructuredPlanStep(task.id, message.id, currentStep.id, {
+          status: 'failed',
+          result: errorMessage,
+        })
+      }
+      updateGeneralMessageActionStatus(task.id, message.id, 'failed')
+      notify(t('执行计划失败：{0}', [errorMessage]))
+    }
+  }
   const runAgentMessageAction = (
     task: GeneralAgentTask | null,
     message: GeneralAgentMessage,
     selectedModelId?: string | null,
   ) => {
     if (!task || !message.action) return
+    if (message.action.kind === 'structured-agent-plan') {
+      void executeStructuredPlan(task, message)
+      return
+    }
     if (message.action.kind === 'confirm-agent-plan') {
       const action = message.action
       const directExecution = resolveConfirmExecution(task, message, selectedModelId)
