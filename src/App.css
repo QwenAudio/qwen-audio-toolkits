@@ -3846,7 +3846,7 @@ button.job-state {
   background: transparent;
   border: 0;
   border-radius: 0;
-  grid-template-columns: minmax(300px, 1fr) 6px max(420px, var(--plugins-details-w, 58%));
+  grid-template-columns: minmax(300px, 1fr) 6px max(380px, var(--plugins-details-w, 58%));
 }
 .plugins-resize-handle {
   cursor: col-resize;
@@ -3935,6 +3935,9 @@ button.job-state {
 .taxonomy-primary span,
 .taxonomy-secondary-group span {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .taxonomy-secondary-group {
   display: flex;
