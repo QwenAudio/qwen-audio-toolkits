@@ -75,7 +75,12 @@ export async function subscribeVideoDubbing(
   listener: (progress: VideoDubbingProgress) => void,
 ): Promise<UnlistenFn> {
   progressListeners.add(listener)
-  await ensureProgressBridge()
+  try {
+    await ensureProgressBridge()
+  } catch (error) {
+    progressListeners.delete(listener)
+    throw error
+  }
   return () => {
     progressListeners.delete(listener)
     if (progressListeners.size === 0 && stopProgressBridge) {

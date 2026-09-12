@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
+  ArrowDown,
   AudioLines,
   CircleStop,
   Clock3,
@@ -18,6 +20,7 @@ import { t, useLocale } from "../i18n";
 import { normalizeHarnessResult } from "../domain/results";
 import {
   finishFunAsrStream,
+  isTauriRuntime,
   pushFunAsrStream,
   startFunAsrStream,
   startSystemAudio,
@@ -28,6 +31,11 @@ import {
 import { pushMeetingState } from "../services/acp";
 import { getMicrophoneStream } from "../services/audioCapture";
 import { audioFileToClip, pcm16ChunksToWavFile } from "../utils/audio";
+import { readMeetingSnapshot, type MeetingTurn } from "../domain/editorSnapshots";
+import { readProjectSnapshot } from "../services/workspaceStorage";
+import { useProjectAutosave } from "../hooks/useProjectAutosave";
+import { useWorkspaceController } from "../hooks/useWorkspaceController";
+import { assignMeetingSpeaker, meetingDetailView } from "../domain/meetingCommands";
 import type {
   AsrTranscriptionResult,
   AudioClip,
@@ -41,14 +49,6 @@ import type {
 import "./MeetingNotesView.css";
 
 type MeetingSource = "microphone" | "system";
-
-interface MeetingTurn {
-  id: string;
-  text: string;
-  start: number;
-  end: number;
-  speaker: number | null;
-}
 
 interface AudioChunk {
   pcmBase64: string;
@@ -69,6 +69,8 @@ interface MindMapNode {
 }
 
 interface MeetingNotesViewProps {
+  projectId?: string;
+  autoStart?: boolean;
   initialInstruction: string;
   models: ModelPlugin[];
   onRunText: (
@@ -204,6 +206,7 @@ function MindMapBranch({
 }
 
 export function MeetingNotesView({
+  projectId,
   initialInstruction,
   models,
   onRunText,
@@ -214,6 +217,7 @@ export function MeetingNotesView({
   bridgeSessionId,
 }: MeetingNotesViewProps) {
   useLocale();
+  const [restored] = useState(() => readMeetingSnapshot(readProjectSnapshot(projectId, "meeting-notes")));
   const streamingAsr = useMemo(() => {
     const candidates = models.filter(
       (model) =>
@@ -249,20 +253,33 @@ export function MeetingNotesView({
     [models],
   );
 
-  const [source, setSource] = useState<MeetingSource>("microphone");
+  const [source, setSource] = useState<MeetingSource>(restored?.source ?? "microphone");
   const [recording, setRecording] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [engineLoading, setEngineLoading] = useState(false);
-  const [turns, setTurns] = useState<MeetingTurn[]>([]);
+  const [turns, setTurns] = useState<MeetingTurn[]>(restored?.turns ?? []);
   const [partialText, setPartialText] = useState("");
-  const [elapsed, setElapsed] = useState(0);
-  const [summary, setSummary] = useState("");
+  const [elapsed, setElapsed] = useState(restored?.elapsed ?? 0);
+  const [summary, setSummary] = useState(restored?.summary ?? "");
   const [summaryBusy, setSummaryBusy] = useState(false);
-  const [summaryView, setSummaryView] = useState<"notes" | "mindmap">("notes");
-  const [summaryUpdatedAt, setSummaryUpdatedAt] = useState<number | null>(null);
+  const [summaryView, setSummaryView] = useState<"notes" | "mindmap">(restored?.summaryView ?? "notes");
+  const [detailView, setDetailView] = useState<"transcript" | "summary">("transcript");
+  const [showLatestButton, setShowLatestButton] = useState(false);
+  const transcriptScrollRef = useRef<HTMLDivElement>(null);
+  const followTranscriptRef = useRef(true);
+  const [summaryUpdatedAt, setSummaryUpdatedAt] = useState<number | null>(restored?.summaryUpdatedAt ?? null);
   const [diarizationBusy, setDiarizationBusy] = useState(false);
+  const [restoredRecording, setRestoredRecording] = useState(Boolean(restored && (restored.turns.length || restored.elapsed || restored.summary)));
+
+  useProjectAutosave(projectId, "meeting-notes", useMemo(() => ({
+    version: 1, source, turns, elapsed, summary, summaryView, summaryUpdatedAt,
+    recording, stopping,
+  }), [source, turns, elapsed, summary, summaryView, summaryUpdatedAt, recording, stopping]));
 
   const sessionRef = useRef<string | null>(null);
+  const captureStateRef = useRef<"idle" | "starting" | "recording" | "stopping">("idle");
+  const manuallyAssignedTurnsRef = useRef(new Set<string>());
   const systemSessionRef = useRef<string | null>(null);
   const systemUnlistenRef = useRef<(() => void) | null>(null);
   const microphoneRef = useRef<MediaStream | null>(null);
@@ -272,12 +289,13 @@ export function MeetingNotesView({
   const gainRef = useRef<GainNode | null>(null);
   const pushQueueRef = useRef<Promise<void>>(Promise.resolve());
   const audioChunksRef = useRef<AudioChunk[]>([]);
-  const turnsRef = useRef<MeetingTurn[]>([]);
+  const turnsRef = useRef<MeetingTurn[]>(restored?.turns ?? []);
   const bridgePushAtRef = useRef(0);
   const bridgeRecordingRef = useRef(false);
   const speakerTimelineRef = useRef<SpeakerSegment[]>([]);
-  const nextSpeakerRef = useRef(1);
+  const nextSpeakerRef = useRef((restored?.turns ?? []).reduce((max, turn) => Math.max(max, turn.speaker ?? 0), 0) + 1);
   const meetingStartRef = useRef(0);
+  const recordingOffsetRef = useRef(restored?.elapsed ?? 0);
   const captureRateRef = useRef(16_000);
   const nextDiarizationAtRef = useRef(DIARIZATION_INTERVAL_SECONDS);
   const diarizationBusyRef = useRef(false);
@@ -290,8 +308,8 @@ export function MeetingNotesView({
   const runDiarizationRef = useRef<(force?: boolean) => Promise<void>>(
     async () => undefined,
   );
-  const summarizeRef = useRef<(final?: boolean) => Promise<void>>(
-    async () => undefined,
+  const summarizeRef = useRef<(final?: boolean) => Promise<boolean>>(
+    async () => false,
   );
   const commitStableTextRef = useRef<(text: string) => void>(() => undefined);
   onActionRef.current = onAction;
@@ -386,6 +404,7 @@ export function MeetingNotesView({
 
     updateTurns((current) =>
       current.map((turn) => {
+        if (manuallyAssignedTurnsRef.current.has(turn.id)) return turn;
         if (turn.end < windowStart || turn.start > windowEnd) return turn;
         const best = absoluteSegments
           .map((segment) => ({
@@ -444,16 +463,16 @@ export function MeetingNotesView({
   };
 
   const summarize = async (final = false) => {
-    if (!summaryModel?.providerId || summaryBusyRef.current) return;
+    if (!summaryModel?.providerId || summaryBusyRef.current) return false;
     const transcript = turnsRef.current
       .map(
         (turn) =>
           `${formatElapsed(turn.start)} 说话人 ${turn.speaker ?? "待识别"}：${turn.text}`,
       )
       .join("\n");
-    if (!transcript.trim()) return;
+    if (!transcript.trim()) return false;
     if (!final && transcript.length - summarizedCharactersRef.current < 80)
-      return;
+      return false;
     summaryBusyRef.current = true;
     setSummaryBusy(true);
     try {
@@ -485,13 +504,16 @@ export function MeetingNotesView({
         setSummary(next);
         setSummaryUpdatedAt(Date.now());
         summarizedCharactersRef.current = transcript.length;
+        return true;
       }
+      return false;
     } catch (error) {
       onAction(
         t("会议纪要更新失败：{0}", [
           error instanceof Error ? error.message : String(error),
         ]),
       );
+      return false;
     } finally {
       summaryBusyRef.current = false;
       setSummaryBusy(false);
@@ -511,8 +533,8 @@ export function MeetingNotesView({
       .filter(Boolean);
     if (!additions.length) return;
     const end = meetingSeconds();
-    const firstStart =
-      turnsRef.current.at(-1)?.end ?? Math.max(0, end - additions.length * 3);
+    const firstStart = Math.max(recordingOffsetRef.current,
+      turnsRef.current.at(-1)?.end ?? Math.max(0, end - additions.length * 3));
     const duration = Math.max(0.1, end - firstStart) / additions.length;
     updateTurns((current) => [
       ...current,
@@ -531,6 +553,7 @@ export function MeetingNotesView({
   commitStableTextRef.current = commitStableText;
 
   useEffect(() => {
+    if (!isTauriRuntime()) return;
     let remove: (() => void) | undefined;
     let disposed = false;
     void subscribeFunAsrStream((event) => {
@@ -567,12 +590,26 @@ export function MeetingNotesView({
         completionResolverRef.current = null;
         setEngineLoading(false);
         setRecording(false);
+        stopInputNodes();
+        if (systemSessionRef.current) void stopSystemAudio(systemSessionRef.current).catch(() => undefined);
+        systemUnlistenRef.current?.();
+        systemUnlistenRef.current = null;
+        systemSessionRef.current = null;
+        sessionRef.current = null;
+        if (captureStateRef.current !== "starting" && captureStateRef.current !== "stopping") captureStateRef.current = "idle";
         onActionRef.current(event.error || t("实时识别失败"));
       } else if (event.kind === "completed" && !completedByUserRef.current) {
         completionResolverRef.current?.();
         completionResolverRef.current = null;
         setEngineLoading(false);
         setRecording(false);
+        stopInputNodes();
+        if (systemSessionRef.current) void stopSystemAudio(systemSessionRef.current).catch(() => undefined);
+        systemUnlistenRef.current?.();
+        systemUnlistenRef.current = null;
+        systemSessionRef.current = null;
+        sessionRef.current = null;
+        if (captureStateRef.current !== "starting") captureStateRef.current = "idle";
       } else if (event.kind === "completed") {
         completionResolverRef.current?.();
         completionResolverRef.current = null;
@@ -580,6 +617,8 @@ export function MeetingNotesView({
     }).then((unlisten) => {
       if (disposed) unlisten();
       else remove = unlisten;
+    }).catch(error => {
+      if (!disposed) onActionRef.current(error instanceof Error ? error.message : String(error));
     });
     return () => {
       disposed = true;
@@ -625,12 +664,18 @@ export function MeetingNotesView({
   }, [bridgeSessionId, recording, turns, elapsed]);
 
   const startMeeting = async () => {
+    if (captureStateRef.current !== "idle") throw new Error(t("会议记录正在启动、进行或结束中，请稍后再试。"));
     if (!streamingAsr?.providerId) {
-      onAction(t("请先安装一个流式语音识别模型"));
-      return;
+      throw new Error(t("请先安装一个流式语音识别模型"));
     }
+    if (!isTauriRuntime()) throw new Error(t("请在桌面应用中开始会议录音。"));
+    captureStateRef.current = "starting";
+    setStarting(true);
     try {
       completedByUserRef.current = false;
+      recordingOffsetRef.current = elapsed;
+      // Audio is a new capture; append text to the saved meeting without claiming voice identity continuity.
+      speakerTimelineRef.current = [];
       meetingStartRef.current = performance.now() - elapsed * 1000;
       nextDiarizationAtRef.current = elapsed + DIARIZATION_INTERVAL_SECONDS;
       audioChunksRef.current = [];
@@ -673,6 +718,7 @@ export function MeetingNotesView({
         });
         microphoneRef.current = stream;
         const context = new AudioContext({ latencyHint: "interactive" });
+        contextRef.current = context;
         await context.resume();
         const input = context.createMediaStreamSource(stream);
         const processor = context.createScriptProcessor(4096, 1, 1);
@@ -699,28 +745,36 @@ export function MeetingNotesView({
         processorRef.current = processor;
         gainRef.current = gain;
       }
+      if (sessionRef.current !== started.sessionId) throw new Error(t("实时识别会话已结束，请重新开始记录。"));
+      captureStateRef.current = "recording";
       setRecording(true);
-      onAction(t("会议记录已开始"));
+      setRestoredRecording(false);
+      return { message: t("会议记录已开始") };
     } catch (error) {
       stopInputNodes();
       if (systemSessionRef.current)
-        void stopSystemAudio(systemSessionRef.current);
+        void stopSystemAudio(systemSessionRef.current).catch(() => undefined);
       systemUnlistenRef.current?.();
-      if (sessionRef.current) void finishFunAsrStream(sessionRef.current);
+      systemUnlistenRef.current = null;
+      if (sessionRef.current) void finishFunAsrStream(sessionRef.current).catch(() => undefined);
       sessionRef.current = null;
       systemSessionRef.current = null;
+      captureStateRef.current = "idle";
       setEngineLoading(false);
-      onAction(
+      throw new Error(
         t("无法开始会议记录：{0}", [
           error instanceof Error ? error.message : String(error),
         ]),
       );
+    } finally {
+      setStarting(false);
     }
   };
 
   const stopMeeting = async () => {
     const sessionId = sessionRef.current;
-    if (!sessionId) return;
+    if (!sessionId || captureStateRef.current !== "recording") throw new Error(t("当前没有可结束的会议录音。"));
+    captureStateRef.current = "stopping";
     setStopping(true);
     setRecording(false);
     completedByUserRef.current = true;
@@ -745,20 +799,99 @@ export function MeetingNotesView({
       await finishFunAsrStream(sessionId);
       await completed;
       await runRollingDiarization(true);
-      await summarize(true);
-      onAction(t("会议纪要已生成"));
+      const summarized = await summarize(true);
+      return { message: summarized ? t("会议记录已结束，最终纪要已更新。") : t("会议录音已结束，当前转写和已有纪要已保留；尚未生成新的最终纪要。") };
     } catch (error) {
-      onAction(
+      throw new Error(
         t("结束会议记录失败：{0}", [
           error instanceof Error ? error.message : String(error),
         ]),
       );
     } finally {
       sessionRef.current = null;
+      captureStateRef.current = "idle";
       setStopping(false);
       setEngineLoading(false);
     }
   };
+
+  const showMeetingView = (view: unknown) => {
+    const next = meetingDetailView(view);
+    flushSync(() => setDetailView(next));
+    return { message: next === "summary" ? t("右侧已切换到会议总结。") : t("右侧已切换到实时转写。") };
+  };
+
+  const maximumSpeaker = Math.max(2, nextSpeakerRef.current - 1);
+  const setMeetingSpeaker = (turnId: unknown, speaker: unknown) => {
+    // Validate before mutating; manual correction must survive later diarization updates.
+    assignMeetingSpeaker(turnsRef.current, turnId, speaker, maximumSpeaker);
+    manuallyAssignedTurnsRef.current.add(turnId as string);
+    flushSync(() => updateTurns(current => assignMeetingSpeaker(current, turnId, speaker, maximumSpeaker)));
+    return { message: t("已将这段发言归为说话人 {0}。", [speaker as number]) };
+  };
+
+  const reportCapture = async (operation: () => Promise<{ message: string }>) => {
+    try {
+      onAction((await operation()).message);
+    } catch (error) {
+      onAction(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  useWorkspaceController(projectId, {
+    getState: () => ({
+      mode: "meeting-notes",
+      busy: captureStateRef.current !== "idle" || summaryBusyRef.current,
+      revision: JSON.stringify([turns, summary, source, detailView, summaryView, recording, starting, stopping]),
+      context: {
+        instruction: initialInstruction, source, recording, starting, stopping,
+        elapsedSeconds: elapsed, turns, partialText, summary, summaryBusy, summaryUpdatedAt,
+        detailView, summaryView, maximumSpeaker,
+        models: { streamingAsr: streamingAsr?.name ?? null, diarization: diarizationModel?.name ?? null, summary: summaryModel?.name ?? null },
+      },
+      actions: [
+        {
+          name: "meeting.show-view", description: "切换右侧会议面板，查看当前实时转写或已有会议总结；此操作不会生成新总结。",
+          parameters: { type: "object", properties: { view: { type: "string", enum: ["transcript", "summary"] } }, required: ["view"], additionalProperties: false },
+          allowedWhileBusy: true,
+          quickCommands: [
+            { text: "查看会议总结", args: { view: "summary" } }, { text: "查看实时转写", args: { view: "transcript" } },
+            { text: "Show meeting summary", args: { view: "summary" } }, { text: "Show live transcript", args: { view: "transcript" } },
+          ],
+        },
+        {
+          name: "meeting.set-speaker", description: "校正指定发言的说话人，与右侧手动校正使用同一状态。turnId 必须取自当前 turns，speaker 必须为已有范围内的整数。",
+          parameters: { type: "object", properties: { turnId: { type: "string" }, speaker: { type: "integer", minimum: 1, maximum: maximumSpeaker } }, required: ["turnId", "speaker"], additionalProperties: false },
+          allowedWhileBusy: true,
+        },
+        {
+          name: "meeting.start", description: "仅当用户明确要求开始录音时，使用当前音频来源启动会议录音与实时识别；恢复的会议会续写，不会自动重新录制。",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+          quickCommands: [{ text: "开始会议录音", args: {} }],
+        },
+        {
+          name: "meeting.stop", description: "结束当前会议录音，等待剩余转写处理，并尝试生成最终纪要；返回实际结果。",
+          parameters: { type: "object", properties: {}, additionalProperties: false },
+          allowedWhileBusy: true,
+          quickCommands: [{ text: "结束会议录音", args: {} }, { text: "结束会议", args: {} }],
+        },
+      ],
+    }),
+    execute: async command => {
+      if (command.action === "meeting.show-view") {
+        if (Object.keys(command.args).some(key => key !== "view")) throw new Error(t("会议操作参数无效。"));
+        return showMeetingView(command.args.view);
+      }
+      if (command.action === "meeting.set-speaker") {
+        if (Object.keys(command.args).some(key => !["turnId", "speaker"].includes(key))) throw new Error(t("会议操作参数无效。"));
+        return setMeetingSpeaker(command.args.turnId, command.args.speaker);
+      }
+      if (Object.keys(command.args).length) throw new Error(t("会议操作参数无效。"));
+      if (command.action === "meeting.start") return startMeeting();
+      if (command.action === "meeting.stop") return stopMeeting();
+      throw new Error(t("不支持的会议操作。"));
+    },
+  });
 
   useEffect(
     () => () => {
@@ -778,6 +911,12 @@ export function MeetingNotesView({
   ].filter(Boolean) as string[];
   const mindMap = useMemo(() => markdownMindMap(summary), [summary]);
 
+  useEffect(() => {
+    const viewport = transcriptScrollRef.current;
+    if (!viewport || !followTranscriptRef.current || (panelMode && detailView !== "transcript")) return;
+    viewport.scrollTop = viewport.scrollHeight;
+  }, [turns, partialText, engineLoading, detailView, panelMode]);
+
   return (
     <main className={`meeting-notes-view${panelMode ? " panel-mode" : ""}`}>
       <header className="meeting-notes-header">
@@ -790,18 +929,24 @@ export function MeetingNotesView({
         <div className="meeting-status-cluster">
           <span className={recording ? "recording" : ""}>
             <i />{" "}
-            {recording ? t("记录中") : stopping ? t("正在整理") : t("尚未开始")}
+            {recording ? t("记录中") : starting ? t("正在启动录音…") : stopping ? t("正在整理") : turns.length || summary ? t("记录已暂停") : t("尚未开始")}
           </span>
           <strong>{formatElapsed(elapsed)}</strong>
         </div>
       </header>
+
+      {restoredRecording && (
+        <p className="meeting-restored-note" role="status">
+          {t("已恢复转写和纪要，录音已停止。开始新录音后会续写到此会议，之前的音频未保存。")}
+        </p>
+      )}
 
       <div className="meeting-toolbar">
         <div className="meeting-source-picker" aria-label={t("会议音频来源")}>
           <button
             type="button"
             className={source === "microphone" ? "active" : ""}
-            disabled={recording || stopping}
+            disabled={recording || starting || stopping}
             onClick={() => setSource("microphone")}
           >
             <Mic2 size={15} /> {t("麦克风")}
@@ -809,7 +954,7 @@ export function MeetingNotesView({
           <button
             type="button"
             className={source === "system" ? "active" : ""}
-            disabled={recording || stopping}
+            disabled={recording || starting || stopping}
             onClick={() => setSource("system")}
           >
             <MonitorSpeaker size={15} /> {t("电脑音频")}
@@ -827,7 +972,7 @@ export function MeetingNotesView({
           <button
             type="button"
             className="meeting-stop-button"
-            onClick={() => void stopMeeting()}
+            onClick={() => void reportCapture(stopMeeting)}
           >
             <CircleStop size={16} /> {t("结束会议")}
           </button>
@@ -835,24 +980,47 @@ export function MeetingNotesView({
           <button
             type="button"
             className="meeting-start-button"
-            disabled={stopping}
-            onClick={() => void startMeeting()}
+            disabled={starting || stopping}
+            onClick={() => void reportCapture(startMeeting)}
           >
-            {stopping ? (
+            {starting || stopping ? (
               <LoaderCircle className="model-spin" size={16} />
             ) : (
               <AudioLines size={16} />
             )}
-            {stopping
+            {starting ? t("正在启动录音…") : stopping
               ? t("正在生成最终纪要")
               : turns.length
-                ? t("继续记录")
+                ? t("开始新录音并续写")
                 : t("开始记录")}
           </button>
         )}
       </div>
 
-      <div className="meeting-panels">
+      {panelMode && (
+        <div className="meeting-detail-switch" role="group" aria-label={t("会议内容")}>
+          <button
+            type="button"
+            aria-pressed={detailView === "transcript"}
+            className={detailView === "transcript" ? "active" : ""}
+            onClick={() => showMeetingView("transcript")}
+          >
+            <AudioLines size={15} /> {t("实时转写")}
+            {turns.length > 0 && <span>{turns.length}</span>}
+          </button>
+          <button
+            type="button"
+            aria-pressed={detailView === "summary"}
+            className={detailView === "summary" ? "active" : ""}
+            onClick={() => showMeetingView("summary")}
+          >
+            {summaryBusy ? <LoaderCircle className="model-spin" size={15} /> : <Sparkles size={15} />}
+            {t("会议总结")}
+          </button>
+        </div>
+      )}
+
+      <div className={`meeting-panels detail-${detailView}`}>
         <section className="meeting-transcript-panel">
           <header>
             <div>
@@ -870,7 +1038,16 @@ export function MeetingNotesView({
               )}
             </span>
           </header>
-          <div className="meeting-transcript-scroll">
+          <div
+            className="meeting-transcript-scroll"
+            ref={transcriptScrollRef}
+            onScroll={(event) => {
+              const viewport = event.currentTarget;
+              const nearLatest = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 64;
+              followTranscriptRef.current = nearLatest;
+              setShowLatestButton(!nearLatest);
+            }}
+          >
             {!turns.length && !partialText ? (
               <div className="meeting-empty-state">
                 <Mic2 size={26} />
@@ -885,21 +1062,7 @@ export function MeetingNotesView({
                       type="button"
                       className={turn.speaker ? "" : "pending"}
                       title={t("点击可手动校正说话人")}
-                      onClick={() =>
-                        updateTurns((current) =>
-                          current.map((item) =>
-                            item.id === turn.id
-                              ? {
-                                  ...item,
-                                  speaker:
-                                    ((item.speaker ?? 0) %
-                                      Math.max(2, nextSpeakerRef.current - 1)) +
-                                    1,
-                                }
-                              : item,
-                          ),
-                        )
-                      }
+                      onClick={() => setMeetingSpeaker(turn.id, ((turn.speaker ?? 0) % maximumSpeaker) + 1)}
                     >
                       {turn.speaker
                         ? t("说话人 {0}", [turn.speaker])
@@ -923,6 +1086,20 @@ export function MeetingNotesView({
               </>
             )}
           </div>
+          {showLatestButton && (
+            <button
+              type="button"
+              className="meeting-latest-button"
+              onClick={() => {
+                followTranscriptRef.current = true;
+                setShowLatestButton(false);
+                const viewport = transcriptScrollRef.current;
+                if (viewport) viewport.scrollTop = viewport.scrollHeight;
+              }}
+            >
+              <ArrowDown size={13} /> {t("回到最新发言")}
+            </button>
+          )}
         </section>
 
         <section className="meeting-summary-panel">

@@ -1,6 +1,7 @@
 import { t, useLocale, getLocale } from "../i18n"
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -59,6 +60,7 @@ import {
 import { cloudModelsFromCatalog } from '../cloudModels'
 import { getModelNote } from '../content/modelNotes'
 import { formatFileSize } from '../utils/audio'
+import './PluginsView.css'
 import {
   MODEL_PRIMARY_CATEGORIES,
   modelTaxonomy,
@@ -196,6 +198,9 @@ export function PluginsView({
     }
   }
   const [search, setSearch] = useState('')
+  const searchRef = useRef<HTMLInputElement>(null)
+  const detailsId = useId()
+  const [installedOnly, setInstalledOnly] = useState(false)
   const [primaryFilter, setPrimaryFilter] = useState<
     'all' | ModelPrimaryCategory
   >('all')
@@ -271,6 +276,8 @@ export function PluginsView({
   const [selectedFiles, setSelectedFiles] = useState<
     ModelPluginFileEntry[] | null
   >(null)
+  const [filesError, setFilesError] = useState<string | null>(null)
+  const [filesRevision, setFilesRevision] = useState(0)
   const desktopRuntime = isTauriRuntime()
   const installProgressLabel = `${Math.round(installProgress)}%`
   const compactInstallProgress = installSpeed
@@ -278,6 +285,8 @@ export function PluginsView({
     : installProgressLabel
 
   useEffect(() => {
+    setSearch('')
+    setInstalledOnly(false)
     setPrimaryFilter('all')
     setSecondaryFilter('all')
     setRuntimeFilter('all')
@@ -387,18 +396,27 @@ export function PluginsView({
   }, [desktopRuntime])
 
   const filteredPlugins = useMemo(
-    () =>
-      allModels.filter((plugin) => {
-        const searchMatch =
-          plugin.name.toLowerCase().includes(search.toLowerCase()) ||
-          t(plugin.name, [], locale).toLowerCase().includes(search.toLowerCase()) ||
-          plugin.description.toLowerCase().includes(search.toLowerCase()) ||
-          t(plugin.description, [], locale).toLowerCase().includes(search.toLowerCase()) ||
-          plugin.version.toLowerCase().includes(search.toLowerCase()) ||
-          (plugin.apiAliases ?? []).some((alias) =>
-            alias.toLowerCase().includes(search.toLowerCase()),
-          )
+    () => {
+      const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+      return allModels.filter((plugin) => {
         const taxonomy = taxonomyByModelId.get(plugin.id)
+        const searchableText = [
+          plugin.id,
+          plugin.name,
+          t(plugin.name, [], locale),
+          plugin.description,
+          t(plugin.description, [], locale),
+          plugin.author,
+          plugin.version,
+          plugin.runtime,
+          ...plugin.capabilities,
+          ...plugin.capabilities.map((capability) => t(capability, [], locale)),
+          ...plugin.harnessCapabilities,
+          ...(plugin.apiAliases ?? []),
+          taxonomy?.primaryCategory,
+          taxonomy?.secondaryCategory,
+        ].join(' ').toLowerCase()
+        const searchMatch = terms.every((term) => searchableText.includes(term))
         const filterMatch =
           skillsCatalog ||
           primaryFilter === 'all' ||
@@ -411,10 +429,12 @@ export function PluginsView({
           runtimeFilter === 'all' ||
           (runtimeFilter === 'api' && apiPlugin) ||
           (runtimeFilter === 'offline' && !apiPlugin)
-        return searchMatch && filterMatch && runtimeMatch
-      }),
+        return searchMatch && filterMatch && runtimeMatch && (!installedOnly || plugin.installed)
+      })
+    },
     [
       locale,
+      installedOnly,
       allModels,
       primaryFilter,
       runtimeFilter,
@@ -424,6 +444,17 @@ export function PluginsView({
       taxonomyByModelId,
     ],
   )
+  const hasActiveFilters = Boolean(
+    search.trim() || installedOnly || primaryFilter !== 'all' || runtimeFilter !== 'all',
+  )
+  const resetFilters = () => {
+    setSearch('')
+    setInstalledOnly(false)
+    setPrimaryFilter('all')
+    setSecondaryFilter('all')
+    setRuntimeFilter('all')
+    searchRef.current?.focus()
+  }
   const selectedPlugin =
     filteredPlugins.find((plugin) => plugin.id === selectedId) ??
     filteredPlugins[0]
@@ -437,6 +468,9 @@ export function PluginsView({
     ? getModelNote(selectedPlugin.id)
     : undefined
   const selectedPluginId = selectedPlugin?.id
+  useEffect(() => {
+    setPendingDeleteId(null)
+  }, [selectedPluginId])
   useEffect(() => {
     let cancelled = false
     if (!selectedPluginId || !isTauriRuntime() || selectedIsAppAgent) {
@@ -463,9 +497,12 @@ export function PluginsView({
       isTauriRuntime(),
   )
   useEffect(() => {
-    let cancelled = false
     setDetailsTab('card')
+  }, [selectedPluginId, selectedHasFiles])
+  useEffect(() => {
+    let cancelled = false
     setSelectedFiles(null)
+    setFilesError(null)
     if (!selectedPluginId || !isTauriRuntime() || !selectedHasFiles) {
       return () => {
         cancelled = true
@@ -475,13 +512,15 @@ export function PluginsView({
       .then((files) => {
         if (!cancelled) setSelectedFiles(files)
       })
-      .catch(() => {
-        if (!cancelled) setSelectedFiles(null)
+      .catch((error) => {
+        if (!cancelled) {
+          setFilesError(error instanceof Error ? error.message : String(error))
+        }
       })
     return () => {
       cancelled = true
     }
-  }, [selectedPluginId, selectedHasFiles])
+  }, [selectedPluginId, selectedHasFiles, filesRevision])
   const selectedVariant = selectedPlugin?.variants?.find(
     (variant) =>
       variant.id ===
@@ -856,12 +895,11 @@ export function PluginsView({
         <span>{t("模型分类")}</span>
         <small>{allModels.length}</small>
       </div>
-      <nav className="taxonomy-tree" role="tree">
+      <nav className="taxonomy-tree">
           <button
             className={`taxonomy-all${primaryFilter === 'all' ? ' active' : ''}`}
             type="button"
-            role="treeitem"
-            aria-current={primaryFilter === 'all' ? 'page' : undefined}
+            aria-pressed={primaryFilter === 'all'}
             onClick={() => {
               setPrimaryFilter('all')
               setSecondaryFilter('all')
@@ -880,9 +918,8 @@ export function PluginsView({
                 <button
                   className="taxonomy-primary"
                   type="button"
-                  role="treeitem"
                   aria-expanded={expanded && category.secondary.length > 0}
-                  aria-current={expanded ? 'page' : undefined}
+                  aria-pressed={expanded}
                   onClick={() => {
                     setPrimaryFilter(category.id)
                     setSecondaryFilter('all')
@@ -897,10 +934,7 @@ export function PluginsView({
                     <button
                       className={secondaryFilter === 'all' ? 'active' : ''}
                       type="button"
-                      role="treeitem"
-                      aria-current={
-                        secondaryFilter === 'all' ? 'page' : undefined
-                      }
+                      aria-pressed={secondaryFilter === 'all'}
                       onClick={() => setSecondaryFilter('all')}
                     >
                       <span>{t("全部")}</span>
@@ -913,11 +947,8 @@ export function PluginsView({
                           secondaryFilter === secondary.id ? 'active' : ''
                         }
                         type="button"
-                        role="treeitem"
                         title={secondary.id}
-                        aria-current={
-                          secondaryFilter === secondary.id ? 'page' : undefined
-                        }
+                        aria-pressed={secondaryFilter === secondary.id}
                         onClick={() => setSecondaryFilter(secondary.id)}
                       >
                         <span>{secondary.id}</span>
@@ -976,15 +1007,38 @@ export function PluginsView({
             )}
           </div>
           <div className="plugin-catalog-head">
-            <label className="search-field plugin-search">
+            <div className="search-field plugin-search" role="search">
               <Search size={15} />
               <input
+                ref={searchRef}
+                type="search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && search) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setSearch('')
+                  }
+                }}
                 placeholder={skillsCatalog ? t("搜索技能、能力或作者") : t("搜索模型、能力或作者")}
                 aria-label={skillsCatalog ? t("搜索技能") : t("搜索模型")}
               />
-            </label>
+              {search && (
+                <button
+                  type="button"
+                  className="plugin-search-clear"
+                  aria-label={t("清除搜索")}
+                  title={t("清除搜索")}
+                  onClick={() => {
+                    setSearch('')
+                    searchRef.current?.focus()
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
             {Object.keys(installJobs).length > 0 && (
                 <span className="catalog-install-status">
                   <RefreshCw size={13} />
@@ -996,7 +1050,15 @@ export function PluginsView({
                   · {Object.values(installJobs).length} {t(" 个任务")}</span>
               )}
             {!skillsCatalog && (
-              <div className="runtime-scope" aria-label={t("按运行方式筛选")}>
+              <div className="runtime-scope" role="group" aria-label={t("按运行方式筛选")}>
+                <button
+                  className={runtimeFilter === 'all' ? 'active' : ''}
+                  type="button"
+                  aria-pressed={runtimeFilter === 'all'}
+                  onClick={() => setRuntimeFilter('all')}
+                >
+                  {t("全部")}
+                </button>
                 <button
                   className={runtimeFilter === 'offline' ? 'active' : ''}
                   type="button"
@@ -1027,16 +1089,43 @@ export function PluginsView({
               </div>
             )}
           </div>
-
-
+          <div className="plugin-results-toolbar">
+            <span className="plugin-results-count" role="status" aria-live="polite" aria-atomic="true">
+              {skillsCatalog
+                ? t("{0} / {1} 个技能", [filteredPlugins.length, allModels.length])
+                : t("{0} / {1} 个模型", [filteredPlugins.length, allModels.length])}
+            </span>
+            <button
+              type="button"
+              className={`plugin-installed-filter${installedOnly ? ' active' : ''}`}
+              aria-pressed={installedOnly}
+              onClick={() => setInstalledOnly((current) => !current)}
+            >
+              <PackageCheck size={13} />
+              {t("已安装")}
+            </button>
+            {hasActiveFilters && (
+              <button type="button" className="plugin-reset-filters" onClick={resetFilters}>
+                {t("清除筛选")}
+              </button>
+            )}
+          </div>
           <div className="plugin-list">
             {!filteredPlugins.length && (
               <div className="plugin-empty-category">
                 <BrainCircuit size={22} />
                 <strong>
-                  {skillsCatalog ? t("这个分类暂时没有技能") : t("这个分类暂时没有模型")}</strong>
+                  {hasActiveFilters
+                    ? t("没有符合条件的结果")
+                    : skillsCatalog ? t("这个分类暂时没有技能") : t("这个分类暂时没有模型")}</strong>
                 <p>
                   {t("尝试切换分类或搜索其他能力。")}</p>
+                {hasActiveFilters && (
+                  <button type="button" className="secondary-action" onClick={resetFilters}>
+                    <RefreshCw size={14} />
+                    {t("清除筛选")}
+                  </button>
+                )}
               </div>
             )}
             {filteredPlugins.map((plugin) => {
@@ -1064,9 +1153,20 @@ export function PluginsView({
                   className={`plugin-row${plugin.id === selectedPlugin?.id ? ' selected' : ''}`}
                   onClick={() => setSelectedId(plugin.id)}
                 >
+                  <span className="plugin-icon"><Boxes size={18} strokeWidth={1.6} /></span>
                   <div className="plugin-main-copy">
                     <div className="plugin-title-line">
-                      <h2>{displayPluginName(plugin)}</h2>
+                      <h2>
+                        <button
+                          type="button"
+                          className="plugin-select-button"
+                          aria-pressed={plugin.id === selectedPlugin?.id}
+                          aria-controls={detailsId}
+                          onClick={() => setSelectedId(plugin.id)}
+                        >
+                          {displayPluginName(plugin)}
+                        </button>
+                      </h2>
                       <div className="plugin-row-action">
                     {appAgent ? (
                       <button
@@ -1076,6 +1176,7 @@ export function PluginsView({
                             : 'install-button'
                         }
                         type="button"
+                        disabled={anotherOperationBusy}
                         onClick={(event) => {
                           event.stopPropagation()
                           if (plugin.installed) void removePlugin(plugin)
@@ -1137,7 +1238,12 @@ export function PluginsView({
                             else void setCloudModelInstalled(plugin, true)
                           }}
                         >
-                          {plugin.installed ? (
+                          {isCloudBusy ? (
+                            <>
+                              <RefreshCw className="model-spin" size={14} />
+                              {t("处理中")}
+                            </>
+                          ) : plugin.installed ? (
                             <>
                               <Trash2 size={14} />
                               {pendingDeleteId === plugin.id ? t("确认") : t("删除")}
@@ -1238,7 +1344,7 @@ export function PluginsView({
           onPointerDown={startDetailsResize}
         />
 
-        <aside className="plugin-details">
+        <aside className="plugin-details" id={detailsId}>
           {!selectedPlugin && (
             <div className="plugin-empty-category plugin-details-empty">
               <BrainCircuit size={22} />
@@ -1254,6 +1360,9 @@ export function PluginsView({
           {selectedPlugin && (
             <>
               <div className="plugin-project-header">
+                <div className="plugin-project-hero">
+                  <span className="plugin-detail-icon"><Boxes size={22} strokeWidth={1.5} /></span>
+                  <div className="plugin-project-hero-copy">
                 <div className="plugin-project-title">
                   <span className="plugin-project-owner">
                     {selectedPlugin.author}
@@ -1266,6 +1375,8 @@ export function PluginsView({
                     {t(selectedPlugin.description)}
                   </p>
                 )}
+                  </div>
+                </div>
                 <div className="plugin-project-meta">
                   <span>
                     {displayPluginVersion(selectedPlugin, selectedIsApi)}
@@ -1519,11 +1630,30 @@ export function PluginsView({
                   )}
               </div>
 
-              <div className="plugin-project-tabs" role="tablist">
+              <div
+                className="plugin-project-tabs"
+                role="tablist"
+                aria-label={skillsCatalog ? t("技能说明") : t("模型说明")}
+                onKeyDown={(event) => {
+                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                  event.preventDefault()
+                  const nextTab = event.key === 'Home' || !selectedHasFiles
+                    ? 'card'
+                    : event.key === 'End'
+                      ? 'files'
+                      : detailsTab === 'card' ? 'files' : 'card'
+                  setDetailsTab(nextTab)
+                  event.currentTarget.querySelector<HTMLButtonElement>(`[data-details-tab="${nextTab}"]`)?.focus()
+                }}
+              >
                 <button
                   type="button"
                   role="tab"
+                  id={`${detailsId}-card-tab`}
+                  data-details-tab="card"
+                  aria-controls={`${detailsId}-panel`}
                   aria-selected={detailsTab === 'card'}
+                  tabIndex={detailsTab === 'card' ? 0 : -1}
                   className={detailsTab === 'card' ? 'active' : ''}
                   onClick={() => setDetailsTab('card')}
                 >
@@ -1532,7 +1662,11 @@ export function PluginsView({
                   <button
                     type="button"
                     role="tab"
+                    id={`${detailsId}-files-tab`}
+                    data-details-tab="files"
+                    aria-controls={`${detailsId}-panel`}
                     aria-selected={detailsTab === 'files'}
+                    tabIndex={detailsTab === 'files' ? 0 : -1}
                     className={detailsTab === 'files' ? 'active' : ''}
                     onClick={() => setDetailsTab('files')}
                   >
@@ -1541,8 +1675,23 @@ export function PluginsView({
               </div>
 
               {detailsTab === 'files' ? (
-                <section className="plugin-files-card">
-                  {selectedFiles === null ? (
+                <section
+                  className="plugin-files-card"
+                  id={`${detailsId}-panel`}
+                  role="tabpanel"
+                  aria-labelledby={`${detailsId}-files-tab`}
+                  tabIndex={0}
+                >
+                  {filesError !== null ? (
+                    <div className="plugin-files-error" role="alert">
+                      <p>{t("无法读取模型文件")}</p>
+                      {filesError && <small>{filesError}</small>}
+                      <button type="button" className="secondary-action" onClick={() => setFilesRevision((value) => value + 1)}>
+                        <RefreshCw size={14} />
+                        {t("重试")}
+                      </button>
+                    </div>
+                  ) : selectedFiles === null ? (
                     <p className="plugin-files-empty">{t("正在读取文件…")}</p>
                   ) : selectedFiles.length === 0 ? (
                     <p className="plugin-files-empty">{t("暂无文件")}</p>
@@ -1561,7 +1710,13 @@ export function PluginsView({
                   )}
                 </section>
               ) : (
-                <section className="model-introduction-card">
+                <section
+                  className="model-introduction-card"
+                  id={`${detailsId}-panel`}
+                  role="tabpanel"
+                  aria-labelledby={`${detailsId}-card-tab`}
+                  tabIndex={0}
+                >
                   <AgentProjectCard plugin={selectedPlugin} />
                   <div className="model-introduction-body">
                     {selectedReadme || selectedNote ? (

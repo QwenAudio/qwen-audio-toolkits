@@ -464,6 +464,8 @@ export interface AcpProviderInfo {
 export interface AcpSessionStartRequest {
   providerId: string;
   cwd?: string;
+  modelId?: string;
+  enableTools?: boolean;
 }
 
 export interface AcpSessionStartResponse {
@@ -471,6 +473,8 @@ export interface AcpSessionStartResponse {
   providerId: string;
   providerName: string;
   models: string[];
+  modelOptions?: Array<{ id: string; name: string }>;
+  currentModelId?: string | null;
   modes: Array<{ id?: string; name?: string }>;
 }
 

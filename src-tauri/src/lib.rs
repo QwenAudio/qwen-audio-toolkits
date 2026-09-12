@@ -22,6 +22,7 @@ mod vad;
 mod video_editor;
 mod video_translation;
 mod wetext;
+mod workspace_storage;
 
 use asr::AsrRuntime;
 use audio_io::MAX_AUDIO_BYTES;
@@ -73,9 +74,7 @@ use system_audio::{
     system_audio_flush_playback, system_audio_play_chunk, system_audio_start, system_audio_stop,
     SystemAudioRuntime,
 };
-use tauri::{Emitter, Manager};
-#[cfg(target_os = "macos")]
-use tauri::{RunEvent, WindowEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
 use video_editor::{
     analyze_cut_boundaries, export_smart_cut, prepare_video_media, video_editor_status,
@@ -801,6 +800,18 @@ pub fn run() {
         .manage(CloseBehavior(AtomicBool::new(false)))
         .manage(SystemAudioRuntime::new())
         .manage(VideoTranslationRuntime::default())
+        .manage(workspace_storage::WorkspaceStorageRuntime::default())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
+            {
+                // A reload discards JavaScript listeners before React cleanup
+                // can run. Closing keeps its native behavior until reattached.
+                webview
+                    .state::<workspace_storage::WorkspaceStorageRuntime>()
+                    .clear_close_guard();
+            }
+        })
         .setup(|app| {
             if let Err(error) = downloads::clear_completed_downloads(app.handle()) {
                 log::warn!("could not clear completed model downloads: {error}");
@@ -847,6 +858,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "main" {
+                let storage = window.state::<workspace_storage::WorkspaceStorageRuntime>();
+                if let WindowEvent::Destroyed = event {
+                    storage.clear_close_guard();
+                }
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    if storage.close_guard_ready()
+                        && window.emit("workspace-close-requested", false).is_ok()
+                    {
+                        api.prevent_close();
+                        return;
+                    }
+                }
+            }
             #[cfg(target_os = "macos")]
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
@@ -864,6 +889,11 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             runtime_status,
+            workspace_storage::workspace_load,
+            workspace_storage::workspace_save,
+            workspace_storage::workspace_restore_media,
+            workspace_storage::workspace_set_close_guard,
+            workspace_storage::workspace_finish_close,
             set_close_behavior,
             app_language::set_ui_language,
             acp_agent::agent_acp_prompt,
@@ -947,6 +977,20 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app, event| {
+        if let RunEvent::ExitRequested { api, code, .. } = &event {
+            let storage = app.state::<workspace_storage::WorkspaceStorageRuntime>();
+            // Tauri deliberately does not allow preventing an updater restart.
+            if *code != Some(tauri::RESTART_EXIT_CODE)
+                && storage.close_guard_ready()
+                && app.get_webview_window("main").is_some()
+                && app
+                    .emit_to("main", "workspace-close-requested", true)
+                    .is_ok()
+            {
+                api.prevent_exit();
+                return;
+            }
+        }
         #[cfg(target_os = "macos")]
         if let RunEvent::Reopen { .. } = event {
             restore_main_window(app);

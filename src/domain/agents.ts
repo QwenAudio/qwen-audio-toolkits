@@ -12,6 +12,12 @@ export interface VideoDubbingLanguages {
   target: string
 }
 
+export interface AgentCreationOptions {
+  videoDubbingMode?: VideoDubbingMode
+  videoDubbingLanguages?: VideoDubbingLanguages
+  videoDubbingStyle?: VideoDubbingStyle
+}
+
 export type GeneralAgentRole = 'user' | 'assistant'
 export type GeneralAgentActionStatus = 'pending' | 'running' | 'done' | 'failed'
 
@@ -99,6 +105,18 @@ export interface AgentConversation {
   videoDubbingMode?: VideoDubbingMode
   videoDubbingLanguages?: VideoDubbingLanguages
   videoDubbingStyle?: VideoDubbingStyle
+  sourceTaskId?: string
+  createdAt?: number
+  updatedAt?: number
+  /** Restored tasks open for review; execution resumes only on user action. */
+  restored?: boolean
+}
+
+export interface AgentModelSelection {
+  transport?: 'acp'
+  providerId: string
+  /** ACP model ID advertised by the Agent; empty means its default. */
+  modelId: string
 }
 
 export interface GeneralAgentTask {
@@ -108,6 +126,8 @@ export interface GeneralAgentTask {
   draftPrompt: string
   messages: GeneralAgentMessage[]
   selectedModeId: AgentCreationMode | null
+  chatModel?: AgentModelSelection | null
+  creationOptions?: AgentCreationOptions
   attachment?: {
     path: string
     name: string

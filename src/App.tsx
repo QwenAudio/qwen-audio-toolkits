@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -24,14 +25,19 @@ import {
   GitBranch,
   HardDrive,
   LoaderCircle,
+  Maximize2,
   Menu,
+  Minimize2,
   Monitor,
   Moon,
   RefreshCw,
   Palette,
+  PanelRightClose,
+  PanelRightOpen,
   Settings,
   Settings2,
   ShoppingBag,
+  MessageSquareText,
   Sparkles,
   SquarePen,
   Sun,
@@ -42,6 +48,10 @@ import {
   ProviderSettings,
   type ProviderSettingsKind,
 } from "./components/ProviderSettings";
+import { WorkspaceSaveIndicator } from "./components/WorkspaceSaveIndicator";
+import { runWorkspaceAgentRequest } from "./services/workspaceAgent";
+import { resolveAcpSelection, type AgentModelOption } from "./domain/agentModelSelection";
+import { requestAcpConversation } from "./services/acpConversation";
 import {
   appAgentsWithInstallState,
   defaultInstalledAppAgentIds,
@@ -49,6 +59,13 @@ import {
   sanitizeInstalledAppAgentIds,
 } from "./appAgents";
 import { initialPlugins, fallbackRuntime } from "./data";
+import {
+  isDemoMode,
+  demoPlugins,
+  demoCatalog,
+  demoMessages,
+  demoConversations,
+} from "./demo";
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from "./cloudModels";
 import {
   appDataDirectory,
@@ -82,7 +99,8 @@ import {
   listSavedWorkflows,
   type SavedWorkflow,
 } from "./services/workflowRuntime";
-import { listAcpProviders } from "./services/acp";
+import { listAcpProviders, inspectAcpModels, respondAcpPermission } from "./services/acp";
+import type { AcpProviderInfo, AcpSessionEvent } from "./types";
 import type {
   ApiModelCatalogEntry,
   AsrTranscriptionResult,
@@ -102,6 +120,7 @@ import type {
 import type { WorkflowChatTurn } from "./views/WorkflowChatView";
 import type {
   AgentCreationMode,
+  AgentCreationOptions,
   GeneralAgentAttachment,
   GeneralAgentMessage,
   GeneralAgentMessageModelOptions,
@@ -126,6 +145,7 @@ import {
 } from "./domain/onDemandModels";
 import { agentFileKind } from "./domain/agentFiles";
 import { useAgentConversations } from "./hooks/useAgentConversations";
+import { matchingSkillConversation, skillAcceptsFile } from "./domain/skillLaunch";
 import { audioFileToClip } from "./utils/audio";
 import appIconUrl from "../src-tauri/icons/128x128.png";
 import "./App.css";
@@ -225,6 +245,9 @@ const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 520;
 const MIN_WORKSPACE_WIDTH = 480;
+const WORKSPACE_TASK_MODES: ReadonlySet<AppView> = new Set([
+  "smart-cut", "ai-podcast", "video-dubbing", "meeting-notes",
+]);
 
 function getInitialTheme(): ThemePreference {
   if (typeof window === "undefined") return "system";
@@ -523,7 +546,26 @@ function App() {
     });
   }, [locale]);
 
+  const demoMode = isDemoMode();
+  const demoTaskSeed = demoMode
+    ? [
+        {
+          id: 'demo-task-1',
+          kind: 'general' as const,
+          title: '删除口水词和静音',
+          draftPrompt: '',
+          messages: demoMessages,
+          selectedModeId: null as AgentCreationMode | null,
+          attachment: null,
+          createdAt: Date.now() - 120_000,
+          updatedAt: Date.now() - 60_000,
+          submitting: false,
+        },
+      ]
+    : undefined;
   const [view, setView] = useState<AppView>("agents");
+  const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
+  const [workspacePanelFocused, setWorkspacePanelFocused] = useState(false);
   const {
     conversations: agentConversations,
     generalTasks,
@@ -533,12 +575,47 @@ function App() {
     createGeneralTask,
     ensureGeneralTask,
     updateGeneralTask,
+    recordWorkspaceBrief,
     updateGeneralMessageActionStatus,
     updateStructuredPlanStep,
-    submitGeneralPrompt,
+    submitGeneralPrompt: submitGeneralPromptToTask,
     selectConversation: setSelectedAgentConversationId,
     createConversation: createAgentConversation,
-  } = useAgentConversations();
+    ready: workspaceReady,
+    restoredSelectedId,
+  } = useAgentConversations(
+    demoMode ? demoConversations : undefined,
+    demoTaskSeed,
+  );
+  const initialViewRestoredRef = useRef(false);
+  const [openedAgentIds, setOpenedAgentIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    if (!workspaceReady || initialViewRestoredRef.current) return;
+    initialViewRestoredRef.current = true;
+    if (restoredSelectedId) setView(selectedAgentConversation?.mode ?? "agents");
+  }, [workspaceReady, restoredSelectedId, selectedAgentConversation]);
+  useEffect(() => {
+    if (!selectedAgentConversation) return;
+    setOpenedAgentIds(current => current.has(selectedAgentConversation.id)
+      ? current : new Set([...current, selectedAgentConversation.id]));
+  }, [selectedAgentConversation]);
+  const openedAgentConversations = agentConversations.filter(conversation =>
+    openedAgentIds.has(conversation.id) || conversation.id === selectedAgentConversationId,
+  );
+  const isWorkspaceTaskView = WORKSPACE_TASK_MODES.has(view);
+  const activeWorkspaceRef = useRef({ id: null as string | null, epoch: 0 });
+  useLayoutEffect(() => {
+    const id = isWorkspaceTaskView ? selectedAgentConversationId : null;
+    if (activeWorkspaceRef.current.id !== id) {
+      activeWorkspaceRef.current = { id, epoch: activeWorkspaceRef.current.epoch + 1 };
+    }
+  }, [isWorkspaceTaskView, selectedAgentConversationId]);
+  useEffect(() => {
+    if (isWorkspaceTaskView && selectedAgentConversationId) {
+      setWorkspacePanelOpen(true);
+      setWorkspacePanelFocused(false);
+    }
+  }, [isWorkspaceTaskView, selectedAgentConversationId]);
   const [agentHomeMode, setAgentHomeMode] = useState<AgentCreationMode | null>(
     null,
   );
@@ -551,11 +628,25 @@ function App() {
   const [agentMessageModelSelections, setAgentMessageModelSelections] =
     useState<Record<string, string>>({});
   const [agentChatAvailable, setAgentChatAvailable] = useState(false);
+  const [acpProviders, setAcpProviders] = useState<AcpProviderInfo[]>(demoMode ? [
+    { id: 'qoder', name: 'Qoder', available: true }, { id: 'kimi', name: 'Kimi Code', available: true },
+    { id: 'codex', name: 'Codex', available: true }, { id: 'qwen-code', name: 'Qwen Code', available: true },
+  ] : []);
+  const [acpModels, setAcpModels] = useState<Record<string, { loading: boolean; options: AgentModelOption[]; error?: string }>>({});
+  const acpModelLoads = useRef(new Set<string>());
+  const acpTurns = useRef(new Map<string, AbortController>());
+  const [activeAcpTasks, setActiveAcpTasks] = useState<string[]>([]);
+  const [acpPermissions, setAcpPermissions] = useState<Array<{ taskId: string; event: AcpSessionEvent }>>([]);
+  useEffect(() => () => { for (const controller of acpTurns.current.values()) controller.abort(); }, []);
   const [shellPage, setShellPage] = useState<ShellPage>("workspace");
-  const [plugins, setPlugins] = useState<ModelPlugin[]>(initialPlugins);
-  const [pluginsLoaded, setPluginsLoaded] = useState(() => !isTauriRuntime());
+  const [plugins, setPlugins] = useState<ModelPlugin[]>(
+    demoMode ? demoPlugins : initialPlugins,
+  );
+  const [pluginsLoaded, setPluginsLoaded] = useState(() => demoMode || !isTauriRuntime());
   const [runtime, setRuntime] = useState<RuntimeStatus>(fallbackRuntime);
-  const [catalog, setCatalog] = useState<HarnessCatalog | null>(null);
+  const [catalog, setCatalog] = useState<HarnessCatalog | null>(
+    demoMode ? demoCatalog : null,
+  );
   const [apiModelCatalog, setApiModelCatalog] = useState<
     ApiModelCatalogEntry[]
   >([]);
@@ -602,6 +693,12 @@ function App() {
     Record<string, WorkflowChatTurn[]>
   >({});
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [recentTasksExpanded, setRecentTasksExpanded] = useState(true);
+  const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
+  const closeSidebar = useCallback(() => {
+    setSidebarOpen(false);
+    window.requestAnimationFrame(() => sidebarTriggerRef.current?.focus());
+  }, []);
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const extensionsTriggerRef = useRef<HTMLButtonElement>(null);
@@ -657,13 +754,16 @@ function App() {
   const leaveShellPage = useCallback(() => {
     const leaving = shellPage;
     setShellPage("workspace");
+    setSidebarOpen(false);
     const returnTarget = extensionsReturnFocusRef.current;
     window.requestAnimationFrame(() => {
       const trigger =
         leaving === "settings"
           ? settingsTriggerRef.current
           : extensionsTriggerRef.current;
-      const target = returnTarget?.isConnected ? returnTarget : trigger;
+      const target = window.innerWidth <= 900
+        ? sidebarTriggerRef.current
+        : returnTarget?.isConnected ? returnTarget : trigger;
       target?.focus();
     });
   }, [shellPage]);
@@ -693,6 +793,22 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (viewportWidth > 900) setSidebarOpen(false);
+  }, [viewportWidth]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      closeSidebar();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [closeSidebar, sidebarOpen]);
+
+  useEffect(() => {
     if (!providerDialogOpen) return undefined;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
@@ -705,18 +821,19 @@ function App() {
   }, [closeProviderDialog, providerDialogOpen]);
 
   useEffect(() => {
-    if (shellPage === "workspace" || providerDialogOpen) return undefined;
+    if (shellPage === "workspace" || providerDialogOpen || sidebarOpen) return undefined;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
+      if (event.key !== "Escape" || event.defaultPrevented ||
+        (event.target instanceof Element && event.target.closest('[role="dialog"]'))) {
         return;
       }
       event.preventDefault();
       event.stopImmediatePropagation();
       leaveShellPage();
     };
-    window.addEventListener("keydown", closeOnEscape, true);
-    return () => window.removeEventListener("keydown", closeOnEscape, true);
-  }, [leaveShellPage, providerDialogOpen, shellPage]);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [leaveShellPage, providerDialogOpen, shellPage, sidebarOpen]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
@@ -973,6 +1090,44 @@ function App() {
   const orderedRunnablePlugins = useMemo(() => {
     return runnablePlugins;
   }, [runnablePlugins]);
+  const chosenAcpProvider = selectedGeneralTask?.chatModel?.transport === 'acp' ? selectedGeneralTask.chatModel.providerId : null;
+  const chatModelOptions = Object.values(acpModels).flatMap(value => value.options);
+  const loadAcpModels = useCallback(async (providerId: string) => {
+    if (acpModelLoads.current.has(providerId)) return;
+    acpModelLoads.current.add(providerId);
+    setAcpModels(current => ({ ...current, [providerId]: { loading: true, options: [] } }));
+    try {
+      const { models } = await inspectAcpModels(providerId);
+      setAcpModels(current => ({ ...current, [providerId]: { loading: false,
+        options: models.map(model => ({ ...model, providerId, available: true })) } }));
+    } catch (error) {
+      setAcpModels(current => ({ ...current, [providerId]: { loading: false, options: [], error: String(error) } }));
+    } finally { acpModelLoads.current.delete(providerId); }
+  }, []);
+  useEffect(() => {
+    if (chosenAcpProvider && !acpModels[chosenAcpProvider] && acpProviders.some(provider => provider.id === chosenAcpProvider && provider.available)) {
+      void loadAcpModels(chosenAcpProvider);
+    }
+  }, [chosenAcpProvider, acpModels, acpProviders, loadAcpModels]);
+  const requestTaskAgentReply = async (task: GeneralAgentTask, messages: GeneralAgentMessage[], workspacePlanning = false) => {
+    if (!isTauriRuntime()) throw new Error(t('ACP Agent 对话需要在桌面端运行。'));
+    const selection = resolveAcpSelection(task.chatModel, acpProviders);
+    const controller = new AbortController();
+    acpTurns.current.set(task.id, controller);
+    setActiveAcpTasks(current => [...current.filter(id => id !== task.id), task.id]);
+    try {
+      return await requestAcpConversation({ selection, messages, signal: controller.signal, enableTools: !workspacePlanning,
+        onPermission: event => setAcpPermissions(current => [...current.filter(item => item.event.requestId !== event.requestId || item.event.sessionId !== event.sessionId), { taskId: task.id, event }]),
+      });
+    } finally {
+      acpTurns.current.delete(task.id);
+      setActiveAcpTasks(current => current.filter(id => id !== task.id));
+      setAcpPermissions(current => current.filter(item => item.taskId !== task.id));
+    }
+  };
+  const submitGeneralPrompt = (request: Parameters<typeof submitGeneralPromptToTask>[0]) => submitGeneralPromptToTask({
+    ...request, agentResponse: request.agentResponse ?? (messages => requestTaskAgentReply(request.task, messages)),
+  });
   const responsiveSidebarMaxWidth = Math.max(
     MIN_SIDEBAR_WIDTH,
     Math.min(
@@ -982,6 +1137,9 @@ function App() {
   );
   const visibleSidebarWidth = Math.min(sidebarWidth, responsiveSidebarMaxWidth);
   const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth;
+  const compactWorkspace = viewportWidth - visibleContentOffset < 760;
+  const editorVisible = isWorkspaceTaskView && workspacePanelOpen;
+  const editorFillsWorkspace = editorVisible && (compactWorkspace || workspacePanelFocused);
 
   const selectedPlugin =
     orderedRunnablePlugins.find((plugin) => plugin.id === selectedPluginId) ??
@@ -1454,6 +1612,10 @@ function App() {
     if (!selectedGeneralTask && !prompt.trim()) return
     const task = materializeGeneralTask()
     updateGeneralTask(task.id, { draftPrompt: prompt })
+  }
+  const updateAgentCreationOptions = (creationOptions: AgentCreationOptions) => {
+    const task = materializeGeneralTask();
+    updateGeneralTask(task.id, { creationOptions });
   }
   const updateAgentHomeAttachment = (
     attachment: GeneralAgentTask['attachment'],
@@ -2185,6 +2347,30 @@ function App() {
       attachment: null,
     })
     pendingGeneralTaskRef.current = task
+    if (isWorkspaceTaskView && selectedAgentConversation) {
+      const projectId = selectedAgentConversation.id;
+      const workspaceEpoch = activeWorkspaceRef.current.epoch;
+      void submitGeneralPrompt({
+        task,
+        content: request.content,
+        selectedModeName: request.selectedModeName,
+        attachment: null,
+        localResponse: async () => runWorkspaceAgentRequest({
+          projectId,
+          prompt: request.content,
+          isCurrent: () => activeWorkspaceRef.current.id === projectId && activeWorkspaceRef.current.epoch === workspaceEpoch,
+          afterCommit: () => new Promise(resolve => {
+            const timeout = window.setTimeout(resolve, 100);
+            window.requestAnimationFrame(() => { window.clearTimeout(timeout); resolve(); });
+          }),
+          requestPlan: prompt => requestTaskAgentReply(task, [...task.messages.slice(-8), {
+            id: crypto.randomUUID(), role: 'user', content: prompt, createdAt: Date.now(),
+          }], true),
+        }),
+        onError: notify,
+      });
+      return;
+    }
     const pendingInstall = pendingOnDemandModelRef.current.get(task.id)
     if (pendingInstall && isInstallApproval(request.content)) {
       pendingOnDemandModelRef.current.delete(task.id)
@@ -2424,15 +2610,25 @@ function App() {
     videoDubbingLanguages?: VideoDubbingLanguages,
     videoDubbingStyle?: VideoDubbingStyle,
   ) => {
-    const modeLabel =
-      appAgents.find((agent) => agent.workspaceEntry === mode)?.name ??
-      t("技能");
+    const skill = appAgents.find((agent) => agent.workspaceEntry === mode);
+    if (!skill?.installed) {
+      notify(t("请先安装此技能，当前要求和素材已保留。"));
+      openSkills();
+      return;
+    }
+    if (!prompt.trim() || (mode !== "meeting-notes" && mode !== "agent-chat" &&
+      (!sourcePath || !skillAcceptsFile(mode, sourcePath)))) {
+      notify(t("请先填写创作要求并选择适用的素材。"));
+      return;
+    }
+    const sourceTask = materializeGeneralTask({ selectedModeId: mode });
+    const modeLabel = skill.name;
     const normalizedPrompt = prompt.replace(/\s+/gu, " ").trim();
     const promptTitle =
       normalizedPrompt.length > 22
         ? `${normalizedPrompt.slice(0, 22)}…`
         : normalizedPrompt;
-    createAgentConversation({
+    const request = {
       mode,
       title: `${modeLabel} · ${promptTitle}`,
       prompt,
@@ -2440,10 +2636,22 @@ function App() {
       videoDubbingMode,
       videoDubbingLanguages,
       videoDubbingStyle,
-    });
+      sourceTaskId: sourceTask.id,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    const existing = matchingSkillConversation(agentConversations, request);
+    if (existing) setSelectedAgentConversationId(existing.id);
+    else createAgentConversation(request);
+    if (sourceTask.draftPrompt.trim() || !sourceTask.messages.some(message => message.role === 'user')) {
+      recordWorkspaceBrief(sourceTask.id, prompt, sourceTask.attachment);
+    }
+    pendingGeneralTaskRef.current = null;
+    setShellPage("workspace");
     setWorkflowSelected(false);
     changeView(mode);
-  };  const syncExtensionsState = useCallback(async () => {
+  };
+  const syncExtensionsState = useCallback(async () => {
     try {
       const [nextPlugins, nextCatalog, nextApiModels, nextBindings] =
         await Promise.all([
@@ -2486,14 +2694,14 @@ function App() {
     };
   }, [syncExtensionsState]);
   useEffect(() => {
-    if (!isTauriRuntime()) return undefined;
+    if (!isTauriRuntime() && !import.meta.env.DEV) return undefined;
     let disposed = false;
     void listAcpProviders()
       .then((providers) => {
-        if (!disposed)
-          setAgentChatAvailable(
-            providers.some((provider) => provider.available),
-          );
+        if (!disposed) {
+          setAcpProviders(providers);
+          setAgentChatAvailable(providers.some(provider => provider.available));
+        }
       })
       .catch(() => undefined);
     return () => {
@@ -2516,12 +2724,10 @@ function App() {
     setAgentHomeMode(null);
     setSelectedAgentConversationId(null);
     setWorkflowSelected(false);
+    setWorkspacePanelOpen(false);
     changeView("agents");
   };
-  const openSkills = () => {
-    setShellPage("skills");
-    setSidebarOpen(false);
-  };
+  const openSkills = () => openShellPage("skills");
   const openModelStore = () => openShellPage("models");
   const openExtensions = openModelStore;
   const openSettings = () => {
@@ -3136,6 +3342,10 @@ function App() {
     SETTINGS_SECTIONS.find((section) => section.id === settingsSection) ??
     SETTINGS_SECTIONS[0];
 
+  if (!workspaceReady) {
+    return <main className="workspace-restoring" role="status"><LoaderCircle className="model-spin" size={20} />{t("正在恢复任务…")}</main>;
+  }
+
   return (
     <div
       className={`app-shell model-shell${usesOverlayTitlebar ? " native-titlebar-enabled" : ""} shell-page-${shellPage}`}
@@ -3155,7 +3365,9 @@ function App() {
         />
       )}
       <aside
+        id="app-navigation"
         className={`app-sidebar model-sidebar${sidebarOpen ? " open" : ""}`}
+        inert={providerDialogOpen || (viewportWidth <= 900 && !sidebarOpen)}
       >
         <div className="activity-rail-title-spacer" data-tauri-drag-region />
 
@@ -3165,6 +3377,11 @@ function App() {
           </span>
           <span className="sidebar-brand-name">QwenAudio Toolkits</span>
         </div>
+        {demoMode && (
+          <div className="sidebar-demo-badge">
+            Demo Mode — UI Preview
+          </div>
+        )}
 
         {shellPage === "settings" ? (
           <nav
@@ -3174,7 +3391,7 @@ function App() {
             <button
               className="sidebar-primary-button sidebar-return-button"
               type="button"
-              onClick={openNewTask}
+              onClick={leaveShellPage}
             >
               <ArrowLeft size={17} />
               <span>{t("返回应用")}</span>
@@ -3232,7 +3449,10 @@ function App() {
                 className={settingsSection === id ? "active" : ""}
                 type="button"
                 aria-current={settingsSection === id ? "page" : undefined}
-                onClick={() => setSettingsSection(id)}
+                onClick={() => {
+                  setSettingsSection(id);
+                  setSidebarOpen(false);
+                }}
               >
                 <Icon size={15} />
                 <span>{label}</span>
@@ -3346,10 +3566,12 @@ function App() {
             <button
               className="sidebar-agents-entry"
               type="button"
-              disabled
+              aria-expanded={recentTasksExpanded}
+              aria-controls="recent-task-list"
+              onClick={() => setRecentTasksExpanded((expanded) => !expanded)}
             >
               <span>{t('最近')}</span>
-              <ChevronDown size={14} />
+              <ChevronDown size={14} className={recentTasksExpanded ? '' : 'collapsed'} />
             </button>
             <button
               className="sidebar-new-agent-conversation"
@@ -3361,9 +3583,12 @@ function App() {
               <SquarePen size={16} />
             </button>
           </div>
+          <div id="recent-task-list" hidden={!recentTasksExpanded}>
           {(generalTasks.length > 0 || agentConversations.length > 0) && (
             <div className="sidebar-agent-conversations" aria-label={t('最近任务')}>
-              {generalTasks.map((task) => {
+              {generalTasks.filter(task => !agentConversations.some(conversation =>
+                conversation.sourceTaskId === task.id && WORKSPACE_TASK_MODES.has(conversation.mode),
+              )).map((task) => {
                 const active = shellPage === 'workspace' && selectedAgentConversationId === task.id && view === 'agents'
                 return (
                   <button
@@ -3381,8 +3606,9 @@ function App() {
                       changeView('agents')
                     }}
                   >
+                    <MessageSquareText className="recent-task-icon" size={14} />
                     <span>{task.title}</span>
-                    {task.submitting && <small>{t('运行中')}</small>}
+                    {task.submitting && <LoaderCircle className="model-spin" size={13} aria-label={t('运行中')} />}
                   </button>
                 )
               })}
@@ -3395,7 +3621,7 @@ function App() {
                   ? conversation.sourcePath.split(/[\\/]/u).at(-1) ?? conversation.sourcePath
                   : conversation.mode === 'agent-chat'
                     ? t('Agent 对话')
-                    : t('实时会议')
+                    : conversation.mode === 'meeting-notes' ? t('实时会议') : ''
                 return (
                   <button
                     className={`installed-model-button agent-conversation-button${active ? ' active' : ''}`}
@@ -3411,6 +3637,7 @@ function App() {
                       changeView(conversation.mode)
                     }}
                   >
+                    <Sparkles className="recent-task-icon" size={14} />
                     <span>{conversation.title}</span>
                   </button>
                 )
@@ -3420,6 +3647,7 @@ function App() {
           {generalTasks.length === 0 && agentConversations.length === 0 && (
             <p className="sidebar-recent-empty">{t("暂无最近任务")}</p>
           )}
+          </div>
         </nav>        )}
 
         <div className="sidebar-spacer" />
@@ -3531,16 +3759,19 @@ function App() {
           className="sidebar-scrim"
           type="button"
           aria-label={t("关闭导航")}
-          onClick={() => setSidebarOpen(false)}
+          onClick={closeSidebar}
         />
       )}
 
-      <div className="app-frame model-app-frame">
+      <div className="app-frame model-app-frame" inert={providerDialogOpen || (viewportWidth <= 900 && sidebarOpen)}>
         <header className="topbar model-topbar" data-tauri-drag-region>
           <button
+            ref={sidebarTriggerRef}
             className="mobile-menu-button"
             type="button"
             aria-label={t("打开导航")}
+            aria-controls="app-navigation"
+            aria-expanded={sidebarOpen}
             onClick={() => setSidebarOpen(true)}
           >
             <Menu size={19} />
@@ -3553,25 +3784,40 @@ function App() {
                   ? t("模型商店")
                   : shellPage === "settings"
                     ? t("设置 · {0}", [activeSettingsSection.label])
-                    : view === "agents"
-                      ? t("新任务")
-                      : view === "smart-cut" ||
-                          view === "ai-podcast" ||
-                          view === "video-dubbing" ||
-                          view === "meeting-notes" ||
-                          view === "agent-chat"
-                        ? (selectedAgentConversation?.title ?? t("技能任务"))
-                        : view === "workspace"
-                          ? WORKFLOWS_ENABLED && workflowSelected
-                            ? (workflows.find(
-                                (workflow) =>
-                                  workflow.id === selectedWorkflowId,
-                              )?.name ?? t("虚拟模型"))
-                            : selectedPlugin.name
-                          : t("流程编排")}
+                    : isWorkspaceTaskView
+                      ? (selectedAgentConversation?.title ?? t("新任务"))
+                      : view === "agents"
+                        ? (selectedGeneralTask?.title ?? t("新任务"))
+                        : view === "agent-chat"
+                          ? (selectedAgentConversation?.title ?? t("技能任务"))
+                          : view === "workspace"
+                            ? WORKFLOWS_ENABLED && workflowSelected
+                              ? (workflows.find(
+                                  (workflow) =>
+                                    workflow.id === selectedWorkflowId,
+                                )?.name ?? t("虚拟模型"))
+                              : selectedPlugin.name
+                            : t("流程编排")}
             </span>
           </div>
           <div className="topbar-actions">
+            <WorkspaceSaveIndicator />
+            {shellPage === "workspace" && isWorkspaceTaskView && (
+              <div className="workspace-view-switch" role="group" aria-label={t('工作区视图')}>
+                <button type="button" aria-pressed={!workspacePanelOpen} onClick={() => {
+                  setWorkspacePanelOpen(false);
+                  setWorkspacePanelFocused(false);
+                }}>
+                  {t('对话')}
+                </button>
+                <button type="button" aria-pressed={workspacePanelOpen && !workspacePanelFocused} onClick={() => {
+                  setWorkspacePanelOpen(true);
+                  setWorkspacePanelFocused(false);
+                }}>
+                  <PanelRightOpen size={14} />{compactWorkspace ? t('结果') : t('对话与结果')}
+                </button>
+              </div>
+            )}
             <span className="model-runtime-state">
               <i />
               {isTauriRuntime() ? t("本地运行") : t("界面预览")}
@@ -3648,13 +3894,40 @@ function App() {
             )}
             {/* Keep draft inputs and live sessions alive while changing settings. */}
             <div
-              className="workspace-session"
+              className={`workspace-session${editorVisible ? ' editor-open' : ''}${editorFillsWorkspace ? ' editor-focused' : ''}`}
               hidden={shellPage !== "workspace"}
               inert={shellPage !== "workspace"}
             >
-              {view === "agents" && (
+              <div className="workspace-center" inert={editorFillsWorkspace}>
+              <div
+                className="agent-workspace-session"
+                hidden={view !== "agents" && !isWorkspaceTaskView}
+                inert={view !== "agents" && !isWorkspaceTaskView}
+              >
                 <AgentHomeView
                   skills={appAgents}
+                  chatModelOptions={chatModelOptions}
+                  acpProviders={acpProviders}
+                  chatModel={selectedGeneralTask?.chatModel?.transport === 'acp' ? selectedGeneralTask.chatModel : null}
+                  chatModelLoading={Boolean(chosenAcpProvider && acpModels[chosenAcpProvider]?.loading)}
+                  chatModelError={chosenAcpProvider ? acpModels[chosenAcpProvider]?.error : undefined}
+                  onRetryModels={() => { if (chosenAcpProvider) void loadAcpModels(chosenAcpProvider); }}
+                  acpPermissions={acpPermissions.filter(item => item.taskId === selectedGeneralTask?.id).map(item => item.event)}
+                  onAcpPermission={(event, optionId) => {
+                    if (!event.requestId) return;
+                    void respondAcpPermission(event.sessionId, event.requestId, optionId).then(() =>
+                      setAcpPermissions(current => current.filter(item => item.event.sessionId !== event.sessionId || item.event.requestId !== event.requestId)),
+                    ).catch(error => notify(String(error)));
+                  }}
+                  acpRunning={Boolean(selectedGeneralTask && activeAcpTasks.includes(selectedGeneralTask.id))}
+                  onCancelAcp={() => { if (selectedGeneralTask) acpTurns.current.get(selectedGeneralTask.id)?.abort(); }}
+                  onChatModelChange={chatModel => {
+                    const task = materializeGeneralTask();
+                    pendingGeneralTaskRef.current = { ...task, chatModel };
+                    updateGeneralTask(task.id, { chatModel });
+                  }}
+                  workspaceTitle={isWorkspaceTaskView ? selectedAgentConversation?.title : undefined}
+                  workspaceCanOperate={isWorkspaceTaskView}
                   taskId={selectedGeneralTask?.id ?? null}
                   messages={selectedGeneralTask?.messages ?? []}
                   draftPrompt={selectedGeneralTask?.draftPrompt ?? ""}
@@ -3662,7 +3935,9 @@ function App() {
                   submitting={selectedGeneralTask?.submitting ?? false}
                   modelInstallMode={agentModelInstallMode}
                   messageModelOptions={resolveTaskMessageModelOptions(selectedGeneralTask)}
-                  selectedModeId={selectedGeneralTask?.selectedModeId ?? agentHomeMode}
+                  selectedModeId={isWorkspaceTaskView ? selectedAgentConversation?.mode ?? null : selectedGeneralTask?.selectedModeId ?? agentHomeMode}
+                  creationOptions={selectedGeneralTask?.creationOptions}
+                  onCreationOptionsChange={updateAgentCreationOptions}
                   chatAvailable={agentChatAvailable}
                   onModelInstallModeChange={setAgentModelInstallMode}
                   onMessageModelSelect={(messageId, modelId) => {
@@ -3681,7 +3956,7 @@ function App() {
                   onLaunch={launchCreationAgent}
                   onOpenStore={openSkills}
                 />
-              )}
+              </div>
               {view === "workspace" &&
                 (WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
                   <WorkflowChatView
@@ -3713,113 +3988,7 @@ function App() {
                     onClearConversation={clearConversationRuns}
                   />
                 ))}
-              {agentConversations
-                .filter((conversation) => conversation.mode === "smart-cut")
-                .map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className="agent-workspace-session"
-                    hidden={
-                      view !== "smart-cut" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                    inert={
-                      view !== "smart-cut" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                  >
-                    <SmartCutView
-                      initialInstruction={conversation.prompt}
-                      initialSourcePath={conversation.sourcePath}
-                      initialLaunchId={1}
-                      models={orderedRunnablePlugins}
-                      catalog={catalog}
-                      onRunAudio={runAudio}
-                      onRunText={runText}
-                      onOpenStore={openExtensions}
-                      onAction={notify}
-                    />
-                  </div>
-                ))}
-              {agentConversations
-                .filter((conversation) => conversation.mode === "ai-podcast")
-                .map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className="agent-workspace-session"
-                    hidden={
-                      view !== "ai-podcast" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                    inert={
-                      view !== "ai-podcast" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                  >
-                    <AiPodcastView
-                      initialInstruction={conversation.prompt}
-                      initialSourcePath={conversation.sourcePath}
-                      initialLaunchId={1}
-                      models={orderedRunnablePlugins}
-                      catalog={catalog}
-                      onRunText={runText}
-                      onOpenStore={openExtensions}
-                      onAction={notify}
-                    />
-                  </div>
-                ))}
-              {agentConversations
-                .filter((conversation) => conversation.mode === "video-dubbing")
-                .map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className="agent-workspace-session"
-                    hidden={
-                      view !== "video-dubbing" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                    inert={
-                      view !== "video-dubbing" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                  >
-                    <VideoDubbingView
-                      initialInstruction={conversation.prompt}
-                      initialSourcePath={conversation.sourcePath}
-                      initialLaunchId={1}
-                      dubbingMode={conversation.videoDubbingMode ?? "translate"}
-                      dubbingLanguages={conversation.videoDubbingLanguages}
-                      dubbingStyle={conversation.videoDubbingStyle}
-                      onAction={notify}
-                    />
-                  </div>
-                ))}
-              {agentConversations
-                .filter((conversation) => conversation.mode === "meeting-notes")
-                .map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className="agent-workspace-session"
-                    hidden={
-                      view !== "meeting-notes" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                    inert={
-                      view !== "meeting-notes" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                  >
-                    <MeetingNotesView
-                      initialInstruction={conversation.prompt}
-                      models={orderedRunnablePlugins}
-                      onRunText={runText}
-                      onRunAudio={runAudio}
-                      onOpenStore={openExtensions}
-                      onAction={notify}
-                    />
-                  </div>
-                ))}
-              {agentConversations
+              {openedAgentConversations
                 .filter((conversation) => conversation.mode === "agent-chat")
                 .map((conversation) => (
                   <div
@@ -3837,7 +4006,7 @@ function App() {
                     <AgentChatView
                       initialInstruction={conversation.prompt}
                       initialSourcePath={conversation.sourcePath}
-                      initialLaunchId={1}
+                      initialLaunchId={conversation.restored ? 0 : 1}
                       models={orderedRunnablePlugins}
                       onRunText={runText}
                       onRunAudio={runAudio}
@@ -3861,6 +4030,157 @@ function App() {
                   onAction={notify}
                 />
               )}
+              </div>
+              <aside
+                id="task-editor"
+                className="workspace-panel"
+                hidden={!editorVisible}
+                inert={!editorVisible}
+                aria-label={view === 'meeting-notes' ? t('会议结果') : t('任务结果')}
+              >
+                <div className="workspace-panel-header">
+                  <h3>{view === 'meeting-notes' ? t('会议结果') : t('任务结果')}</h3>
+                  {!compactWorkspace && (
+                    <button
+                      type="button"
+                      aria-label={workspacePanelFocused ? t('退出专注模式') : t('专注编辑')}
+                      title={workspacePanelFocused ? t('退出专注模式') : t('专注编辑')}
+                      aria-pressed={workspacePanelFocused}
+                      onClick={() => setWorkspacePanelFocused((focused) => !focused)}
+                    >
+                      {workspacePanelFocused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={t('收起结果，继续对话')}
+                    title={t('收起结果，继续对话')}
+                    onClick={() => setWorkspacePanelOpen(false)}
+                  >
+                    <PanelRightClose size={16} />
+                  </button>
+                </div>
+                <div className="workspace-panel-body">
+                  {openedAgentConversations
+                    .filter((conversation) => conversation.mode === "smart-cut")
+                    .map((conversation) => (
+                      <div
+                        key={conversation.id}
+                        className="agent-workspace-session"
+                        hidden={
+                          view !== "smart-cut" ||
+                          selectedAgentConversationId !== conversation.id
+                        }
+                        inert={
+                          view !== "smart-cut" ||
+                          selectedAgentConversationId !== conversation.id
+                        }
+                      >
+                        <SmartCutView
+                          panelMode
+                          projectId={conversation.id}
+                          autoStart={!conversation.restored}
+                          initialInstruction={conversation.prompt}
+                          initialSourcePath={conversation.sourcePath}
+                          initialLaunchId={1}
+                          models={orderedRunnablePlugins}
+                          catalog={catalog}
+                          onRunAudio={runAudio}
+                          onRunText={runText}
+                          onOpenStore={openExtensions}
+                          onAction={notify}
+                        />
+                      </div>
+                    ))}
+                  {openedAgentConversations
+                    .filter((conversation) => conversation.mode === "ai-podcast")
+                    .map((conversation) => (
+                      <div
+                        key={conversation.id}
+                        className="agent-workspace-session"
+                        hidden={
+                          view !== "ai-podcast" ||
+                          selectedAgentConversationId !== conversation.id
+                        }
+                        inert={
+                          view !== "ai-podcast" ||
+                          selectedAgentConversationId !== conversation.id
+                        }
+                      >
+                        <AiPodcastView
+                          panelMode
+                          projectId={conversation.id}
+                          autoStart={!conversation.restored}
+                          initialInstruction={conversation.prompt}
+                          initialSourcePath={conversation.sourcePath}
+                          initialLaunchId={1}
+                          models={orderedRunnablePlugins}
+                          catalog={catalog}
+                          onRunText={runText}
+                          onOpenStore={openExtensions}
+                          onAction={notify}
+                        />
+                      </div>
+                    ))}
+                  {openedAgentConversations
+                    .filter((conversation) => conversation.mode === "video-dubbing")
+                    .map((conversation) => (
+                      <div
+                        key={conversation.id}
+                        className="agent-workspace-session"
+                        hidden={
+                          view !== "video-dubbing" ||
+                          selectedAgentConversationId !== conversation.id
+                        }
+                        inert={
+                          view !== "video-dubbing" ||
+                          selectedAgentConversationId !== conversation.id
+                        }
+                      >
+                        <VideoDubbingView
+                          panelMode
+                          projectId={conversation.id}
+                          autoStart={!conversation.restored}
+                          initialInstruction={conversation.prompt}
+                          initialSourcePath={conversation.sourcePath}
+                          initialLaunchId={1}
+                          dubbingMode={conversation.videoDubbingMode ?? "translate"}
+                          dubbingLanguages={conversation.videoDubbingLanguages}
+                          dubbingStyle={conversation.videoDubbingStyle}
+                          onAction={notify}
+                        />
+                      </div>
+                    ))}
+                  {openedAgentConversations
+                    .filter((conversation) => conversation.mode === "meeting-notes")
+                    .map((conversation) => (
+                      <div
+                        key={conversation.id}
+                        className="agent-workspace-session"
+                        hidden={
+                          view !== "meeting-notes" ||
+                          selectedAgentConversationId !== conversation.id
+                        }
+                        inert={
+                          view !== "meeting-notes" ||
+                          selectedAgentConversationId !== conversation.id
+                        }
+                      >
+                        <MeetingNotesView
+                          panelMode
+                          projectId={conversation.id}
+                          autoStart={!conversation.restored}
+                          initialInstruction={conversation.prompt}
+                          models={orderedRunnablePlugins}
+                          onRunText={runText}
+                          onRunAudio={runAudio}
+                          onOpenStore={openExtensions}
+                          onAction={notify}
+                        />
+                      </div>
+                    ))}
+                </div>
+              </aside>
             </div>
           </Suspense>
         </div>

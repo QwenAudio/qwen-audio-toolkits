@@ -1,6 +1,8 @@
 .smart-cut-view {
   --cut-border: color-mix(in srgb, var(--text-primary, #202422) 12%, transparent);
   --cut-muted: color-mix(in srgb, var(--text-primary, #202422) 58%, transparent);
+  width: 100%;
+  min-width: 0;
   min-height: 100%;
   color: var(--text-primary, #202422);
   background:
@@ -19,13 +21,17 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
+  height: 100%;
   gap: 14px;
   padding: 44px 52px;
+  overflow-y: auto;
 }
 
+.smart-cut-view.empty > * { flex-shrink: 0; }
+
 .smart-cut-hero {
-  width: min(650px, calc(100vw - 390px));
+  width: min(650px, 100%);
   text-align: center;
 }
 
@@ -72,7 +78,7 @@
 }
 
 .smart-cut-composer {
-  width: min(760px, calc(100vw - 390px));
+  width: min(760px, 100%);
   min-height: 136px;
   padding: 12px 14px 10px;
   border-radius: 15px;
@@ -153,6 +159,7 @@
 
 .smart-cut-composer-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   min-height: 32px;
   gap: 9px;
@@ -230,7 +237,7 @@
 .smart-cut-prompt-suggestions {
   display: flex;
   justify-content: center;
-  width: min(760px, calc(100vw - 390px));
+  width: min(760px, 100%);
   gap: 7px;
   flex-wrap: wrap;
 }
@@ -253,7 +260,7 @@
   border-color: color-mix(in srgb, var(--accent, #4c7e6c) 28%, transparent);
 }
 
-.smart-cut-entry-status { width: min(760px, calc(100vw - 390px)); }
+.smart-cut-entry-status { width: min(760px, 100%); }
 .smart-cut-entry-status .smart-cut-engine { margin-top: 2px; }
 
 .smart-cut-primary {
@@ -302,7 +309,7 @@
 .smart-cut-flow {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: min(690px, calc(100vw - 390px));
+  width: min(690px, 100%);
   padding: 16px;
   border: 1px solid var(--cut-border);
   border-radius: 16px;
@@ -354,6 +361,7 @@
 
 .smart-cut-project-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
@@ -362,9 +370,11 @@
   background: color-mix(in srgb, var(--surface-base, #f7f7f5) 90%, transparent);
 }
 
+.smart-cut-project-header > div { min-width: 0; }
+
 .smart-cut-project-header h1 { margin-top: 4px; font-size: 17px; }
 .smart-cut-project-instruction {
-  max-width: min(640px, 58vw);
+  max-width: 640px;
   margin: 3px 0 0;
   overflow: hidden;
   color: var(--cut-muted);
@@ -399,7 +409,8 @@
 
 .smart-cut-layout {
   display: grid;
-  grid-template-columns: minmax(420px, 1fr) minmax(330px, 390px);
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 390px);
+  min-width: 0;
   min-height: 0;
   flex: 1;
 }
@@ -415,6 +426,7 @@
 .agent-cut-submission > .smart-cut-video-attachment { margin-top: 14px; }
 .agent-cut-submission > p {
   margin: 14px 0 0;
+  overflow-wrap: anywhere;
   color: var(--text-primary, #202422);
   font-size: 13px;
   line-height: 1.65;
@@ -423,6 +435,8 @@
 
 .smart-cut-video-shell {
   position: relative;
+  width: 100%;
+  min-width: 0;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -519,7 +533,7 @@
 
 .smart-cut-setup-card {
   display: grid;
-  grid-template-columns: 1fr minmax(190px, 250px) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 250px) auto;
   align-items: end;
   gap: 18px;
   margin-top: 18px;
@@ -530,7 +544,7 @@
 }
 .smart-cut-setup-card h2, .smart-cut-section-heading h2 { font-size: 14px; }
 .smart-cut-setup-card p { margin: 7px 0 0; color: var(--cut-muted); font-size: 12px; line-height: 1.5; }
-.smart-cut-setup-card label { display: grid; gap: 6px; color: var(--cut-muted); font-size: 12px; }
+.smart-cut-setup-card label { display: grid; min-width: 0; gap: 6px; color: var(--cut-muted); font-size: 12px; }
 .smart-cut-setup-card select {
   min-width: 0;
   height: 37px;
@@ -621,6 +635,8 @@
 }
 .smart-cut-word-line > span {
   position: relative;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 2px 3px;
   border-radius: 5px;
   color: var(--text-primary, #202422);
@@ -779,6 +795,7 @@
   position: sticky;
   bottom: -18px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin: 14px -18px -18px;
@@ -804,25 +821,104 @@
   background: var(--accent, #4c7e6c);
 }
 
-@media (max-width: 1150px) {
-  .smart-cut-layout { grid-template-columns: minmax(390px, 1fr) 340px; }
-  .smart-cut-stage-indicator { display: none; }
+@container workspace-editor (max-width: 1150px) {
+  .smart-cut-layout { grid-template-columns: minmax(0, 1fr) 340px; }
+  .smart-cut-project-header { flex-wrap: wrap; gap: 12px; }
+  .smart-cut-stage-indicator { flex-wrap: wrap; }
   .smart-cut-setup-card { grid-template-columns: 1fr; align-items: stretch; }
   .smart-cut-no-model { grid-column: auto; }
 }
 
-@media (max-width: 900px) {
-  .smart-cut-view.empty { padding: 28px; }
-  .smart-cut-hero,
-  .smart-cut-composer,
-  .smart-cut-prompt-suggestions,
-  .smart-cut-entry-status,
-  .smart-cut-flow { width: min(680px, calc(100vw - 56px)); }
-  .smart-cut-layout { display: block; overflow-y: auto; }
+@container workspace-editor (max-width: 900px) {
+  .smart-cut-view.empty { padding: 28px 24px; }
+  .smart-cut-layout { display: block; overflow-y: auto; scrollbar-gutter: stable; }
   .smart-cut-preview-panel, .smart-cut-review-panel { overflow: visible; }
   .smart-cut-review-panel { border-top: 1px solid var(--cut-border); border-left: 0; }
+  .smart-cut-review-footer { position: static; }
+}
+
+@container workspace-editor (max-width: 520px) {
+  .smart-cut-view.empty { padding: 24px 16px; }
+  .smart-cut-hero h1 { font-size: 30px; }
+  .smart-cut-hero > p { font-size: 13px; }
+  .smart-cut-flow { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px; }
+  .smart-cut-flow div + div { border-top: 1px solid var(--cut-border); border-left: 0; padding-top: 14px; }
+  .smart-cut-project-header { padding: 14px 16px; }
+  .smart-cut-preview-panel { padding: 16px 16px 24px; }
+  .smart-cut-review-panel { padding: 16px; }
+  .smart-cut-player-controls { height: auto; min-height: 37px; flex-wrap: wrap; gap: 7px; padding-block: 5px; }
+  .smart-cut-word-toolbar, .smart-cut-section-heading { flex-wrap: wrap; gap: 7px; }
+  .smart-cut-segments > article { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .smart-cut-segments > article > button { justify-self: start; }
+  .smart-cut-tuning { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .smart-cut-tuning > button { grid-column: 1 / -1; }
+  .smart-cut-batch-actions { flex-wrap: wrap; }
+  .smart-cut-batch-actions button:last-child { margin-left: 0; }
+  .smart-cut-candidates article { grid-template-columns: minmax(0, 1fr) auto; }
+  .smart-cut-candidate-choice { grid-column: 1 / -1; }
+  .smart-cut-audition-actions { justify-content: flex-end; }
+  .smart-cut-review-footer { margin-inline: -16px; margin-bottom: -16px; padding-inline: 16px; }
+  .smart-cut-subtitle-toggle { flex-basis: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .smart-cut-candidates article { transition: none; }
 }
+.smart-cut-restored-note {
+  margin: 0 0 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--cut-border);
+  border-radius: 10px;
+  color: var(--cut-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.smart-cut-edit-settings {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--cut-border);
+  border-radius: 10px;
+  background: var(--surface-raised, #fff);
+  font-size: 12px;
+}
+.smart-cut-edit-settings summary { cursor: pointer; font-weight: 600; }
+.smart-cut-edit-settings label { display: grid; gap: 6px; margin-top: 12px; color: var(--cut-muted); }
+.smart-cut-edit-settings textarea,
+.smart-cut-edit-settings select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--cut-border);
+  border-radius: 7px;
+  color: var(--text-primary, #202422);
+  background: var(--surface-base, #f7f7f5);
+  line-height: 1.6;
+}
+.smart-cut-edit-settings textarea { resize: vertical; }
+.smart-cut-edit-settings :disabled { cursor: default; opacity: .55; }
+.smart-cut-edit-settings > button { margin-top: 12px; }
+.smart-cut-draft-settings { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--cut-border); }
+.smart-cut-draft-settings label { display: inline-flex; align-items: center; gap: 5px; color: var(--cut-muted); font-size: 11px; }
+.smart-cut-draft-settings .smart-cut-subtitle-toggle { flex-basis: auto; margin-right: 0; }
+.smart-cut-draft-settings input[type='number'] { width: 55px; padding: 3px; border: 1px solid var(--cut-border); border-radius: 5px; color: var(--text-primary, #202422); background: var(--surface-base, #f7f7f5); }
+
+/* The editor remains fully usable beside the persistent task conversation. */
+.smart-cut-view.in-panel.empty { justify-content: flex-start; padding: 24px 16px; }
+.smart-cut-view.in-panel .smart-cut-hero { text-align: left; }
+.smart-cut-view.in-panel .smart-cut-hero-icon { width: 38px; height: 38px; margin: 0 0 12px; border-radius: 12px; }
+.smart-cut-view.in-panel .smart-cut-hero h1 { font-size: 24px; }
+.smart-cut-view.in-panel .smart-cut-hero > p { font-size: 12px; }
+.smart-cut-view.in-panel .smart-cut-project-header { align-items: flex-start; flex-direction: column; gap: 10px; padding: 14px 16px; }
+.smart-cut-view.in-panel .smart-cut-project-header h1 { overflow-wrap: anywhere; }
+.smart-cut-view.in-panel .smart-cut-layout { display: block; overflow-y: auto; scrollbar-gutter: stable; }
+.smart-cut-view.in-panel .smart-cut-preview-panel { padding: 16px; overflow: visible; }
+.smart-cut-view.in-panel .smart-cut-review-panel { padding: 16px; overflow: visible; border-top: 1px solid var(--cut-border); border-left: 0; }
+.smart-cut-view.in-panel .smart-cut-setup-card { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 14px; }
+.smart-cut-view.in-panel .smart-cut-no-model { grid-column: auto; }
+.smart-cut-view.in-panel .smart-cut-review-footer { position: static; margin-inline: -16px; margin-bottom: -16px; padding-inline: 16px; }
+.smart-cut-view.in-panel .smart-cut-word-toolbar,
+.smart-cut-view.in-panel .smart-cut-section-heading,
+.smart-cut-view.in-panel .smart-cut-player-controls { flex-wrap: wrap; }
+.smart-cut-view.in-panel .smart-cut-segments { max-height: 280px; }
+.smart-cut-view.in-panel .smart-cut-restored-note { margin: 12px 16px 0; }

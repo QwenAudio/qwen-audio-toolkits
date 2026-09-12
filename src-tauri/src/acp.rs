@@ -23,6 +23,116 @@ const ACP_EVENT: &str = "acp-session-event";
 const INITIALIZE_TIMEOUT_SECONDS: u64 = 120;
 const SESSION_NEW_TIMEOUT_SECONDS: u64 = 30;
 
+#[derive(Clone, Serialize)]
+pub struct AcpModelInfo {
+    id: String,
+    name: String,
+}
+
+fn model_config(value: &Value) -> Option<&Value> {
+    value
+        .get("configOptions")?
+        .as_array()?
+        .iter()
+        .find(|option| {
+            option.get("type").and_then(Value::as_str) == Some("select")
+                && (option.get("category").and_then(Value::as_str) == Some("model")
+                    || option.get("id").and_then(Value::as_str) == Some("model"))
+        })
+}
+
+fn collect_model_options(options: &[Value], result: &mut Vec<AcpModelInfo>) {
+    for option in options {
+        if let Some(group) = option.get("options").and_then(Value::as_array) {
+            collect_model_options(group, result);
+        } else if let Some(id) = option.get("value").and_then(Value::as_str) {
+            if !result.iter().any(|model| model.id == id) {
+                result.push(AcpModelInfo {
+                    id: id.to_string(),
+                    name: option
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or(id)
+                        .to_string(),
+                });
+            }
+        }
+    }
+}
+
+fn session_models(value: &Value) -> (Vec<AcpModelInfo>, Option<String>) {
+    if let Some(config) = model_config(value) {
+        let mut models = Vec::new();
+        if let Some(options) = config.get("options").and_then(Value::as_array) {
+            collect_model_options(options, &mut models);
+        }
+        return (
+            models,
+            config
+                .get("currentValue")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        );
+    }
+    let models = value
+        .pointer("/models/availableModels")
+        .or_else(|| value.get("models"))
+        .and_then(Value::as_array)
+        .map(|models| {
+            models
+                .iter()
+                .filter_map(|model| {
+                    let id = model.get("modelId").or_else(|| model.get("id"))?.as_str()?;
+                    Some(AcpModelInfo {
+                        id: id.to_string(),
+                        name: model
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .unwrap_or(id)
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    (
+        models,
+        value
+            .pointer("/models/currentModelId")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    )
+}
+
+fn model_selection_request(
+    value: &Value,
+    session_id: &str,
+    model_id: &str,
+) -> Result<Option<(&'static str, Value)>, String> {
+    let (models, current) = session_models(value);
+    if !models.iter().any(|model| model.id == model_id) {
+        return Err("Agent 未提供所选模型，请重新选择".to_string());
+    }
+    if current.as_deref() == Some(model_id) {
+        return Ok(None);
+    }
+    if let Some(config) = model_config(value) {
+        let config_id = config
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Agent 模型配置缺少 ID".to_string())?;
+        Ok(Some((
+            "session/set_config_option",
+            json!({ "sessionId": session_id, "configId": config_id, "value": model_id }),
+        )))
+    } else {
+        Ok(Some((
+            "session/set_model",
+            json!({ "sessionId": session_id, "modelId": model_id }),
+        )))
+    }
+}
+
 struct AcpProviderSpec {
     id: &'static str,
     name: &'static str,
@@ -32,15 +142,15 @@ struct AcpProviderSpec {
 
 const ACP_PROVIDERS: &[AcpProviderSpec] = &[
     AcpProviderSpec {
-        id: "kimi",
-        name: "Kimi Code",
-        command: &["kimi", "acp"],
+        id: "qoder",
+        name: "Qoder",
+        command: &["qoder", "--acp"],
         env: &[],
     },
     AcpProviderSpec {
-        id: "qwen-code",
-        name: "Qwen Code",
-        command: &["npx", "-y", "@qwen-code/qwen-code", "--acp"],
+        id: "kimi",
+        name: "Kimi Code",
+        command: &["kimi", "acp"],
         env: &[],
     },
     AcpProviderSpec {
@@ -50,33 +160,9 @@ const ACP_PROVIDERS: &[AcpProviderSpec] = &[
         env: &[],
     },
     AcpProviderSpec {
-        id: "gemini",
-        name: "Gemini CLI",
-        command: &["npx", "-y", "@google/gemini-cli", "--acp"],
-        env: &[("NO_BROWSER", "1")],
-    },
-    AcpProviderSpec {
-        id: "grok",
-        name: "Grok",
-        command: &["grok", "agent", "stdio"],
-        env: &[],
-    },
-    AcpProviderSpec {
-        id: "goose",
-        name: "goose",
-        command: &["goose", "acp"],
-        env: &[],
-    },
-    AcpProviderSpec {
-        id: "cursor",
-        name: "Cursor",
-        command: &["cursor-agent", "acp"],
-        env: &[],
-    },
-    AcpProviderSpec {
-        id: "copilot",
-        name: "GitHub Copilot",
-        command: &["copilot", "--acp"],
+        id: "qwen-code",
+        name: "Qwen Code",
+        command: &["npx", "-y", "@qwen-code/qwen-code", "--acp"],
         env: &[],
     },
 ];
@@ -94,6 +180,8 @@ pub struct AcpProviderInfo {
 pub struct AcpSessionStartRequest {
     provider_id: String,
     cwd: Option<String>,
+    model_id: Option<String>,
+    enable_tools: Option<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -103,6 +191,8 @@ pub struct AcpSessionStartResponse {
     provider_id: String,
     provider_name: String,
     models: Vec<String>,
+    model_options: Vec<AcpModelInfo>,
+    current_model_id: Option<String>,
     modes: Vec<Value>,
 }
 
@@ -173,14 +263,7 @@ pub fn emit_panel_requested(app: &AppHandle, session_id: &str, panel: &str) {
 }
 
 enum AcpCommand {
-    Prompt {
-        text: String,
-    },
-    Cancel,
-    RespondPermission {
-        request_key: String,
-        option_id: Option<String>,
-    },
+    Prompt { text: String },
 }
 
 pub struct AcpRuntime {
@@ -196,6 +279,7 @@ impl Default for AcpRuntime {
 }
 
 struct AcpSessionHandle {
+    state: Arc<AcpSessionState>,
     command_tx: mpsc::Sender<AcpCommand>,
     child: Arc<tokio::sync::Mutex<Child>>,
 }
@@ -219,6 +303,7 @@ fn augmented_path_entries() -> Vec<PathBuf> {
         let home = PathBuf::from(home);
         for relative in [
             ".local/bin",
+            ".qoder/entry",
             ".cargo/bin",
             ".volta/bin",
             ".npm-global/bin",
@@ -471,6 +556,7 @@ fn handle_server_request(state: Arc<AcpSessionState>, id: &Value, method: &str, 
         event.request_id = Some(request_key.clone());
         event.title = params
             .get("title")
+            .or_else(|| params.pointer("/toolCall/title"))
             .and_then(Value::as_str)
             .map(str::to_string);
         event.options = params
@@ -713,31 +799,6 @@ async fn run_command_loop(state: Arc<AcpSessionState>, mut command_rx: mpsc::Rec
                     }
                 }
             }
-            AcpCommand::Cancel => {
-                if state.turn_active.load(Ordering::SeqCst) {
-                    if let Ok(mut permissions) = state.permissions.lock() {
-                        for (_, sender) in permissions.drain() {
-                            let _ = sender.send(None);
-                        }
-                    }
-                    if !agent_session_id.is_empty() {
-                        let _ = state.send_notification(
-                            "session/cancel",
-                            json!({ "sessionId": agent_session_id }),
-                        );
-                    }
-                }
-            }
-            AcpCommand::RespondPermission {
-                request_key,
-                option_id,
-            } => {
-                if let Ok(mut permissions) = state.permissions.lock() {
-                    if let Some(sender) = permissions.remove(&request_key) {
-                        let _ = sender.send(option_id);
-                    }
-                }
-            }
         }
     }
 }
@@ -860,7 +921,11 @@ pub async fn acp_start_session(
         .and_then(Value::as_str)
         .unwrap_or(spec.name);
 
-    let mcp_servers = mcp_server_spec(&app, &session_id);
+    let mcp_servers = if request.enable_tools == Some(false) {
+        Vec::new()
+    } else {
+        mcp_server_spec(&app, &session_id)
+    };
     let session_new_rx = state.send_request(
         "session/new",
         json!({
@@ -884,22 +949,32 @@ pub async fn acp_start_session(
     if let Ok(mut guard) = state.agent_session_id.lock() {
         *guard = Some(agent_session_id.clone());
     }
-    let models = session_new
-        .get("models")
-        .and_then(Value::as_array)
-        .map(|models| {
-            models
-                .iter()
-                .filter_map(|model| model.get("id").and_then(Value::as_str))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let (model_options, mut current_model_id) = session_models(&session_new);
+    if let Some(model_id) = request.model_id.as_deref().filter(|id| !id.is_empty()) {
+        if let Some((method, params)) =
+            model_selection_request(&session_new, &agent_session_id, model_id)?
+        {
+            let receiver = state.send_request(method, params)?;
+            let result = tokio::time::timeout(Duration::from_secs(30), receiver)
+                .await
+                .map_err(|_| "Agent 模型切换超时".to_string())?
+                .map_err(|_| "Agent 会话已中断".to_string())??;
+            if let Some(actual) = session_models(&result).1 {
+                if actual != model_id {
+                    return Err("Agent 未应用所选模型".to_string());
+                }
+            }
+        }
+        current_model_id = Some(model_id.to_string());
+    }
+    let models = model_options.iter().map(|model| model.id.clone()).collect();
     let modes = session_new
-        .get("modes")
+        .pointer("/modes/availableModes")
+        .or_else(|| session_new.get("modes"))
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let session_state = state.clone();
 
     let (command_tx, command_rx) = mpsc::channel::<AcpCommand>(64);
     tauri::async_runtime::spawn(async move {
@@ -920,6 +995,7 @@ pub async fn acp_start_session(
         .insert(
             session_id.clone(),
             AcpSessionHandle {
+                state: session_state,
                 command_tx,
                 child: Arc::new(tokio::sync::Mutex::new(child)),
             },
@@ -930,6 +1006,8 @@ pub async fn acp_start_session(
         provider_id: spec.id.to_string(),
         provider_name: agent_name.to_string(),
         models,
+        model_options,
+        current_model_id,
         modes,
     })
 }
@@ -964,16 +1042,22 @@ pub fn acp_cancel_turn(
     runtime: State<'_, Arc<AcpRuntime>>,
     session_id: String,
 ) -> Result<(), String> {
-    let sender = runtime
+    let state = runtime
         .sessions
         .lock()
         .map_err(|_| "Agent 会话状态不可用".to_string())?
         .get(&session_id)
-        .map(|handle| handle.command_tx.clone())
+        .map(|handle| handle.state.clone())
         .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
-    sender
-        .try_send(AcpCommand::Cancel)
-        .map_err(|_| "Agent 会话已经关闭".to_string())
+    if let Ok(mut permissions) = state.permissions.lock() {
+        for (_, sender) in permissions.drain() {
+            let _ = sender.send(None);
+        }
+    }
+    state.send_notification(
+        "session/cancel",
+        json!({ "sessionId": agent_session_id_of(&state) }),
+    )
 }
 
 #[tauri::command]
@@ -983,19 +1067,22 @@ pub fn acp_respond_permission(
     request_id: String,
     option_id: Option<String>,
 ) -> Result<(), String> {
-    let sender = runtime
+    let state = runtime
         .sessions
         .lock()
         .map_err(|_| "Agent 会话状态不可用".to_string())?
         .get(&session_id)
-        .map(|handle| handle.command_tx.clone())
+        .map(|handle| handle.state.clone())
         .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
+    let sender = state
+        .permissions
+        .lock()
+        .map_err(|_| "Agent 权限状态不可用".to_string())?
+        .remove(&request_id)
+        .ok_or_else(|| "权限请求已失效".to_string())?;
     sender
-        .try_send(AcpCommand::RespondPermission {
-            request_key: request_id,
-            option_id,
-        })
-        .map_err(|_| "Agent 会话已经关闭".to_string())
+        .send(option_id)
+        .map_err(|_| "权限请求已结束".to_string())
 }
 
 #[tauri::command]
@@ -1039,5 +1126,64 @@ pub fn acp_shutdown_all(app: &AppHandle) {
             let _ = child.kill().await;
         });
         let _ = session_id;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn advertised_config_models_take_precedence_and_use_config_id() {
+        let value = json!({ "configOptions": [{ "id": "model-selector", "category": "model", "type": "select", "currentValue": "fast", "options": [
+            { "value": "fast", "name": "Fast" },
+            { "group": "Other", "options": [{ "value": "deep", "name": "Deep" }] }
+        ] }], "models": { "currentModelId": "old", "availableModels": [{ "modelId": "old", "name": "Old" }] } });
+        let (models, current) = session_models(&value);
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["fast", "deep"]
+        );
+        assert_eq!(current.as_deref(), Some("fast"));
+        let (method, params) = model_selection_request(&value, "session", "deep")
+            .unwrap()
+            .unwrap();
+        assert_eq!(method, "session/set_config_option");
+        assert_eq!(
+            params,
+            json!({ "sessionId": "session", "configId": "model-selector", "value": "deep" })
+        );
+        assert!(model_selection_request(&value, "session", "old").is_err());
+        assert!(model_selection_request(&value, "session", "fast")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn legacy_model_state_uses_set_model_without_inventing_choices() {
+        let value = json!({ "models": { "currentModelId": "a", "availableModels": [{ "modelId": "a", "name": "A" }, { "modelId": "b", "name": "B" }] } });
+        assert_eq!(session_models(&value).0[1].name, "B");
+        let (method, params) = model_selection_request(&value, "session", "b")
+            .unwrap()
+            .unwrap();
+        assert_eq!(method, "session/set_model");
+        assert_eq!(params["modelId"], "b");
+        assert!(session_models(&json!({})).0.is_empty());
+        assert!(model_selection_request(&json!({}), "session", "guessed").is_err());
+    }
+
+    #[test]
+    fn qoder_uses_the_acp_entry_point() {
+        assert_eq!(
+            ACP_PROVIDERS
+                .iter()
+                .find(|provider| provider.id == "qoder")
+                .unwrap()
+                .command,
+            &["qoder", "--acp"]
+        );
     }
 }

@@ -1,4 +1,5 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { AcpModelCatalog } from '../domain/acpModels';
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AcpProviderInfo,
@@ -8,7 +9,26 @@ import type {
 } from "../types";
 
 export function listAcpProviders(): Promise<AcpProviderInfo[]> {
+  if (!isTauri() && import.meta.env.DEV) return localAcpRequest<AcpProviderInfo[]>('/providers');
   return invoke<AcpProviderInfo[]>("acp_list_providers");
+}
+
+async function localAcpRequest<T>(path: string): Promise<T> {
+  const response = await fetch(`/__local/acp${path}`, { headers: { 'X-QwenAudio-Local': '1' } });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || 'ACP connection failed');
+  return data as T;
+}
+
+export async function inspectAcpModels(providerId: string): Promise<AcpModelCatalog> {
+  if (!isTauri()) {
+    if (!import.meta.env.DEV) throw new Error('请在桌面端或本地开发预览中读取 ACP 模型。');
+    return localAcpRequest<AcpModelCatalog>(`/models?provider=${encodeURIComponent(providerId)}`);
+  }
+  const session = await startAcpSession({ providerId, enableTools: false });
+  try {
+    return { models: session.modelOptions ?? session.models.map(id => ({ id, name: id })), currentModelId: session.currentModelId ?? null };
+  } finally { await finishAcpSession(session.sessionId); }
 }
 
 export function startAcpSession(

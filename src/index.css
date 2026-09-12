@@ -11,9 +11,12 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   --app-bg: #f7faf8;
+  --text-primary: var(--ink);
+  --surface-base: var(--app-bg);
+  --accent: var(--primary);
   --ink: #2f3835;
   --ink-soft: color-mix(in srgb, #2f3835 84%, transparent);
-  --muted: color-mix(in srgb, #556059 68%, transparent);
+  --muted: #69766e;
   --muted-2: color-mix(in srgb, #647069 54%, transparent);
   --line: color-mix(in srgb, #66786f 10%, transparent);
   --line-strong: color-mix(in srgb, #5a6d64 18%, transparent);
@@ -32,6 +35,7 @@
   --primary-soft: #eaf4ef;
   --primary-muted: #9cc0b0;
   --primary-ring: rgba(79, 130, 112, 0.22);
+  --accent-gradient: linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary) 70%, #4d7fa7) 100%);
   --green: #8ab7a3;
   --green-dark: #4c7e6c;
   --green-soft: #eaf4ef;
@@ -218,6 +222,11 @@ textarea:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -260,3 +269,11 @@ button {
   user-select: text;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

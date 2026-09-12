@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import { acpModelPreview } from './scripts/dev/acpModels.ts'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), acpModelPreview()],
   clearScreen: false,
   server: {
     port: 1420,

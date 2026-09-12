@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { t } from '../i18n'
 import type {
   AgentConversation,
@@ -11,7 +11,11 @@ import type {
   GeneralAgentTask,
 } from '../domain/agents'
 import { inferAgentMessageAction } from '../domain/agentMessageActions'
+import { appendWorkspaceBrief, ensureWorkspaceTaskLink, findWorkspaceGeneralTask } from '../domain/workspaceTaskLink'
+import type { WorkspaceTaskLinkSeed } from '../domain/workspaceTaskLink'
 import { isLocalGreetingContent, sendGeneralAgentPrompt } from '../services/agent'
+import { getWorkspaceStore } from '../services/workspaceStorage'
+import { useWorkspaceCloseFlush } from './useProjectAutosave'
 
 type GeneralAgentTaskDraft = {
   selectedModeId?: AgentCreationMode | null
@@ -82,19 +86,73 @@ export function appendVisibleGeneralUserMessage(
   return appendUserMessage ? [...messages, userMessage] : messages
 }
 
-export function useAgentConversations() {
-  const [conversations, setConversations] = useState<AgentConversation[]>([])
-  const [generalTasks, setGeneralTasks] = useState<GeneralAgentTask[]>([])
+export function useAgentConversations(
+  initialConversations?: AgentConversation[],
+  initialTasks?: GeneralAgentTask[],
+) {
+  const [store] = useState(() => getWorkspaceStore(initialConversations !== undefined || initialTasks !== undefined))
+  const [ready, setReady] = useState(store.disabled)
+  const [restored, setRestored] = useState(false)
+  const [restoredSelectedId, setRestoredSelectedId] = useState<string | null>(null)
+  const [conversations, setConversations] = useState<AgentConversation[]>(
+    initialConversations ?? [],
+  )
+  const [generalTasks, setGeneralTasks] = useState<GeneralAgentTask[]>(
+    initialTasks ?? [],
+  )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const activeGeneralPromptIdsRef = useRef(new Set<string>())
+  const workspaceTaskSeedsRef = useRef(new Map<string, WorkspaceTaskLinkSeed>())
+  useWorkspaceCloseFlush()
+  useEffect(() => {
+    let active = true
+    void store.initialize().then((metadata) => {
+      if (!active) return
+      if (!store.disabled) {
+        setConversations(metadata.conversations)
+        setGeneralTasks(metadata.generalTasks)
+        setSelectedId(metadata.selectedId)
+        setRestoredSelectedId(metadata.selectedId)
+        setRestored(metadata.conversations.length > 0 || metadata.generalTasks.length > 0)
+      }
+      setReady(true)
+    })
+    return () => { active = false }
+  }, [store])
+  useEffect(() => {
+    if (ready) store.writeMetadata({ conversations, generalTasks, selectedId })
+  }, [store, ready, conversations, generalTasks, selectedId])
   const selectedConversation = useMemo(
     () => conversations.find((conversation) => conversation.id === selectedId) ?? null,
     [conversations, selectedId],
   )
   const selectedGeneralTask = useMemo(
-    () => generalTasks.find((task) => task.id === selectedId) ?? null,
-    [generalTasks, selectedId],
+    () => findWorkspaceGeneralTask(generalTasks, selectedId, selectedConversation),
+    [generalTasks, selectedId, selectedConversation],
   )
+  const ensureSelectedWorkspaceTask = useCallback(() => {
+    if (selectedGeneralTask) return selectedGeneralTask
+    if (!selectedConversation || selectedConversation.mode === 'agent-chat') return null
+    let seed = workspaceTaskSeedsRef.current.get(selectedConversation.id)
+    if (!seed) {
+      seed = { taskId: crypto.randomUUID(), messageId: crypto.randomUUID(), now: Date.now() }
+      workspaceTaskSeedsRef.current.set(selectedConversation.id, seed)
+    }
+    const link = ensureWorkspaceTaskLink(selectedConversation, generalTasks, seed)
+    if (!link) return null
+    setGeneralTasks((current) => current.some((task) => task.id === link.task.id)
+      ? current
+      : [link.task, ...current])
+    setConversations((current) => current.map((conversation) =>
+      conversation.id === link.conversation.id && conversation.sourceTaskId !== link.task.id
+        ? { ...conversation, sourceTaskId: link.task.id }
+        : conversation,
+    ))
+    return link.task
+  }, [generalTasks, selectedConversation, selectedGeneralTask])
+  useEffect(() => {
+    if (ready) ensureSelectedWorkspaceTask()
+  }, [ready, ensureSelectedWorkspaceTask])
   const createConversation = useCallback((draft: Omit<AgentConversation, 'id'>) => {
     const conversation = { ...draft, id: crypto.randomUUID() }
     setConversations((current) => [conversation, ...current])
@@ -120,14 +178,15 @@ export function useAgentConversations() {
     return task
   }, [])
   const ensureGeneralTask = useCallback((draft: GeneralAgentTaskDraft = {}) => {
-    if (selectedGeneralTask) return selectedGeneralTask
+    const workspaceTask = ensureSelectedWorkspaceTask()
+    if (workspaceTask) return workspaceTask
     const task = createGeneralTask(draft)
     setGeneralTasks((current) => [task, ...current])
     return task
-  }, [createGeneralTask, selectedGeneralTask])
+  }, [createGeneralTask, ensureSelectedWorkspaceTask])
   const updateGeneralTask = useCallback((
     taskId: string,
-    update: Partial<Pick<GeneralAgentTask, 'selectedModeId' | 'attachment' | 'draftPrompt'>>,
+    update: Partial<Pick<GeneralAgentTask, 'selectedModeId' | 'attachment' | 'draftPrompt' | 'creationOptions' | 'chatModel'>>,
   ) => {
     setGeneralTasks((current) =>
       current.map((task) => {
@@ -138,6 +197,21 @@ export function useAgentConversations() {
         return { ...task, ...update, title: draftTitle, updatedAt: Date.now() }
       }),
     )
+  }, [])
+  const recordWorkspaceBrief = useCallback((
+    taskId: string,
+    prompt: string,
+    attachment?: GeneralAgentAttachment | null,
+  ) => {
+    const content = prompt.trim()
+    if (!content) return
+    const message = newMessage('user', content, undefined, attachment)
+    setGeneralTasks((current) => current.map((task) => task.id === taskId
+      ? appendWorkspaceBrief(task, {
+          ...message,
+          attachment: attachment === undefined ? task.attachment : attachment,
+        })
+      : task))
   }, [])
   const updateGeneralMessageActionStatus = useCallback((
     taskId: string,
@@ -198,6 +272,7 @@ export function useAgentConversations() {
     attachment?: GeneralAgentAttachment | null
     appendUserMessage?: boolean
     localResponse?: () => Promise<GeneralAgentLocalResponse> | GeneralAgentLocalResponse
+    agentResponse?: (messages: GeneralAgentMessage[]) => Promise<string>
     onError?: (message: string) => void
   }) => {
     const trimmed = request.content.trim()
@@ -238,7 +313,7 @@ export function useAgentConversations() {
     try {
       const response = request.localResponse
         ? await request.localResponse()
-        : { content: (await sendGeneralAgentPrompt(agentMessages)).text }
+        : { content: request.agentResponse ? await request.agentResponse(agentMessages) : (await sendGeneralAgentPrompt(agentMessages)).text }
       const responseContent = typeof response === 'string' ? response : response.content
       const responseAction =
         typeof response === 'string'
@@ -278,6 +353,9 @@ export function useAgentConversations() {
   }, [])
 
   return {
+    ready,
+    restored,
+    restoredSelectedId,
     conversations,
     generalTasks,
     selectedId,
@@ -287,6 +365,7 @@ export function useAgentConversations() {
     createGeneralTask,
     ensureGeneralTask,
     updateGeneralTask,
+    recordWorkspaceBrief,
     updateGeneralMessageActionStatus,
     updateStructuredPlanStep,
     submitGeneralPrompt,

@@ -1,6 +1,7 @@
 .video-translation-view {
   display: flex;
   width: min(900px, calc(100% - 48px));
+  min-width: 0;
   height: 100%;
   box-sizing: border-box;
   flex-direction: column;
@@ -9,7 +10,10 @@
   padding: 36px 0 28px;
   overflow: auto;
 }
+.video-translation-view > * { min-width: 0; flex-shrink: 0; }
 .video-translation-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.video-translation-header > div { min-width: 0; overflow-wrap: anywhere; }
+.video-translation-header > button { flex: 0 0 auto; }
 .video-translation-header span { color: var(--primary); font-size: 11px; font-weight: 700; }
 .video-translation-header h1 { margin: 7px 0 0; font-size: 26px; letter-spacing: -.03em; }
 .video-translation-header button,
@@ -29,14 +33,33 @@
 .video-translation-source { align-self: flex-end; width: min(620px, 78%); padding: 13px 15px; background: var(--list-active); border: 1px solid var(--line); border-radius: 14px; }
 .video-translation-source strong { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .video-translation-source small { display: inline-block; margin-top: 7px; padding: 2px 6px; color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, transparent); border-radius: 5px; font-size: 10px; }
-.video-translation-source p { margin: 7px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+.video-translation-source p { margin: 7px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.video-translation-settings { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised, #fff); }
+.video-translation-source-file { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.video-translation-source-file strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.video-translation-source-file small { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
+.video-translation-settings fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.video-translation-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.video-translation-settings label { display: grid; min-width: 0; gap: 6px; color: var(--ink-soft); font-size: 11px; }
+.video-translation-settings select,
+.video-translation-settings textarea { width: 100%; min-width: 0; box-sizing: border-box; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--ink); background: var(--surface, var(--surface-raised, #fff)); font: inherit; font-size: 12px; }
+.video-translation-settings textarea { min-height: 80px; max-height: 240px; resize: vertical; line-height: 1.6; }
+.video-translation-settings :is(select, textarea):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.video-translation-settings :disabled { opacity: .6; cursor: not-allowed; }
+.video-translation-instruction { margin-top: 12px; }
+.video-translation-settings > p { margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
+.video-translation-view button:disabled { opacity: .5; cursor: not-allowed; }
+.video-translation-card > p.video-translation-stale { padding: 10px 12px; color: var(--ink-soft); background: var(--list-active); border-radius: 8px; line-height: 1.6; }
+.video-translation-view--panel { width: 100%; gap: 14px; padding: 18px; }
+.video-translation-view--panel .video-translation-header h1 { margin: 0; font-size: 17px; }
+.video-translation-view--panel .video-translation-turns { max-height: none; }
 .video-translation-card { padding: 20px; background: var(--surface-raised, #fff); border: 1px solid var(--line); border-radius: 15px; box-shadow: 0 7px 28px rgba(30,25,38,.04); }
-.video-translation-summary { display: flex; align-items: center; justify-content: space-between; color: var(--ink); font-size: 13px; }
+.video-translation-summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; color: var(--ink); font-size: 13px; }
 .video-translation-summary > div { display: flex; align-items: center; gap: 8px; }
 .video-translation-summary > span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .video-translation-progress { height: 5px; margin-top: 15px; overflow: hidden; background: var(--list-hover); border-radius: 999px; }
 .video-translation-progress i { display: block; height: 100%; background: var(--primary); border-radius: inherit; transition: width 300ms ease; }
-.video-translation-card > p { margin: 9px 0 0; color: var(--muted); font-size: 12px; }
+.video-translation-card > p { margin: 9px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .video-translation-card > p.error { color: var(--coral-dark, #ad493c); white-space: pre-wrap; }
 .video-translation-audio-decision { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 10px; color: var(--ink-soft) !important; background: var(--list-hover); border-radius: 7px; }
 .video-translation-audio-decision span { color: var(--muted); font-size: 10px; white-space: nowrap; }
@@ -49,7 +72,7 @@
 .video-translation-result video { display: block; width: 100%; max-height: 480px; background: #111; border-radius: 11px; }
 .video-translation-result > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 11px; }
 .video-translation-result span { overflow: hidden; color: var(--ink-soft); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.video-translation-result-actions { display: inline-flex; flex: 0 0 auto; gap: 7px; }
+.video-translation-result-actions { display: inline-flex; flex: 0 0 auto; flex-wrap: wrap; gap: 7px; }
 .video-translation-timeline { min-height: 0; background: var(--surface-raised, #fff); border: 1px solid var(--line); border-radius: 15px; overflow: hidden; }
 .video-translation-timeline > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 17px; border-bottom: 1px solid var(--line); }
 .video-translation-timeline > header div { display: grid; gap: 3px; }
@@ -63,17 +86,28 @@
 .video-translation-turn-meta strong { color: var(--primary); font-size: 11px; }
 .video-translation-turn-meta time,
 .video-translation-rhythm time { color: var(--muted); font: 10px SFMono-Regular, Consolas, monospace; }
-.video-translation-turns p { margin: 0; line-height: 1.55; }
+.video-translation-turns p { margin: 0; line-height: 1.55; overflow-wrap: anywhere; }
 .video-translation-turns p.source { color: var(--muted); font-size: 11px; }
 .video-translation-turns p.translation { color: var(--ink); font-size: 13px; }
 .video-translation-turns p.pending { opacity: .55; }
 .video-translation-rhythm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
-.video-translation-rhythm span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 7px; color: var(--ink-soft); background: var(--list-hover); border-radius: 6px; }
+.video-translation-rhythm span { display: inline-flex; flex-wrap: wrap; max-width: 100%; align-items: center; gap: 6px; padding: 5px 7px; color: var(--ink-soft); background: var(--list-hover); border-radius: 6px; overflow-wrap: anywhere; }
 .video-translation-rhythm b { font-size: 10px; font-weight: 550; }
 .video-translation-spin { animation: video-translation-spin 900ms linear infinite; }
 @keyframes video-translation-spin { to { transform: rotate(360deg); } }
-@media (max-width: 720px) {
+@container workspace-editor (max-width: 720px) {
   .video-translation-view { width: calc(100% - 28px); padding-top: 24px; }
-  .video-translation-source { width: calc(100% - 30px); }
+  .video-translation-source { width: 100%; }
+  .video-translation-header { flex-wrap: wrap; gap: 12px; }
+  .video-translation-card { padding: 16px; }
   .video-translation-stages { grid-template-columns: 1fr; }
+  .video-translation-audio-decision { align-items: flex-start; flex-wrap: wrap; gap: 6px; }
+  .video-translation-result > div { flex-wrap: wrap; gap: 10px; }
+  .video-translation-result-actions { width: 100%; }
+  .video-translation-timeline > header { flex-wrap: wrap; gap: 8px; }
+  .video-translation-turn-meta { flex-wrap: wrap; }
+  .video-translation-view--panel { width: 100%; padding: 16px; }
+}
+@container workspace-editor (max-width: 350px) {
+  .video-translation-settings-grid { grid-template-columns: 1fr; }
 }

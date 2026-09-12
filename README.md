@@ -89,6 +89,12 @@ npm run desktop:dev
 microphone access, system-audio capture, and the updater require the Tauri
 desktop process.
 
+The local development server can inspect installed ACP Agents and load their
+model choices. This performs an ACP handshake without sending a prompt or
+enabling tools. The inspection endpoint is restricted to same-origin loopback
+requests and is not included in production builds. Agent conversations still
+run through the desktop process.
+
 For a local production-style build:
 
 ```bash
@@ -114,6 +120,21 @@ model installation, cloud configuration, and local data locations.
 Skills are workflow entry points. They orchestrate installed models, but model
 weights, cloud API configuration, and model dependencies remain managed by the
 model store.
+
+Each skill keeps the conversation in the center and its manual editor on the
+right. Ask AI to change editing parameters, mark cuts, edit podcast turns,
+adjust dubbing settings, or inspect meeting notes. AI actions update the same
+state as the editor controls, and replies report what actually happened. If you
+edit the workspace while AI is planning, its pending changes are stopped so
+you can send an updated request. Changed podcast or dubbing settings require
+new audio before the updated result can be exported.
+
+The suggested exact commands, such as **关闭字幕** and **配音风格设为轻松**,
+work without a language model. Other requests use the selected ACP Agent,
+such as Codex or Qoder. Choose the Agent and its advertised model beside the
+Send button; Agents that do not advertise models use their own default.
+Provider selection and model selection are saved with each task. Native
+generation and recording still require the desktop app and the relevant models.
 
 ## Use a model directly
 
@@ -161,6 +182,21 @@ This directory contains installed plugins and model assets, generated and
 processed audio, recordings, run history, and provider configuration. Removing
 the app does not remove this directory automatically. See [PRIVACY.md](PRIVACY.md)
 for the complete storage and network boundaries.
+
+Task conversations, drafts, and the four creation editors save automatically to
+`workspace/workspace-v1.json` in this directory. Reopening the app restores the
+selected task and saved edits; interrupted processing waits for an explicit
+retry, and meeting recording stays stopped. The header shows save progress or
+an error, and normal desktop closing waits for pending writes.
+
+Snapshots keep media file references, not copies of source media or live meeting
+audio. Keep those files in place; missing files leave the saved text and edits
+available. Podcast audio is tied to its script and voice settings: editing them
+requires an audio update before export, while unchanged speech segments can be
+reused. Browser development uses local storage for the current origin; `?demo`
+does not read or overwrite saved tasks. An unreadable or unsupported workspace
+file is preserved and autosaving is paused. Back it up before repairing or
+moving it aside, then restart the app.
 
 ## Skills and model projects
 

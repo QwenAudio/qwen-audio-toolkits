@@ -7,6 +7,7 @@ import {
   type Update,
 } from '@tauri-apps/plugin-updater'
 import { isTauriRuntime } from './harness'
+import { flushWorkspace } from './workspaceStorage'
 
 export interface AppUpdateInfo {
   currentVersion: string
@@ -76,6 +77,8 @@ export async function installAppUpdate(
 ): Promise<void> {
   if (!pendingUpdate) throw new Error(t("没有可安装的软件更新"))
   await downloadAppUpdate(onProgress)
+  await flushWorkspace()
   await pendingUpdate.install()
+  await flushWorkspace()
   await relaunch()
 }
