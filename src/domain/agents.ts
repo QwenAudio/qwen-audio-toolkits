@@ -97,6 +97,7 @@ export interface GeneralAgentMessageModelOptions {
 }
 
 export interface AgentConversation {
+  archived?: boolean
   id: string
   mode: AgentCreationMode
   title: string
@@ -120,6 +121,7 @@ export interface AgentModelSelection {
 }
 
 export interface GeneralAgentTask {
+  archived?: boolean
   id: string
   kind: 'general'
   title: string

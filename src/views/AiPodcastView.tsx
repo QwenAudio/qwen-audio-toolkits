@@ -3,7 +3,7 @@ import { flushSync } from 'react-dom'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import {
-  ArrowUp,
+  Play,
   Download,
   FileText,
   LoaderCircle,
@@ -675,11 +675,6 @@ export function AiPodcastView({
       initialInstruction?.trim() &&
       (busy || (autoStart && !restored && submittedInitialLaunchRef.current !== initialLaunchId)),
     )
-    const promptSuggestions = [
-      '主持人与专家访谈，讲清核心结论和研究局限',
-      '面向大众，用轻松中文解释文档重点',
-      '保留专业细节，讨论争议与启示',
-    ]
     if (!dismissedInitialLaunch && initialLaunchId && initialSourcePath && initialInstruction?.trim()) {
       const taskFileName = source?.fileName ?? initialSourcePath.split(/[\\/]/u).at(-1) ?? t('未命名文件')
       const taskTitle = taskFileName.replace(/\.[^.]+$/u, '') || t('AI 播客')
@@ -755,7 +750,7 @@ export function AiPodcastView({
         <section className="smart-cut-hero podcast-hero">
           <div className="smart-cut-hero-icon podcast-hero-icon"><Radio size={27} strokeWidth={1.55} /></div>
           <span className="smart-cut-kicker podcast-kicker">AI PODCAST</span>
-          <h1>{t('把一篇文档变成双人播客')}</h1>
+          <h1>{t('AI 播客')}</h1>
           <p>{t('上传论文或文档，先生成可以复核的主持人与嘉宾对话，再用两种音色合成为完整音频。')}</p>
         </section>
         <section className="smart-cut-composer podcast-composer">
@@ -771,13 +766,7 @@ export function AiPodcastView({
               </button>
             </div>
           )}
-          <textarea
-            value={instruction}
-            rows={4}
-            disabled={busy}
-            placeholder={t('告诉 Agent 你希望的语言、受众、风格和重点，例如：用中文给非专业听众解释核心发现，也讲清研究局限。')}
-            onChange={(event) => setInstruction(event.target.value)}
-          />
+          {instruction && <p className="editor-task-brief">{instruction}</p>}
           <div className="smart-cut-composer-toolbar podcast-composer-options">
             <button className="smart-cut-attach-button podcast-attach" type="button" disabled={busy} onClick={() => void chooseDocument()}>
               <Paperclip size={15} /> <span>{source ? t('替换文档') : t('上传文档')}</span>
@@ -811,22 +800,11 @@ export function AiPodcastView({
               aria-label={t('生成播客脚本')}
               onClick={() => void generateScript()}
             >
-              {busy ? <LoaderCircle className="podcast-spin" size={16} /> : <ArrowUp size={17} />}
+              {busy ? <LoaderCircle className="podcast-spin" size={16} /> : <Play size={17} />}
             </button>
           </div>
         </section>
-        <div className="smart-cut-prompt-suggestions" aria-label={t('示例指令')}>
-          {promptSuggestions.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              disabled={busy}
-              onClick={() => setInstruction(suggestion)}
-            >
-              {t(suggestion)}
-            </button>
-          ))}
-        </div>
+
         <section className="smart-cut-entry-status podcast-entry-status">
           {busy && <p className="podcast-status">{stageMessage(stage, progress.completed, progress.total)}</p>}
           {!llmModels.length && (
@@ -899,10 +877,6 @@ export function AiPodcastView({
           </button>
           <details className="podcast-script-options">
             <summary>{t('脚本生成设置')}</summary>
-            <label className="podcast-field">
-              <span>{t('创作要求')}</span>
-              <textarea value={instruction} maxLength={12000} rows={3} disabled={busy} onChange={(event) => setInstruction(event.target.value)} />
-            </label>
             <label className="podcast-field">
               <span>{t('文本生成模型')}</span>
               <select value={selectedLlmId} disabled={busy} onChange={(event) => setSelectedLlmId(event.target.value)}>

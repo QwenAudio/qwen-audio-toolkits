@@ -10534,3 +10534,15 @@ body.detail-resizing .model-workspace {
   .model-topbar { padding-right: 12px; }
   .model-topbar .model-runtime-state { display: none; }
 }
+
+.sidebar-task-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.sidebar-task-row .agent-conversation-button { flex: 1; min-width: 0; }
+.sidebar-task-archive { flex: 0 0 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--ink-soft); cursor: pointer; opacity: 0; }
+.sidebar-task-row:hover .sidebar-task-archive, .sidebar-task-row:focus-within .sidebar-task-archive { opacity: 1; }
+.sidebar-task-archive:hover { background: var(--list-hover); }
+.sidebar-archive-toggle { margin: 2px 12px 6px; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink-soft); font-size: 11px; cursor: pointer; }
+.sidebar-archive-toggle:hover, .sidebar-archive-toggle[aria-pressed="true"] { background: var(--list-hover); }
+@media (hover: none) { .sidebar-task-archive { opacity: 1; } }
+
+.editor-task-brief { margin: 0 0 16px; color: var(--ink-soft); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sidebar-task-archive { display: grid; place-items: center; }

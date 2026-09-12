@@ -160,6 +160,13 @@ export function useAgentConversations(
     setSelectedId(conversation.id)
     return conversation
   }, [])
+  const setTaskArchived = useCallback((id: string, archived: boolean) => {
+    const conversation = conversations.find(item => item.id === id)
+    const sourceId = conversation?.sourceTaskId ?? id
+    const linkedIds = new Set(conversations.filter(item => item.id === id || item.sourceTaskId === sourceId).map(item => item.id))
+    setConversations(current => current.map(item => linkedIds.has(item.id) ? { ...item, archived } : item))
+    setGeneralTasks(current => current.map(item => item.id === sourceId ? { ...item, archived } : item))
+  }, [conversations])
   const startNewConversation = useCallback(() => setSelectedId(null), [])
   const createGeneralTask = useCallback((draft: GeneralAgentTaskDraft = {}) => {
     const now = Date.now()
@@ -360,6 +367,7 @@ export function useAgentConversations(
     restoredSelectedId,
     conversations,
     generalTasks,
+    setTaskArchived,
     selectedId,
     selectedConversation,
     selectedGeneralTask,

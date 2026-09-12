@@ -10,7 +10,6 @@ import {
 import { flushSync } from 'react-dom'
 import { open, save } from '@tauri-apps/plugin-dialog'
 import {
-  ArrowUp,
   Check,
   Captions,
   ChevronLeft,
@@ -1169,11 +1168,6 @@ export function SmartCutView({
       initialInstruction?.trim() &&
       (submittedInitialLaunchRef.current !== initialLaunchId || draftBusy),
     )
-    const promptSuggestions = [
-      '删除口水词和超过 0.8 秒的静音，保留片头，并生成字幕',
-      '只删除明显的口水词，保留所有停顿',
-      '去掉长静音，不要字幕',
-    ]
     if (autoStart && !restored && initialLaunchId && initialSourcePath && initialInstruction?.trim() && !error) {
       return (
         <main className={`smart-cut-view project agent-cut-initializing${panelMode ? ' in-panel' : ''}`}>
@@ -1224,9 +1218,9 @@ export function SmartCutView({
         <section className="smart-cut-hero">
           <div className="smart-cut-hero-icon"><Scissors size={26} /></div>
           <span className="smart-cut-kicker">TALKING-HEAD EDITOR</span>
-          <h1>{t('告诉我你想怎么剪')}</h1>
+          <h1>{t('视频剪辑')}</h1>
           <p>
-            {t('上传视频并输入剪辑要求。系统会先识别和分析，再让你逐项校对，原视频始终不变。')}
+            {t('添加视频后开始分析，在这里调整剪辑参数、校对片段并预览结果。')}
           </p>
         </section>
         <section className="smart-cut-composer" aria-label={t('口播剪辑任务')}>
@@ -1248,19 +1242,7 @@ export function SmartCutView({
               </button>
             </div>
           )}
-          <textarea
-            value={instruction}
-            rows={4}
-            maxLength={2000}
-            placeholder={t('例如：删除口水词和超过 0.8 秒的静音，保留片头，并生成字幕')}
-            disabled={draftBusy}
-            onChange={(event) => configureCut({ instruction: event.target.value })}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-              event.preventDefault()
-              if (draftVideo && instruction.trim() && engine?.available) void submitDraft()
-            }}
-          />
+          {instruction && <p className="editor-task-brief">{instruction}</p>}
           <div className="smart-cut-composer-toolbar">
             <button
               className="smart-cut-attach-button"
@@ -1290,8 +1272,8 @@ export function SmartCutView({
             <button
               className="smart-cut-send"
               type="button"
-              title={t('发送并开始分析')}
-              aria-label={t('发送并开始分析')}
+              title={t('开始分析')}
+              aria-label={t('开始分析')}
               disabled={
                 draftBusy ||
                 engine?.available !== true ||
@@ -1303,7 +1285,7 @@ export function SmartCutView({
               {draftBusy ? (
                 <LoaderCircle className="model-spin" size={17} />
               ) : (
-                <ArrowUp size={17} strokeWidth={2.2} />
+                <Play size={17} />
               )}
             </button>
           </div>
@@ -1330,18 +1312,7 @@ export function SmartCutView({
             </label>
           </div>
         </section>
-        <div className="smart-cut-prompt-suggestions" aria-label={t('示例指令')}>
-          {promptSuggestions.map((suggestion) => (
-            <button
-              key={suggestion}
-              type="button"
-              disabled={draftBusy}
-              onClick={() => configureCut({ instruction: suggestion })}
-            >
-              {t(suggestion)}
-            </button>
-          ))}
-        </div>
+
         <section className="smart-cut-entry-status">
           <div className={`smart-cut-engine${engine?.available === false ? ' error' : ''}`}>
             <i />
@@ -1473,17 +1444,7 @@ export function SmartCutView({
           )}
 
           <details className="smart-cut-edit-settings">
-            <summary>{t('剪辑要求与模型')}</summary>
-            <label>
-              {t('剪辑要求')}
-              <textarea
-                rows={3}
-                maxLength={2000}
-                value={instruction}
-                disabled={busy}
-                onChange={(event) => configureCut({ instruction: event.target.value })}
-              />
-            </label>
+            <summary>{t('分析模型')}</summary>
             <label>
               {t('识别模型')}
               <select value={selectedAsrModelId} disabled={busy} onChange={(event) => configureCut({ asrModelId: event.target.value })}>

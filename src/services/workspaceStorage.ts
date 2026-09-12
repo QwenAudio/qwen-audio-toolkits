@@ -75,13 +75,13 @@ function validMessage(value: unknown): boolean {
 }
 
 function validConversation(value: unknown): boolean {
-  return isRecord(value) && typeof value.id === 'string' && KEY_PATTERN.test(value.id) &&
+  return isRecord(value) && (value.archived === undefined || typeof value.archived === 'boolean') && typeof value.id === 'string' && KEY_PATTERN.test(value.id) &&
     MODES.has(String(value.mode)) && typeof value.title === 'string' &&
     typeof value.prompt === 'string' && typeof value.sourcePath === 'string' && validCreationOptions(value)
 }
 
 function validGeneralTask(value: unknown): boolean {
-  return isRecord(value) && typeof value.id === 'string' && KEY_PATTERN.test(value.id) && value.kind === 'general' &&
+  return isRecord(value) && (value.archived === undefined || typeof value.archived === 'boolean') && typeof value.id === 'string' && KEY_PATTERN.test(value.id) && value.kind === 'general' &&
     typeof value.title === 'string' && typeof value.draftPrompt === 'string' &&
     typeof value.submitting === 'boolean' && typeof value.createdAt === 'number' && typeof value.updatedAt === 'number' &&
     (value.selectedModeId === null || MODES.has(String(value.selectedModeId))) && isAttachment(value.attachment) &&

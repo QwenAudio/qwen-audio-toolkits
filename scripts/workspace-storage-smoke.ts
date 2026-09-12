@@ -11,9 +11,9 @@ import {
 } from '../src/services/workspaceStorage'
 
 const metadata: WorkspaceMetadata = {
-  conversations: [{ id: 'project-1', title: '播客草稿', mode: 'ai-podcast', prompt: '聊聊音乐', sourcePath: '/audio/source.wav' }],
+  conversations: [{ archived: true, id: 'project-1', title: '播客草稿', mode: 'ai-podcast', prompt: '聊聊音乐', sourcePath: '/audio/source.wav' }],
   generalTasks: [{
-    id: 'task-1', kind: 'general', title: '创作', draftPrompt: '保留草稿', selectedModeId: 'video-dubbing',
+    archived: true, id: 'task-1', kind: 'general', title: '创作', draftPrompt: '保留草稿', selectedModeId: 'video-dubbing',
     chatModel: { transport: 'acp', providerId: 'codex', modelId: '' },
     creationOptions: { videoDubbingMode: 'rewrite', videoDubbingStyle: 'casual', videoDubbingLanguages: { source: 'zh', target: 'en' } },
     createdAt: 1, updatedAt: 2, submitting: true,
@@ -56,6 +56,8 @@ const reopened = new WorkspaceStore(adapter)
 const restored = await reopened.initialize()
 assert.equal(restored.conversations[0].restored, true)
 assert.equal(restored.selectedId, 'project-1')
+assert.equal(restored.conversations[0].archived, true)
+assert.equal(restored.generalTasks[0].archived, true)
 assert.equal(restored.generalTasks[0].submitting, false)
 assert.deepEqual({ ...restored.generalTasks[0].chatModel }, metadata.generalTasks[0].chatModel, 'restore the task-specific provider and model')
 assert.equal(restored.generalTasks[0].messages[0].action?.status, 'failed')

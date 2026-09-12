@@ -18,6 +18,8 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ArrowLeft,
+  Archive,
+  ArchiveRestore,
   AudioLines,
   Check,
   ChevronDown,
@@ -63,8 +65,6 @@ import {
   isDemoMode,
   demoPlugins,
   demoCatalog,
-  demoMessages,
-  demoConversations,
 } from "./demo";
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from "./cloudModels";
 import {
@@ -547,22 +547,6 @@ function App() {
   }, [locale]);
 
   const demoMode = isDemoMode();
-  const demoTaskSeed = demoMode
-    ? [
-        {
-          id: 'demo-task-1',
-          kind: 'general' as const,
-          title: '删除口水词和静音',
-          draftPrompt: '',
-          messages: demoMessages,
-          selectedModeId: null as AgentCreationMode | null,
-          attachment: null,
-          createdAt: Date.now() - 120_000,
-          updatedAt: Date.now() - 60_000,
-          submitting: false,
-        },
-      ]
-    : undefined;
   const [view, setView] = useState<AppView>("agents");
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
   const [workspacePanelFocused, setWorkspacePanelFocused] = useState(false);
@@ -575,6 +559,7 @@ function App() {
     createGeneralTask,
     ensureGeneralTask,
     updateGeneralTask,
+    setTaskArchived,
     recordWorkspaceBrief,
     updateGeneralMessageActionStatus,
     updateStructuredPlanStep,
@@ -584,8 +569,8 @@ function App() {
     ready: workspaceReady,
     restoredSelectedId,
   } = useAgentConversations(
-    demoMode ? demoConversations : undefined,
-    demoTaskSeed,
+    demoMode ? [] : undefined,
+    demoMode ? [] : undefined,
   );
   const initialViewRestoredRef = useRef(false);
   const [openedAgentIds, setOpenedAgentIds] = useState<Set<string>>(() => new Set());
@@ -632,7 +617,7 @@ function App() {
     { id: 'qoder', name: 'Qoder', available: true }, { id: 'kimi', name: 'Kimi Code', available: true },
     { id: 'codex', name: 'Codex', available: true }, { id: 'qwen-code', name: 'Qwen Code', available: true },
   ] : []);
-  const [acpModels, setAcpModels] = useState<Record<string, { loading: boolean; options: AgentModelOption[]; error?: string }>>({});
+  const [acpModels, setAcpModels] = useState<Record<string, { loading: boolean; options: AgentModelOption[]; currentModelId?: string | null; error?: string }>>({});
   const acpModelLoads = useRef(new Set<string>());
   const acpTurns = useRef(new Map<string, AbortController>());
   const [activeAcpTasks, setActiveAcpTasks] = useState<string[]>([]);
@@ -693,6 +678,7 @@ function App() {
     Record<string, WorkflowChatTurn[]>
   >({});
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showArchivedTasks, setShowArchivedTasks] = useState(false);
   const [recentTasksExpanded, setRecentTasksExpanded] = useState(true);
   const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
   const closeSidebar = useCallback(() => {
@@ -1098,8 +1084,8 @@ function App() {
     acpModelLoads.current.add(providerId);
     setAcpModels(current => ({ ...current, [providerId]: { loading: true, options: [] } }));
     try {
-      const { models } = await inspectAcpModels(providerId);
-      setAcpModels(current => ({ ...current, [providerId]: { loading: false,
+      const { models, currentModelId } = await inspectAcpModels(providerId);
+      setAcpModels(current => ({ ...current, [providerId]: { loading: false, currentModelId,
         options: models.map(model => ({ ...model, providerId, available: true })) } }));
     } catch (error) {
       setAcpModels(current => ({ ...current, [providerId]: { loading: false, options: [], error: String(error) } }));
@@ -3584,18 +3570,22 @@ function App() {
               <SquarePen size={16} />
             </button>
           </div>
+          <button type="button" className="sidebar-archive-toggle" aria-pressed={showArchivedTasks}
+            onClick={() => { setShowArchivedTasks(value => !value); setRecentTasksExpanded(true); }}>
+            {showArchivedTasks ? t('返回最近任务') : t('已归档')}
+          </button>
           <div id="recent-task-list" hidden={!recentTasksExpanded}>
           {(generalTasks.length > 0 || agentConversations.length > 0) && (
             <div className="sidebar-agent-conversations" aria-label={t('最近任务')}>
-              {generalTasks.filter(task => !agentConversations.some(conversation =>
+              {generalTasks.filter(task => Boolean(task.archived) === showArchivedTasks && !agentConversations.some(conversation =>
                 conversation.sourceTaskId === task.id && WORKSPACE_TASK_MODES.has(conversation.mode),
               )).map((task) => {
                 const active = shellPage === 'workspace' && selectedAgentConversationId === task.id && view === 'agents'
                 return (
+                  <div className="sidebar-task-row" key={task.id}>
                   <button
                     className={`installed-model-button agent-conversation-button${active ? ' active' : ''}`}
                     type="button"
-                    key={task.id}
                     title={task.title}
                     aria-current={active ? 'page' : undefined}
                     onClick={() => {
@@ -3611,9 +3601,16 @@ function App() {
                     <span>{task.title}</span>
                     {task.submitting && <LoaderCircle className="model-spin" size={13} aria-label={t('运行中')} />}
                   </button>
+                  <button className="sidebar-task-archive" type="button"
+                    title={showArchivedTasks ? t('恢复任务') : t('归档任务')}
+                    aria-label={`${showArchivedTasks ? t('恢复任务') : t('归档任务')}：${task.title}`}
+                    onClick={() => setTaskArchived(task.id, !showArchivedTasks)}>
+                    {showArchivedTasks ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                  </button>
+                  </div>
                 )
               })}
-              {agentConversations.map((conversation) => {
+              {agentConversations.filter(conversation => Boolean(conversation.archived) === showArchivedTasks).map((conversation) => {
                 const active =
                   shellPage === 'workspace' &&
                   selectedAgentConversationId === conversation.id &&
@@ -3624,10 +3621,10 @@ function App() {
                     ? t('Agent 对话')
                     : conversation.mode === 'meeting-notes' ? t('实时会议') : ''
                 return (
+                  <div className="sidebar-task-row" key={conversation.id}>
                   <button
                     className={`installed-model-button agent-conversation-button${active ? ' active' : ''}`}
                     type="button"
-                    key={conversation.id}
                     title={`${conversation.title}\n${fileName}`}
                     aria-current={active ? 'page' : undefined}
                     onClick={() => {
@@ -3641,12 +3638,19 @@ function App() {
                     <Sparkles className="recent-task-icon" size={14} />
                     <span>{conversation.title}</span>
                   </button>
+                  <button className="sidebar-task-archive" type="button"
+                    title={showArchivedTasks ? t('恢复任务') : t('归档任务')}
+                    aria-label={`${showArchivedTasks ? t('恢复任务') : t('归档任务')}：${conversation.title}`}
+                    onClick={() => setTaskArchived(conversation.id, !showArchivedTasks)}>
+                    {showArchivedTasks ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                  </button>
+                  </div>
                 )
               })}
             </div>
           )}
-          {generalTasks.length === 0 && agentConversations.length === 0 && (
-            <p className="sidebar-recent-empty">{t("暂无最近任务")}</p>
+          {!generalTasks.some(task => Boolean(task.archived) === showArchivedTasks) && !agentConversations.some(task => Boolean(task.archived) === showArchivedTasks) && (
+            <p className="sidebar-recent-empty">{showArchivedTasks ? t('暂无归档任务') : t('暂无最近任务')}</p>
           )}
           </div>
         </nav>        )}
@@ -3815,7 +3819,7 @@ function App() {
                   setWorkspacePanelOpen(true);
                   setWorkspacePanelFocused(false);
                 }}>
-                  <PanelRightOpen size={14} />{compactWorkspace ? t('结果') : t('对话与结果')}
+                  <PanelRightOpen size={14} />{t('编辑器')}
                 </button>
               </div>
             )}
@@ -3908,6 +3912,7 @@ function App() {
                 <AgentHomeView
                   skills={appAgents}
                   chatModelOptions={chatModelOptions}
+                  defaultModelId={acpModels[chosenAcpProvider]?.currentModelId}
                   acpProviders={acpProviders}
                   chatModel={selectedChatModel}
                   chatModelLoading={Boolean(chosenAcpProvider && acpModels[chosenAcpProvider]?.loading)}
@@ -4039,10 +4044,10 @@ function App() {
                 className="workspace-panel"
                 hidden={!editorVisible}
                 inert={!editorVisible}
-                aria-label={view === 'meeting-notes' ? t('会议结果') : t('任务结果')}
+                aria-label={view === 'meeting-notes' ? t('会议结果') : t('编辑器')}
               >
                 <div className="workspace-panel-header">
-                  <h3>{view === 'meeting-notes' ? t('会议结果') : t('任务结果')}</h3>
+                  <h3>{view === 'meeting-notes' ? t('会议结果') : t('编辑器')}</h3>
                   {!compactWorkspace && (
                     <button
                       type="button"

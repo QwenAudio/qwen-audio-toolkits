@@ -62,6 +62,7 @@ interface AgentHomeViewProps {
   acpRunning: boolean
   onCancelAcp: () => void
   chatModelOptions: AgentModelOption[]
+  defaultModelId?: string | null
   chatModel: AgentModelSelection | null
   onChatModelChange: (selection: AgentModelSelection | null) => void
   workspaceTitle?: string
@@ -234,6 +235,7 @@ export function AgentHomeView({
   skills,
   acpProviders, chatModelLoading, chatModelError, onRetryModels, acpPermissions, onAcpPermission, acpRunning, onCancelAcp,
   chatModelOptions,
+  defaultModelId,
   chatModel,
   onChatModelChange,
   workspaceTitle,
@@ -335,6 +337,7 @@ export function AgentHomeView({
 
   const selectedEntry = selectedMode?.workspaceEntry ?? null
   const providerModels = chatModelOptions.filter(model => model.providerId === chatModel?.providerId)
+  const defaultModelName = providerModels.find(model => model.id === defaultModelId)?.name ?? defaultModelId
   const selectedChatModel = providerModels.find(model => model.id === chatModel?.modelId)
   const chatModelUnavailable = Boolean(chatModel && (!acpProviders.some(provider => provider.id === chatModel.providerId && provider.available) ||
     (chatModel.modelId && !chatModelLoading && !selectedChatModel?.available)))
@@ -793,9 +796,9 @@ export function AgentHomeView({
                         if (chatModel) onChatModelChange({ ...chatModel, modelId: event.target.value })
                         setComposerError(null)
                       }}>
-                      <option value="">{chatModelLoading ? t('正在读取…') : t('Agent 默认模型')}</option>
+                      <option value="">{chatModelLoading ? t('正在读取…') : defaultModelName || t('Agent 默认模型')}</option>
                       {chatModel?.modelId && !selectedChatModel && <option value={chatModel.modelId} disabled>{chatModel.modelId} · {t('不可用')}</option>}
-                      {providerModels.map(model => <option key={model.id} value={model.id} disabled={!model.available}>{model.name}</option>)}
+                      {providerModels.filter(model => model.id !== defaultModelId || model.id === chatModel?.modelId).map(model => <option key={model.id} value={model.id} disabled={!model.available}>{model.name}</option>)}
                     </select>
                   </label>
                 </div>
