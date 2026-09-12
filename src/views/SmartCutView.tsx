@@ -1,3 +1,4 @@
+import { demoProjectSnapshot } from '../demo'
 import {
   useCallback,
   useEffect,
@@ -117,6 +118,7 @@ interface SmartCutViewProps {
       | Record<string, unknown>
     >
   >
+  onGenerateText?: (prompt: string, systemPrompt: string) => Promise<string>
   onRunText: (
     text: string,
     capability:
@@ -220,11 +222,12 @@ export function SmartCutView({
   catalog,
   onRunAudio,
   onRunText,
+  onGenerateText,
   onOpenStore,
   onAction,
 }: SmartCutViewProps) {
   useLocale()
-  const [restored] = useState(() => readSmartCutSnapshot(readProjectSnapshot(projectId, 'smart-cut')))
+  const [restored] = useState(() => readSmartCutSnapshot(readProjectSnapshot(projectId, 'smart-cut') ?? demoProjectSnapshot(projectId)))
   const videoRef = useRef<HTMLVideoElement>(null)
   const segmentListRef = useRef<HTMLDivElement>(null)
   const segmentElementRefs = useRef(new Map<string, HTMLElement>())
@@ -252,6 +255,7 @@ export function SmartCutView({
   const [selectedLlmModelId, setSelectedLlmModelId] = useState<string | null>(restored?.selectedLlmModelId ?? null)
   const [plannerName, setPlannerName] = useState(restored?.plannerName ?? '')
   const [instruction, setInstruction] = useState(restored?.instruction ?? initialInstruction ?? '')
+  const autoUploadRef = useRef(false)
   const [draftVideo, setDraftVideo] = useState<{
     path: string
     name: string
@@ -315,7 +319,7 @@ export function SmartCutView({
     plannerName, includeSubtitles, auditionMode, currentTime, samples, exportedVideoPath]))
 
   useEffect(() => {
-    if (!restored?.media) return
+    if (!restored?.media || demoProjectSnapshot(projectId)) return
     let disposed = false
     void restoreWorkspaceMedia([restored.media.sourcePath]).then(({ missing }) => {
       if (disposed) return
@@ -325,7 +329,7 @@ export function SmartCutView({
       if (!disposed) setError(localizeVideoEditorMessage(reason))
     })
     return () => { disposed = true }
-  }, [restored])
+  }, [restored, projectId])
 
   const asrModels = useMemo(
     () =>
@@ -598,6 +602,7 @@ export function SmartCutView({
     })
     const sourcePath = typeof selection === 'string' ? selection : null
     if (!sourcePath) return
+    autoUploadRef.current = Boolean(onGenerateText)
     setDraftVideo({
       path: sourcePath,
       name: sourcePath.split(/[\\/]/u).at(-1) || t('未命名视频'),
@@ -632,14 +637,17 @@ export function SmartCutView({
     const localPreferences = { ...parseSmartCutInstruction(instruction), ...configuredPreferences }
     const llmModel = llmModels.find((model) => model.id === selectedLlmModelId)
     plannerPreferencesRef.current = localPreferences
-    if (llmModel?.providerId) {
+    if (onGenerateText || llmModel?.providerId) {
       setStage('planning')
       try {
+        const plannerText = onGenerateText
+          ? await onGenerateText(instruction.trim(), SMART_CUT_PLANNER_SYSTEM_PROMPT)
+          : await (async () => {
         const execution = await onRunText(
           instruction.trim(),
           'text.generate',
-          llmModel.providerId,
-          llmModel.version,
+          llmModel!.providerId!,
+          llmModel!.version,
           {
             systemPrompt: SMART_CUT_PLANNER_SYSTEM_PROMPT,
             temperature: 0,
@@ -651,16 +659,24 @@ export function SmartCutView({
         if (!isTextResult(execution.output)) {
           throw new Error('planner did not return text')
         }
+            return execution.output.text
+          })()
         plannerPreferencesRef.current = {
-          ...mergeSmartCutPreferences(localPreferences, parseSmartCutPlannerOutput(execution.output.text)),
+          ...mergeSmartCutPreferences(localPreferences, parseSmartCutPlannerOutput(plannerText)),
           ...configuredPreferences,
         }
-        setPlannerName(llmModel.name)
-        onAction(t('已使用 {0} 理解剪辑指令', [llmModel.name]))
-      } catch {
+        setPlannerName(onGenerateText ? 'Agent' : llmModel!.name)
+        onAction(t('已使用 {0} 理解剪辑指令', [onGenerateText ? 'Agent' : llmModel!.name]))
+      } catch (reason) {
+        if (onGenerateText) {
+          setStage('empty')
+          setError(reason instanceof Error ? reason.message : String(reason))
+          if (options.throwOnError) throw reason
+          return
+        }
         plannerPreferencesRef.current = localPreferences
         setPlannerName(t('本地规则'))
-        onAction(t('{0} 暂时无法解析指令，已改用本地规则', [llmModel.name]))
+        onAction(t('{0} 暂时无法解析指令，已改用本地规则', [onGenerateText ? 'Agent' : llmModel!.name]))
       }
     } else {
       setPlannerName(t('本地规则'))
@@ -687,7 +703,13 @@ export function SmartCutView({
       setError(localizeVideoEditorMessage(reason))
       if (options.throwOnError) throw reason
     }
-  }, [draftVideo, instruction, llmModels, onAction, onRunText, selectedLlmModelId])
+  }, [draftVideo, instruction, llmModels, onAction, onRunText, onGenerateText, selectedLlmModelId])
+
+  useEffect(() => {
+    if (!autoUploadRef.current || !draftVideo || engine?.available !== true || stage !== 'empty') return
+    autoUploadRef.current = false
+    void submitDraft()
+  }, [draftVideo, engine, stage, submitDraft])
 
   useEffect(() => {
     if (
@@ -1070,7 +1092,12 @@ export function SmartCutView({
 
   useWorkspaceController(projectId, {
     getState: () => ({
-      mode: 'smart-cut', revision: controllerRevision, busy: busy || commandBusyRef.current,
+      mode: 'smart-cut',
+      presentation: {
+        hasArtifact: Boolean(transcription), busy,
+        message: transcription ? t('剪辑分析已完成，可在右侧预览和修改。') : busy ? statusCopy(stage) : '',
+        issue: error || (!draftVideo && !media ? t('请在对话中添加要剪辑的视频。') : !transcription && !asrModels.length ? t('缺少语音识别模型，请在对话中让我安装语音识别模型。') : ''),
+      }, revision: controllerRevision, busy: busy || commandBusyRef.current,
       context: {
         stage, instruction,
         source: media ? { path: media.sourcePath, name: media.sourceName, duration: media.duration } : draftVideo,
@@ -1214,7 +1241,7 @@ export function SmartCutView({
     }
     return (
       <main className={`smart-cut-view empty${panelMode ? ' in-panel' : ''}`}>
-        {showRestoredNotice && <p className="smart-cut-restored-note" role="status">{t('已恢复剪辑草稿，点击开始分析以继续。')}</p>}
+        {showRestoredNotice && !demoProjectSnapshot(projectId) && <p className="smart-cut-restored-note" role="status">{t('已恢复剪辑草稿，点击开始分析以继续。')}</p>}
         <section className="smart-cut-hero">
           <div className="smart-cut-hero-icon"><Scissors size={26} /></div>
           <span className="smart-cut-kicker">TALKING-HEAD EDITOR</span>
@@ -1223,7 +1250,7 @@ export function SmartCutView({
             {t('添加视频后开始分析，在这里调整剪辑参数、校对片段并预览结果。')}
           </p>
         </section>
-        <section className="smart-cut-composer" aria-label={t('口播剪辑任务')}>
+        <section className="editor-setup" aria-label={t('口播剪辑任务')}>
           {draftVideo && (
             <div className="smart-cut-video-attachment">
               <FileVideo size={17} />
@@ -1242,8 +1269,7 @@ export function SmartCutView({
               </button>
             </div>
           )}
-          {instruction && <p className="editor-task-brief">{instruction}</p>}
-          <div className="smart-cut-composer-toolbar">
+          <div className="editor-setup-fields">
             <button
               className="smart-cut-attach-button"
               type="button"
@@ -1254,8 +1280,8 @@ export function SmartCutView({
               <Paperclip size={16} />
               <span>{draftVideo ? t('更换视频') : t('上传视频')}</span>
             </button>
-            <label className="smart-cut-planner-model" title={t('指令解析模型')}>
-              <Sparkles size={14} />
+            {!onGenerateText && (<label className="smart-cut-planner-model" title={t('指令解析模型')}>
+              <span>{t('指令解析模型')}</span>
               <select
                 value={selectedLlmModelId ?? ''}
                 disabled={draftBusy}
@@ -1267,10 +1293,10 @@ export function SmartCutView({
                   <option key={model.id} value={model.id}>{model.name}</option>
                 ))}
               </select>
-            </label>
+            </label>)}
             <small>{t('支持 MP4、MOV、M4V、WebM 和 MKV')}</small>
             <button
-              className="smart-cut-send"
+              className="editor-setup-action"
               type="button"
               title={t('开始分析')}
               aria-label={t('开始分析')}
@@ -1287,8 +1313,10 @@ export function SmartCutView({
               ) : (
                 <Play size={17} />
               )}
+              {t('开始分析')}
             </button>
           </div>
+          {!onGenerateText && (
           <div className="smart-cut-draft-settings">
             <label className="smart-cut-subtitle-toggle">
               <input type="checkbox" checked={includeSubtitles} disabled={draftBusy} onChange={(event) => configureCut({ includeSubtitles: event.target.checked })} />
@@ -1311,6 +1339,7 @@ export function SmartCutView({
               <span>s</span>
             </label>
           </div>
+          )}
         </section>
 
         <section className="smart-cut-entry-status">
@@ -1349,13 +1378,17 @@ export function SmartCutView({
         </div>
       </header>
 
-      {showRestoredNotice && <p className="smart-cut-restored-note" role="status">{restored?.interrupted
+      {showRestoredNotice && !demoProjectSnapshot(projectId) && <p className="smart-cut-restored-note" role="status">{restored?.interrupted
         ? t('上次处理已中断，剪辑内容已恢复；请检查后继续。')
         : t('已恢复剪辑内容和手动修改。')}</p>}
 
       <div className="smart-cut-layout">
         <section className="smart-cut-preview-panel">
           <div className="smart-cut-video-shell">
+            {Boolean(demoProjectSnapshot(projectId)) && <div className="demo-artifact-video">
+              <strong>访谈剪辑 · 示例画面</strong><span>interview.mp4 · 1920 × 1080</span>
+              <small>大家好，欢迎来到今天的访谈节目。</small>
+            </div>}
             <video
               ref={videoRef}
               src={previewReady ? localVideoUrl(media.sourcePath) : undefined}
@@ -1452,13 +1485,13 @@ export function SmartCutView({
                 {asrModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
               </select>
             </label>
-            <label>
+            {!onGenerateText && (<label>
               {t('指令解析模型')}
               <select value={selectedLlmModelId ?? ''} disabled={busy} onChange={(event) => configureCut({ llmModelId: event.target.value })}>
                 <option value="">{t('本地规则')}</option>
                 {llmModels.map((model) => <option key={model.id} value={model.id}>{model.name}</option>)}
               </select>
-            </label>
+            </label>)}
             {(stage === 'review' || stage === 'preview') && (
               <button
                 className="smart-cut-primary"

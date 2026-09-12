@@ -271,6 +271,11 @@ export function VideoDubbingView({
   useWorkspaceController(projectId, {
     getState: () => ({
       mode: 'video-dubbing', busy: busyRef.current,
+      presentation: {
+        hasArtifact: Boolean(progress?.outputVideoPath || turns.length), busy,
+        message: busy ? t('正在生成配音…') : progress?.outputVideoPath ? t('配音视频已生成，可在右侧预览。') : '',
+        issue: mediaError || progress?.error || (!initialSourcePath ? t('请在对话中添加需要配音的视频。') : ''),
+      },
       revision: JSON.stringify([settings, runFingerprint, progress?.status, turns, progress?.outputVideoPath, mediaError]),
       context: {
         sourcePath: initialSourcePath, settings, progress, turns, audioAnalysis,
@@ -334,6 +339,16 @@ export function VideoDubbingView({
           <button type="button" disabled={canceling} onClick={() => void cancel().catch(showError)}><Square size={13} />{canceling ? t('正在取消…') : t('取消')}</button>
         )}
       </header>
+      {isDemoMode() && completed && (
+        <section className="demo-dubbing-preview" aria-label={t('配音视频预览')}>
+          <div className="demo-artifact-video">
+            <strong>{t('产品发布会 · 配音示例')}</strong>
+            <span>product-demo.en.mp4 · 1920 × 1080</span>
+            <small>Welcome everyone to the product launch event</small>
+          </div>
+          <p>{t('示例画面，仅预览布局，不包含可播放视频。')}</p>
+        </section>
+      )}
 
       <section className="video-translation-settings" aria-label={t('配音设置')}>
         <div className="video-translation-source-file" title={initialSourcePath}><strong>{fileName(initialSourcePath)}</strong><small>{t('原始视频')}</small></div>

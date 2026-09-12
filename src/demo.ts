@@ -471,3 +471,35 @@ export const demoVideoDubbingTurns: VideoDubbingTurn[] = [
   { id: 'd5', speaker: 'SPK 1', start: 29.0, end: 36.5, sourceText: '接下来我来给大家做一个现场演示', text: "Now let me give you a live demonstration", rhythmSegments: [{ id: 'r5', start: 29.0, end: 36.5, sourceText: '接下来我来给大家做一个现场演示', text: "Now let me give you a live demonstration" }] },
   { id: 'd6', speaker: 'SPK 1', start: 37.2, end: 45.8, sourceText: '大家可以看到，实时转写的速度非常快', text: 'As you can see, the real-time transcription is extremely fast', rhythmSegments: [{ id: 'r6', start: 37.2, end: 45.8, sourceText: '大家可以看到，实时转写的速度非常快', text: 'As you can see, the real-time transcription is extremely fast' }] },
 ]
+
+/** Fake editor results are isolated to the task gallery and never touch saved projects. */
+export function demoProjectSnapshot(projectId: string | undefined): unknown {
+  if (!isDemoMode() || new URLSearchParams(window.location.search).get('demo') !== 'tasks') return null
+  if (projectId === 'demo-smart-cut') return {
+    version: 1, stage: 'review', instruction: '删除口水词和静音', plannerName: 'Qoder',
+    media: { sourcePath: '/demo/interview.mp4', sourceName: 'interview.mp4', audioPath: '', duration: 120, width: 1920, height: 1080, fps: 30, sizeBytes: 18000000, hasAudio: true },
+    transcription: demoTranscription, vadResult: demoVad, candidates: demoCandidates, samples: demoTranscription.waveform,
+    includeSubtitles: true,
+  }
+  if (projectId === 'demo-podcast') return {
+    version: 1, instruction: '把这篇论文做成双人播客', sourcePath: '/demo/AI研究.md',
+    source: { fileName: 'AI研究.md', text: '大语言模型通过混合专家架构提高推理效率，端侧模型也在不断发展。', characterCount: 42, truncated: false },
+    script: { title: '大模型的新进展：从云端到你的电脑', language: 'zh-CN', turns: [
+      { id: 'p1', speaker: 'A', text: '欢迎收听。今天我们聊聊大语言模型的新进展，以及它们如何走进日常生活。' },
+      { id: 'p2', speaker: 'B', text: '一个值得关注的方向是混合专家架构：按需启用部分网络，在保持能力的同时减少计算量。' },
+      { id: 'p3', speaker: 'A', text: '这是否意味着，我们能在自己的电脑上使用更强的模型？' },
+      { id: 'p4', speaker: 'B', text: '是的，但具体体验仍取决于硬件、模型大小和任务。对于隐私敏感的文档，本地处理尤其有价值。' },
+    ] },
+    speakerAName: '主持人', speakerBName: '嘉宾', speed: 1, voiceA: '0', voiceB: '1',
+  }
+  if (projectId === 'demo-meeting') return {
+    version: 1, source: 'microphone', elapsed: 1560, summaryView: 'notes',
+    turns: [
+      { id: 'm1', start: 0, end: 12, speaker: 1, text: '今天确认发布范围，先交付视频剪辑和播客的完整流程。' },
+      { id: 'm2', start: 15, end: 28, speaker: 2, text: '交互统一由 Agent 对话推进，右侧只展示生成结果。' },
+      { id: 'm3', start: 32, end: 46, speaker: 1, text: '小李负责本周五前完成回归测试，小王更新使用文档。' },
+    ],
+    summary: '## 当前结论\n先交付视频剪辑和 AI 播客；统一采用对话驱动流程。\n\n## 讨论要点\n右侧仅展示产物，素材和模型问题在对话中处理。\n\n## 行动项\n- 小李：本周五前完成回归测试。\n- 小王：更新使用文档。\n\n## 待确认问题\n正式发布时间待回归结果确认。',
+  }
+  return null
+}

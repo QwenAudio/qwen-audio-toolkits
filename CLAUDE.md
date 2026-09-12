@@ -80,14 +80,14 @@ Audio devices, model assets on disk, cloud providers (Bailian)
 - **HarnessCapability**: A typed audio/text operation (e.g. `speech.transcribe`, `audio.enhance`, `speech.synthesize`). Defined in `src/domain/capabilities.ts` and enforced in `src-tauri/src/harness.rs`. Currently 14 capabilities across four categories: 音频处理, 音频理解, 文本智能, 音频生成.
 - **Provider**: An implementation of one or more capabilities — either a local model (`local.*`), a cloud API (`api.bailian`), a custom REST provider, or a plugin.
 - **ModelPlugin**: A package with a manifest declaring its capabilities, adapter, inputs/outputs, and parameter schema. Managed by `src-tauri/src/plugins.rs`. Bundled plugin examples live in `plugins/`.
-- **Workflow**: A user-composable DAG (rendered with @xyflow/react) that chains capabilities. Validated by `src/services/workflowPlanner.ts`, executed by `src/services/workflowRuntime.ts`. Currently feature-gated while being redesigned.
+- **Workflow**: A capability DAG validated by `src/services/workflowPlanner.ts` and executed by `src/services/workflowRuntime.ts`. The unused visual editor and standalone workflow chat pages have been removed; runtime services remain available to agents.
 - **Adapter**: The string key (e.g. `sensevoice`, `bailian-funasr`, `deepfilternet`) that routes a harness run to the correct native implementation in Rust.
 - **WorkflowPortType**: Type-safe connections between workflow nodes (`audio`, `transcript`, `text`, `speech-segments`, etc.).
 
 ### Frontend (`src/`)
 
 - `App.tsx` — main shell (75 KB): view routing, global state, theme, model sidebar, settings. This is a large monolith.
-- `views/` — per-view components. `ModelWorkspaceView.tsx` (160 KB) is the primary workspace for running models. `PluginsView.tsx` handles the model store. `WorkflowChatView.tsx` and `WorkflowsView.tsx` handle the workflow DAG editor and chat UI.
+- `views/` — per-view components. `ModelWorkspaceView.tsx` (160 KB) is the primary workspace for running models. `PluginsView.tsx` handles the model store. `AgentHomeView.tsx` provides the unified task conversation, with task-specific result editors shown alongside it.
 - `services/harness.ts` — the single typed boundary for all frontend→backend Tauri invoke calls. Every backend command is wrapped here.
 - `services/workflowPlanner.ts` — validates workflow DAG topology (single input, linear chain, port-type compatibility, streaming constraints).
 - `services/workflowRuntime.ts` — executes a validated workflow step-by-step, managing intermediate results between nodes.

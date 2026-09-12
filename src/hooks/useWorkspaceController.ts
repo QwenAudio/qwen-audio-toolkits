@@ -1,11 +1,15 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { flushSync } from 'react-dom'
-import { registerWorkspaceController, type WorkspaceController } from '../services/workspaceController'
+import { registerWorkspaceController, publishWorkspacePresentation, type WorkspaceController } from '../services/workspaceController'
 
 /** Route chat operations to the latest committed state of this mounted editor. */
 export function useWorkspaceController(projectId: string | undefined, controller: WorkspaceController): void {
   const latest = useRef(controller)
   useLayoutEffect(() => { latest.current = controller })
+  useEffect(() => {
+    const presentation = controller.getState().presentation
+    if (projectId && presentation) publishWorkspacePresentation(projectId, presentation)
+  })
   useEffect(() => {
     if (!projectId) return
     return registerWorkspaceController(projectId, {

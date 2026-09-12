@@ -102,3 +102,17 @@ assert.ok(getWorkspaceController('test-workspace'), 'An old cleanup cannot unreg
 newerStop()
 await assert.rejects(runWorkspaceAgentRequest(request()), /工作区正在准备/)
 console.log('Workspace AI: exact commands, schema validation, current state, manual edit conflicts, task switching, busy guards, partial failures, and registration lifecycle passed.')
+
+// Presentation updates are isolated by project and identical updates do not notify twice.
+const presentation = await import('../src/services/workspaceController')
+let notifications = 0
+const unsubscribe = presentation.subscribeWorkspacePresentation(() => { notifications += 1 })
+presentation.publishWorkspacePresentation('presentation-a', { hasArtifact: false, busy: false, message: '', issue: 'missing source' })
+presentation.publishWorkspacePresentation('presentation-a', { hasArtifact: false, busy: false, message: '', issue: 'missing source' })
+assert.equal(notifications, 1)
+presentation.publishWorkspacePresentation('presentation-b', { hasArtifact: true, busy: false, message: 'ready' })
+assert.equal(presentation.getWorkspacePresentation('presentation-a')?.hasArtifact, false)
+assert.equal(presentation.getWorkspacePresentation('presentation-b')?.hasArtifact, true)
+presentation.publishWorkspacePresentation('presentation-a', { hasArtifact: true, busy: false, message: 'ready' })
+assert.equal(notifications, 3)
+unsubscribe()

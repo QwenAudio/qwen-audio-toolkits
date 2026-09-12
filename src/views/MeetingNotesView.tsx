@@ -1,3 +1,4 @@
+import { demoProjectSnapshot } from '../demo'
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import {
@@ -73,6 +74,7 @@ interface MeetingNotesViewProps {
   autoStart?: boolean;
   initialInstruction: string;
   models: ModelPlugin[];
+  onGenerateText?: (prompt: string, systemPrompt: string) => Promise<string>;
   onRunText: (
     text: string,
     capability: "text.generate",
@@ -210,6 +212,7 @@ export function MeetingNotesView({
   initialInstruction,
   models,
   onRunText,
+  onGenerateText,
   onRunAudio,
   onOpenStore,
   onAction,
@@ -217,7 +220,7 @@ export function MeetingNotesView({
   bridgeSessionId,
 }: MeetingNotesViewProps) {
   useLocale();
-  const [restored] = useState(() => readMeetingSnapshot(readProjectSnapshot(projectId, "meeting-notes")));
+  const [restored] = useState(() => readMeetingSnapshot(readProjectSnapshot(projectId, "meeting-notes") ?? demoProjectSnapshot(projectId)));
   const streamingAsr = useMemo(() => {
     const candidates = models.filter(
       (model) =>
@@ -463,7 +466,7 @@ export function MeetingNotesView({
   };
 
   const summarize = async (final = false) => {
-    if (!summaryModel?.providerId || summaryBusyRef.current) return false;
+    if ((!onGenerateText && !summaryModel?.providerId) || summaryBusyRef.current) return false;
     const transcript = turnsRef.current
       .map(
         (turn) =>
@@ -490,16 +493,19 @@ export function MeetingNotesView({
       ]
         .filter(Boolean)
         .join("\n\n");
+      const next = onGenerateText ? await onGenerateText(request, '根据已提供的会议转写生成纪要，不添加未经证实的信息。')
+        : await (async () => {
       const execution = await onRunText(
         request,
         "text.generate",
-        summaryModel.providerId,
-        summaryModel.version,
+        summaryModel!.providerId!,
+        summaryModel!.version,
         { temperature: 0.2, maxTokens: final ? 1600 : 1000 },
         [],
         false,
       );
-      const next = outputText(execution.output);
+      return outputText(execution.output);
+        })();
       if (next) {
         setSummary(next);
         setSummaryUpdatedAt(Date.now());
@@ -841,6 +847,11 @@ export function MeetingNotesView({
   useWorkspaceController(projectId, {
     getState: () => ({
       mode: "meeting-notes",
+      presentation: {
+        hasArtifact: Boolean(turns.length || partialText || summary), busy: recording || starting || stopping || summaryBusy,
+        message: recording ? t('正在记录会议…') : turns.length ? t('会议记录已更新，可在右侧查看。') : '',
+        issue: !recording && !turns.length ? t('请在对话中告诉我开始记录会议，以及使用麦克风还是电脑音频。') : '',
+      },
       busy: captureStateRef.current !== "idle" || summaryBusyRef.current,
       revision: JSON.stringify([turns, summary, source, detailView, summaryView, recording, starting, stopping]),
       context: {
@@ -907,7 +918,7 @@ export function MeetingNotesView({
   const missing = [
     !streamingAsr && t("流式识别"),
     !diarizationModel && t("说话人识别"),
-    !summaryModel && t("文本总结"),
+    !onGenerateText && !summaryModel && t("文本总结"),
   ].filter(Boolean) as string[];
   const mindMap = useMemo(() => markdownMindMap(summary), [summary]);
 

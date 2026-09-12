@@ -42,7 +42,6 @@
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-updater": "^2.11.0",
-    "@xyflow/react": "^12.11.2",
     "lucide-react": "^1.39.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

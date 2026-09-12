@@ -36,7 +36,7 @@ assert.equal(findWorkspaceGeneralTask([], workspace.id, created.conversation), n
 
 const repaired = ensureWorkspaceTaskLink({ ...workspace, sourceTaskId: 'missing-task' }, [], seed)!
 assert.equal(repaired.conversation.sourceTaskId, seed.taskId, 'A deleted or missing source conversation needs a new usable link')
-assert.equal(ensureWorkspaceTaskLink({ ...workspace, mode: 'agent-chat' }, [], seed), null)
+assert.equal(ensureWorkspaceTaskLink({ ...workspace, mode: 'agent-chat' }, [], seed)?.task.messages[0]?.content, workspace.prompt)
 
 for (const mode of ['smart-cut', 'ai-podcast', 'video-dubbing'] as const) {
   const project: AgentConversation = {

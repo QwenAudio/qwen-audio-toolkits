@@ -1,3 +1,4 @@
+import { getWorkspacePresentation, subscribeWorkspacePresentation } from './services/workspaceController';
 import { t, useLocale, setLocale } from "./i18n";
 import {
   lazy,
@@ -11,7 +12,6 @@ import {
   type CSSProperties,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
-  type SetStateAction,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -24,7 +24,6 @@ import {
   Check,
   ChevronDown,
   Download,
-  GitBranch,
   HardDrive,
   LoaderCircle,
   Maximize2,
@@ -63,6 +62,7 @@ import {
 import { initialPlugins, fallbackRuntime } from "./data";
 import {
   isDemoMode,
+  demoConversations,
   demoPlugins,
   demoCatalog,
 } from "./demo";
@@ -95,10 +95,6 @@ import {
   installAppUpdate,
   type AppUpdateInfo,
 } from "./services/updater";
-import {
-  listSavedWorkflows,
-  type SavedWorkflow,
-} from "./services/workflowRuntime";
 import { listAcpProviders, inspectAcpModels, respondAcpPermission } from "./services/acp";
 import type { AcpProviderInfo, AcpSessionEvent } from "./types";
 import type {
@@ -117,10 +113,8 @@ import type {
   TtsGenerateResult,
   VadDetectionResult,
 } from "./types";
-import type { WorkflowChatTurn } from "./views/WorkflowChatView";
 import type {
   AgentCreationMode,
-  AgentCreationOptions,
   GeneralAgentAttachment,
   GeneralAgentMessage,
   GeneralAgentMessageModelOptions,
@@ -160,16 +154,6 @@ const PluginsView = lazy(() =>
     default: module.PluginsView,
   })),
 );
-const WorkflowChatView = lazy(() =>
-  import("./views/WorkflowChatView").then((module) => ({
-    default: module.WorkflowChatView,
-  })),
-);
-const WorkflowsView = lazy(() =>
-  import("./views/WorkflowsView").then((module) => ({
-    default: module.WorkflowsView,
-  })),
-);
 const SmartCutView = lazy(() =>
   import("./views/SmartCutView").then((module) => ({
     default: module.SmartCutView,
@@ -195,13 +179,8 @@ const VideoDubbingView = lazy(() =>
     default: module.VideoDubbingView,
   })),
 );
-const AgentChatView = lazy(() =>
-  import("./views/AgentChatView").then((module) => ({
-    default: module.AgentChatView,
-  })),
-);
 
-type AppView = "workspace" | "agents" | AgentCreationMode | "workflows";
+type AppView = "workspace" | "agents" | AgentCreationMode;
 type ThemePreference = "system" | "light" | "dark";
 type AppUpdateState = {
   status:
@@ -234,7 +213,6 @@ const AUTO_UPDATE_STORAGE_KEY = "qwen-audio-toolkits.auto-update-v1";
 const LAST_MODEL_STORAGE_KEY = "qwen-audio-toolkits.last-model-v1";
 const DEFAULT_VOICE_WORKFLOW_MODELS_KEY =
   "qwen-audio-toolkits.default-voice-workflow-models-v2";
-const WORKFLOWS_ENABLED = false;
 const NATIVE_TITLEBAR_HEIGHT = 46;
 const DRAG_REGION_INTERACTIVE_SELECTOR =
   'button, a, input, select, textarea, label, video, [contenteditable], [role="button"], [role="link"], [role="tab"], [role="slider"], [role="switch"], [role="checkbox"], [role="menuitem"], [role="option"], [role="dialog"], .modal-backdrop';
@@ -438,7 +416,7 @@ function summarizeRun(run: HarnessRun): HarnessRun {
 }
 
 type ShellPage = "workspace" | "skills" | "models" | "settings";
-type SettingsSection = "general" | "appearance" | "storage";
+type SettingsSection = "general" | "appearance" | "storage" | "archived";
 
 type AccentColor = "mint" | "indigo" | "amber" | "rose";
 
@@ -534,6 +512,8 @@ const SETTINGS_SECTIONS: {
     },
     Icon: HardDrive,
   },
+  { id: "archived", get label() { return t("已归档"); }, Icon: Archive },
+
 ];
 
 function App() {
@@ -560,6 +540,7 @@ function App() {
     ensureGeneralTask,
     updateGeneralTask,
     setTaskArchived,
+    reportTaskProgress,
     recordWorkspaceBrief,
     updateGeneralMessageActionStatus,
     updateStructuredPlanStep,
@@ -569,7 +550,8 @@ function App() {
     ready: workspaceReady,
     restoredSelectedId,
   } = useAgentConversations(
-    demoMode ? [] : undefined,
+    demoMode ? (new URLSearchParams(window.location.search).get('demo') === 'tasks'
+      ? demoConversations.filter(task => task.mode !== 'agent-chat') : []) : undefined,
     demoMode ? [] : undefined,
   );
   const initialViewRestoredRef = useRef(false);
@@ -587,6 +569,18 @@ function App() {
   const openedAgentConversations = agentConversations.filter(conversation =>
     openedAgentIds.has(conversation.id) || conversation.id === selectedAgentConversationId,
   );
+  const [, refreshPresentation] = useState(0);
+  useEffect(() => subscribeWorkspacePresentation(() => refreshPresentation(value => value + 1)), []);
+  const workspacePresentation = getWorkspacePresentation(selectedAgentConversationId);
+  const reportedWorkspaceStatus = useRef(new Map<string, string>());
+  useEffect(() => {
+    if (!selectedGeneralTask || !selectedAgentConversation || !workspacePresentation) return;
+    const message = workspacePresentation.issue || workspacePresentation.message;
+    const key = selectedAgentConversation.id;
+    if (!message || reportedWorkspaceStatus.current.get(key) === message) return;
+    reportedWorkspaceStatus.current.set(key, message);
+    reportTaskProgress(selectedGeneralTask.id, message);
+  }, [selectedGeneralTask, selectedAgentConversation, workspacePresentation, reportTaskProgress]);
   const isWorkspaceTaskView = WORKSPACE_TASK_MODES.has(view);
   const activeWorkspaceRef = useRef({ id: null as string | null, epoch: 0 });
   useLayoutEffect(() => {
@@ -665,20 +659,7 @@ function App() {
   const [selectedPluginId, setSelectedPluginId] = useState(
     getInitialSelectedPluginId,
   );
-  const [workflows, setWorkflows] =
-    useState<SavedWorkflow[]>(listSavedWorkflows);
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
-    null,
-  );
-  const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(
-    null,
-  );
-  const [workflowSelected, setWorkflowSelected] = useState(false);
-  const [workflowTurns, setWorkflowTurns] = useState<
-    Record<string, WorkflowChatTurn[]>
-  >({});
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showArchivedTasks, setShowArchivedTasks] = useState(false);
   const [recentTasksExpanded, setRecentTasksExpanded] = useState(true);
   const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
   const closeSidebar = useCallback(() => {
@@ -1098,6 +1079,7 @@ function App() {
   }, [chosenAcpProvider, acpModels, acpProviders, loadAcpModels]);
   const requestTaskAgentReply = async (task: GeneralAgentTask, messages: GeneralAgentMessage[], workspacePlanning = false) => {
     if (!isTauriRuntime()) throw new Error(t('ACP Agent 对话需要在桌面端运行。'));
+    if (acpTurns.current.has(task.id)) throw new Error(t('当前任务的 Agent 正在处理，请稍后重试。'));
     const selection = resolveAcpSelection(task.chatModel, acpProviders);
     const controller = new AbortController();
     acpTurns.current.set(task.id, controller);
@@ -1112,6 +1094,22 @@ function App() {
       setAcpPermissions(current => current.filter(item => item.taskId !== task.id));
     }
   };
+  const reportEditorMessage = (projectId: string, message: string) => {
+    const conversation = agentConversations.find(item => item.id === projectId);
+    const task = generalTasks.find(item => item.id === conversation?.sourceTaskId);
+    if (task) reportTaskProgress(task.id, message);
+    else if (selectedAgentConversationId === projectId && selectedGeneralTask) reportTaskProgress(selectedGeneralTask.id, message);
+  };
+  const generateEditorText = async (projectId: string, prompt: string, systemPrompt: string) => {
+    const conversation = agentConversations.find(item => item.id === projectId);
+    const task = generalTasks.find(item => item.id === conversation?.sourceTaskId)
+      ?? (selectedAgentConversationId === projectId ? selectedGeneralTask : null);
+    if (!task) throw new Error(t('请先打开对应任务会话'));
+    return requestTaskAgentReply(task, [...task.messages, {
+      id: crypto.randomUUID(), role: 'user', createdAt: Date.now(),
+      content: systemPrompt + '\n\n' + prompt,
+    }], true);
+  };
   const submitGeneralPrompt = (request: Parameters<typeof submitGeneralPromptToTask>[0]) => submitGeneralPromptToTask({
     ...request, agentResponse: request.agentResponse ?? (messages => requestTaskAgentReply(request.task, messages)),
   });
@@ -1125,7 +1123,7 @@ function App() {
   const visibleSidebarWidth = Math.min(sidebarWidth, responsiveSidebarMaxWidth);
   const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth;
   const compactWorkspace = viewportWidth - visibleContentOffset < 760;
-  const editorVisible = isWorkspaceTaskView && workspacePanelOpen;
+  const editorVisible = isWorkspaceTaskView && workspacePanelOpen && Boolean(workspacePresentation?.hasArtifact);
   const editorFillsWorkspace = editorVisible && (compactWorkspace || workspacePanelFocused);
 
   const selectedPlugin =
@@ -1279,9 +1277,6 @@ function App() {
     void listen(HISTORY_CLEARED_EVENT, () => {
       if (disposed) return;
       setRuns((current) => (current.length ? [] : current));
-      setWorkflowTurns((current) =>
-        Object.keys(current).length ? {} : current,
-      );
     }).then((remove) => {
       if (disposed) remove();
       else unlistenHistoryCleared = remove;
@@ -1599,10 +1594,6 @@ function App() {
     if (!selectedGeneralTask && !prompt.trim()) return
     const task = materializeGeneralTask()
     updateGeneralTask(task.id, { draftPrompt: prompt })
-  }
-  const updateAgentCreationOptions = (creationOptions: AgentCreationOptions) => {
-    const task = materializeGeneralTask();
-    updateGeneralTask(task.id, { creationOptions });
   }
   const updateAgentHomeAttachment = (
     attachment: GeneralAgentTask['attachment'],
@@ -2334,7 +2325,12 @@ function App() {
       attachment: null,
     })
     pendingGeneralTaskRef.current = task
-    if (isWorkspaceTaskView && selectedAgentConversation) {
+    if (isWorkspaceTaskView && selectedAgentConversation && request.attachment?.path && request.attachment.path !== selectedAgentConversation.sourcePath) {
+      const mode = selectedAgentConversation.mode;
+      launchCreationAgent(mode, request.content, request.attachment.path);
+      return;
+    }
+    if (isWorkspaceTaskView && selectedAgentConversation && !pendingOnDemandModelRef.current.has(task.id) && !/安装/.test(request.content)) {
       const projectId = selectedAgentConversation.id;
       const workspaceEpoch = activeWorkspaceRef.current.epoch;
       void submitGeneralPrompt({
@@ -2354,6 +2350,21 @@ function App() {
             id: crypto.randomUUID(), role: 'user', content: prompt, createdAt: Date.now(),
           }], true),
         }),
+        onError: notify,
+      });
+      return;
+    }
+    const mode = task.selectedModeId;
+    if (mode && WORKSPACE_TASK_MODES.has(mode) && (mode === 'smart-cut' || mode === 'ai-podcast' || mode === 'video-dubbing') && request.attachment?.path) {
+      launchCreationAgent(mode, request.content, request.attachment.path);
+      return;
+    }
+    if (!isWorkspaceTaskView && mode && (mode === 'smart-cut' || mode === 'ai-podcast' || mode === 'video-dubbing') && !request.attachment?.path) {
+      void submitGeneralPrompt({
+        task, content: request.content,
+        localResponse: () => mode === 'ai-podcast'
+          ? t('请在这里添加来源文档，我会生成播客脚本和音频。')
+          : t('请在这里添加视频，我会按你的要求处理并展示结果。'),
         onError: notify,
       });
       return;
@@ -2635,7 +2646,6 @@ function App() {
     }
     pendingGeneralTaskRef.current = null;
     setShellPage("workspace");
-    setWorkflowSelected(false);
     changeView(mode);
   };
   const syncExtensionsState = useCallback(async () => {
@@ -2710,7 +2720,6 @@ function App() {
     setShellPage("workspace");
     setAgentHomeMode(null);
     setSelectedAgentConversationId(null);
-    setWorkflowSelected(false);
     setWorkspacePanelOpen(false);
     changeView("agents");
   };
@@ -2741,22 +2750,9 @@ function App() {
     setProviderDialogOpen(true);
   };
 
-  const updateWorkflowTurns = (
-    workflowId: string,
-    update: SetStateAction<WorkflowChatTurn[]>,
-  ) => {
-    setWorkflowTurns((current) => {
-      const previous = current[workflowId] ?? [];
-      return {
-        ...current,
-        [workflowId]: typeof update === "function" ? update(previous) : update,
-      };
-    });
-  };
-
   const clearAllHistory = async () => {
     const removableRuns = runs.filter((run) => !activeRunIds.has(run.id));
-    if (!removableRuns.length && !Object.keys(workflowTurns).length) {
+    if (!removableRuns.length) {
       notify(t("当前没有历史消息"));
       return;
     }
@@ -2774,7 +2770,6 @@ function App() {
       await Promise.all(removableRuns.map((run) => deleteHarnessRun(run.id)));
       const removableIds = new Set(removableRuns.map((run) => run.id));
       setRuns((current) => current.filter((run) => !removableIds.has(run.id)));
-      setWorkflowTurns({});
       if (isTauriRuntime()) {
         void emit(HISTORY_CLEARED_EVENT, {}).catch(() => undefined);
       }
@@ -3026,7 +3021,25 @@ function App() {
     return execution;
   };
 
+  const archivedTasks = [
+    ...generalTasks.filter(task => task.archived && !agentConversations.some(conversation =>
+      conversation.sourceTaskId === task.id)),
+    ...agentConversations.filter(task => task.archived),
+  ];
   const settingsRows: Record<SettingsSection, ReactNode> = {
+    archived: (
+      <div className="settings-archived-tasks">
+        {archivedTasks.length === 0 && <p>{t('暂无归档任务')}</p>}
+        {archivedTasks.map(task => (
+          <div className="settings-archived-task" key={task.id}>
+            <span title={task.title}>{task.title}</span>
+            <button type="button" aria-label={`${t('恢复任务')}：${task.title}`} onClick={() => setTaskArchived(task.id, false)}>
+              <ArchiveRestore size={15} />{t('恢复任务')}
+            </button>
+          </div>
+        ))}
+      </div>
+    ),
     general: (
       <>
         <div className="settings-card">
@@ -3528,7 +3541,6 @@ function App() {
                                   setSelectedPluginId(plugin.id);
                                   setAgentHomeMode(null);
                                   setSelectedAgentConversationId(null);
-                                  setWorkflowSelected(false);
                                   setShellPage("workspace");
                                   changeView("workspace");
                                 }}
@@ -3570,15 +3582,11 @@ function App() {
               <SquarePen size={16} />
             </button>
           </div>
-          <button type="button" className="sidebar-archive-toggle" aria-pressed={showArchivedTasks}
-            onClick={() => { setShowArchivedTasks(value => !value); setRecentTasksExpanded(true); }}>
-            {showArchivedTasks ? t('返回最近任务') : t('已归档')}
-          </button>
           <div id="recent-task-list" hidden={!recentTasksExpanded}>
           {(generalTasks.length > 0 || agentConversations.length > 0) && (
             <div className="sidebar-agent-conversations" aria-label={t('最近任务')}>
-              {generalTasks.filter(task => Boolean(task.archived) === showArchivedTasks && !agentConversations.some(conversation =>
-                conversation.sourceTaskId === task.id && WORKSPACE_TASK_MODES.has(conversation.mode),
+              {generalTasks.filter(task => !task.archived && !agentConversations.some(conversation =>
+                conversation.sourceTaskId === task.id,
               )).map((task) => {
                 const active = shellPage === 'workspace' && selectedAgentConversationId === task.id && view === 'agents'
                 return (
@@ -3593,7 +3601,6 @@ function App() {
                       setShellPage('workspace')
                       setAgentHomeMode(task.selectedModeId)
                       setSelectedAgentConversationId(task.id)
-                      setWorkflowSelected(false)
                       changeView('agents')
                     }}
                   >
@@ -3602,15 +3609,15 @@ function App() {
                     {task.submitting && <LoaderCircle className="model-spin" size={13} aria-label={t('运行中')} />}
                   </button>
                   <button className="sidebar-task-archive" type="button"
-                    title={showArchivedTasks ? t('恢复任务') : t('归档任务')}
-                    aria-label={`${showArchivedTasks ? t('恢复任务') : t('归档任务')}：${task.title}`}
-                    onClick={() => setTaskArchived(task.id, !showArchivedTasks)}>
-                    {showArchivedTasks ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                    title={t('归档任务')}
+                    aria-label={`${t('归档任务')}：${task.title}`}
+                    onClick={() => setTaskArchived(task.id, true)}>
+                    {<Archive size={14} />}
                   </button>
                   </div>
                 )
               })}
-              {agentConversations.filter(conversation => Boolean(conversation.archived) === showArchivedTasks).map((conversation) => {
+              {agentConversations.filter(conversation => !conversation.archived).map((conversation) => {
                 const active =
                   shellPage === 'workspace' &&
                   selectedAgentConversationId === conversation.id &&
@@ -3631,7 +3638,6 @@ function App() {
                       pendingGeneralTaskRef.current = null
                       setShellPage('workspace')
                       setSelectedAgentConversationId(conversation.id)
-                      setWorkflowSelected(false)
                       changeView(conversation.mode)
                     }}
                   >
@@ -3639,18 +3645,18 @@ function App() {
                     <span>{conversation.title}</span>
                   </button>
                   <button className="sidebar-task-archive" type="button"
-                    title={showArchivedTasks ? t('恢复任务') : t('归档任务')}
-                    aria-label={`${showArchivedTasks ? t('恢复任务') : t('归档任务')}：${conversation.title}`}
-                    onClick={() => setTaskArchived(conversation.id, !showArchivedTasks)}>
-                    {showArchivedTasks ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                    title={t('归档任务')}
+                    aria-label={`${t('归档任务')}：${conversation.title}`}
+                    onClick={() => setTaskArchived(conversation.id, true)}>
+                    {<Archive size={14} />}
                   </button>
                   </div>
                 )
               })}
             </div>
           )}
-          {!generalTasks.some(task => Boolean(task.archived) === showArchivedTasks) && !agentConversations.some(task => Boolean(task.archived) === showArchivedTasks) && (
-            <p className="sidebar-recent-empty">{showArchivedTasks ? t('暂无归档任务') : t('暂无最近任务')}</p>
+          {!generalTasks.some(task => !task.archived) && !agentConversations.some(task => !task.archived) && (
+            <p className="sidebar-recent-empty">{t('暂无最近任务')}</p>
           )}
           </div>
         </nav>        )}
@@ -3658,24 +3664,6 @@ function App() {
         <div className="sidebar-spacer" />
 
         <nav className="sidebar-dock" aria-label={t("资源与设置")}>
-          {WORKFLOWS_ENABLED && (
-            <button
-              className={`sidebar-dock-button${
-                shellPage === "workspace" && view === "workflows"
-                  ? " active"
-                  : ""
-              }`}
-              type="button"
-              aria-label={t("流程编排")}
-              data-tooltip={t("流程编排")}
-              onClick={() => {
-                setEditingWorkflowId(null);
-                changeView("workflows");
-              }}
-            >
-              <GitBranch size={18} />
-            </button>
-          )}
           <button
             ref={settingsTriggerRef}
             className={`sidebar-dock-button${shellPage === "settings" ? " active" : ""}`}
@@ -3796,18 +3784,13 @@ function App() {
                         : view === "agent-chat"
                           ? (selectedAgentConversation?.title ?? t("技能任务"))
                           : view === "workspace"
-                            ? WORKFLOWS_ENABLED && workflowSelected
-                              ? (workflows.find(
-                                  (workflow) =>
-                                    workflow.id === selectedWorkflowId,
-                                )?.name ?? t("虚拟模型"))
-                              : selectedPlugin.name
-                            : t("流程编排")}
+                            ? selectedPlugin.name
+                            : t("新任务")}
             </span>
           </div>
           <div className="topbar-actions">
             <WorkspaceSaveIndicator />
-            {shellPage === "workspace" && isWorkspaceTaskView && (
+            {shellPage === "workspace" && isWorkspaceTaskView && workspacePresentation?.hasArtifact && (
               <div className="workspace-view-switch" role="group" aria-label={t('工作区视图')}>
                 <button type="button" aria-pressed={!workspacePanelOpen} onClick={() => {
                   setWorkspacePanelOpen(false);
@@ -3906,8 +3889,8 @@ function App() {
               <div className="workspace-center" inert={editorFillsWorkspace}>
               <div
                 className="agent-workspace-session"
-                hidden={view !== "agents" && !isWorkspaceTaskView}
-                inert={view !== "agents" && !isWorkspaceTaskView}
+                hidden={view !== "agents" && view !== "agent-chat" && !isWorkspaceTaskView}
+                inert={view !== "agents" && view !== "agent-chat" && !isWorkspaceTaskView}
               >
                 <AgentHomeView
                   skills={appAgents}
@@ -3935,7 +3918,7 @@ function App() {
                     updateGeneralTask(task.id, { chatModel });
                   }}
                   workspaceTitle={isWorkspaceTaskView ? selectedAgentConversation?.title : undefined}
-                  workspaceCanOperate={isWorkspaceTaskView}
+                  workspaceCanOperate={isWorkspaceTaskView && Boolean(workspacePresentation?.hasArtifact)}
                   taskId={selectedGeneralTask?.id ?? null}
                   messages={selectedGeneralTask?.messages ?? []}
                   draftPrompt={selectedGeneralTask?.draftPrompt ?? ""}
@@ -3944,8 +3927,6 @@ function App() {
                   modelInstallMode={agentModelInstallMode}
                   messageModelOptions={resolveTaskMessageModelOptions(selectedGeneralTask)}
                   selectedModeId={isWorkspaceTaskView ? selectedAgentConversation?.mode ?? null : selectedGeneralTask?.selectedModeId ?? agentHomeMode}
-                  creationOptions={selectedGeneralTask?.creationOptions}
-                  onCreationOptionsChange={updateAgentCreationOptions}
                   chatAvailable={agentChatAvailable}
                   onModelInstallModeChange={setAgentModelInstallMode}
                   onMessageModelSelect={(messageId, modelId) => {
@@ -3961,22 +3942,9 @@ function App() {
                   onRunMessageAction={(message, modelId) =>
                     runAgentMessageAction(selectedGeneralTask, message, modelId)
                   }
-                  onLaunch={launchCreationAgent}
-                  onOpenStore={openSkills}
                 />
               </div>
-              {view === "workspace" &&
-                (WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
-                  <WorkflowChatView
-                    workflowId={selectedWorkflowId}
-                    turns={workflowTurns[selectedWorkflowId] ?? []}
-                    setTurns={(update) =>
-                      updateWorkflowTurns(selectedWorkflowId, update)
-                    }
-                    onRunUpdate={(run) => recordRun(run)}
-                    onAction={notify}
-                  />
-                ) : (
+              {view === "workspace" && (
                   <ModelWorkspaceView
                     plugin={selectedPlugin}
                     plugins={plugins}
@@ -3995,49 +3963,7 @@ function App() {
                     }
                     onClearConversation={clearConversationRuns}
                   />
-                ))}
-              {openedAgentConversations
-                .filter((conversation) => conversation.mode === "agent-chat")
-                .map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className="agent-workspace-session"
-                    hidden={
-                      view !== "agent-chat" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                    inert={
-                      view !== "agent-chat" ||
-                      selectedAgentConversationId !== conversation.id
-                    }
-                  >
-                    <AgentChatView
-                      initialInstruction={conversation.prompt}
-                      initialSourcePath={conversation.sourcePath}
-                      initialLaunchId={conversation.restored ? 0 : 1}
-                      models={orderedRunnablePlugins}
-                      onRunText={runText}
-                      onRunAudio={runAudio}
-                      onOpenStore={openExtensions}
-                      onAction={notify}
-                    />
-                  </div>
-                ))}
-              {WORKFLOWS_ENABLED && view === "workflows" && (
-                <WorkflowsView
-                  key={editingWorkflowId ?? "new-workflow"}
-                  catalog={catalog}
-                  models={orderedRunnablePlugins}
-                  workflows={workflows}
-                  editingWorkflowId={editingWorkflowId}
-                  onWorkflowsChanged={(next, workflowId) => {
-                    setWorkflows(next);
-                    setEditingWorkflowId(workflowId);
-                    setSelectedWorkflowId(workflowId);
-                  }}
-                  onAction={notify}
-                />
-              )}
+                )}
               </div>
               <aside
                 id="task-editor"
@@ -4095,8 +4021,9 @@ function App() {
                           catalog={catalog}
                           onRunAudio={runAudio}
                           onRunText={runText}
+                          onGenerateText={(prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
                           onOpenStore={openExtensions}
-                          onAction={notify}
+                          onAction={message => reportEditorMessage(conversation.id, message)}
                         />
                       </div>
                     ))}
@@ -4125,8 +4052,9 @@ function App() {
                           models={orderedRunnablePlugins}
                           catalog={catalog}
                           onRunText={runText}
+                          onGenerateText={(prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
                           onOpenStore={openExtensions}
-                          onAction={notify}
+                          onAction={message => reportEditorMessage(conversation.id, message)}
                         />
                       </div>
                     ))}
@@ -4155,7 +4083,7 @@ function App() {
                           dubbingMode={conversation.videoDubbingMode ?? "translate"}
                           dubbingLanguages={conversation.videoDubbingLanguages}
                           dubbingStyle={conversation.videoDubbingStyle}
-                          onAction={notify}
+                          onAction={message => reportEditorMessage(conversation.id, message)}
                         />
                       </div>
                     ))}
@@ -4181,9 +4109,10 @@ function App() {
                           initialInstruction={conversation.prompt}
                           models={orderedRunnablePlugins}
                           onRunText={runText}
+                          onGenerateText={(prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
                           onRunAudio={runAudio}
                           onOpenStore={openExtensions}
-                          onAction={notify}
+                          onAction={message => reportEditorMessage(conversation.id, message)}
                         />
                       </div>
                     ))}

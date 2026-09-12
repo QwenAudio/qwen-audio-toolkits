@@ -567,66 +567,6 @@
   grid-template-rows: minmax(0, 1fr) auto;
 }
 
-.agent-home-view.has-conversation .agent-home-chat-panel:has(.skill-launch-panel) {
-  grid-template-rows: minmax(140px, 1fr) auto auto;
-  overflow-y: auto;
-}
-
-.skill-launch-panel {
-  width: min(760px, 100%);
-  margin: 0 auto;
-  padding: 15px 17px;
-  border: 1px solid var(--line-strong);
-  border-radius: 12px;
-  background: var(--surface);
-}
-.skill-launch-heading { display: flex; gap: 16px; align-items: center; justify-content: space-between; }
-.skill-launch-heading > div { min-width: 0; }
-.skill-launch-heading strong { color: var(--ink); font-size: 13px; font-weight: 600; }
-.skill-launch-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
-.skill-launch-action {
-  display: inline-flex;
-  flex-shrink: 0;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 7px 12px;
-  color: var(--surface);
-  background: var(--primary);
-  border: 0;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.skill-launch-action:hover:not(:disabled) { background: var(--primary-hover); }
-.skill-launch-source {
-  display: flex;
-  width: 100%;
-  min-width: 0;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-  padding: 9px 10px;
-  color: var(--primary);
-  background: var(--primary-soft);
-  border: 1px solid transparent;
-  border-radius: 7px;
-  cursor: pointer;
-}
-.skill-launch-source svg { flex-shrink: 0; }
-.skill-launch-source span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.skill-launch-source small { margin-left: auto; flex-shrink: 0; color: var(--muted); font-size: 11px; }
-.skill-launch-source.invalid { border-color: var(--danger); }
-.skill-launch-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding: 0; margin: 12px 0 0; border: 0; }
-.skill-launch-options legend { padding: 0 0 7px; color: var(--muted); font-size: 11px; }
-.skill-launch-options label { display: grid; min-width: 0; gap: 5px; color: var(--muted); font-size: 11px; }
-.skill-launch-options select { width: 100%; min-width: 0; height: 31px; padding: 0 6px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink-soft); font-size: 12px; }
-@media (max-width: 680px) {
-  .skill-launch-heading { align-items: stretch; flex-direction: column; gap: 10px; }
-  .skill-launch-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
 .agent-home-view.has-conversation .agent-message-list {
   align-content: start;
   max-height: none;

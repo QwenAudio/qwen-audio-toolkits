@@ -1,3 +1,4 @@
+import { demoProjectSnapshot } from '../demo'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { convertFileSrc } from '@tauri-apps/api/core'
@@ -12,7 +13,6 @@ import {
   Plus,
   Radio,
   RotateCcw,
-  Sparkles,
   Trash2,
   X,
 } from 'lucide-react'
@@ -74,6 +74,7 @@ interface AiPodcastViewProps {
   initialLaunchId?: number
   models: ModelPlugin[]
   catalog: HarnessCatalog | null
+  onGenerateText?: (prompt: string, systemPrompt: string) => Promise<string>
   onRunText: (
     text: string,
     capability: 'speech.synthesize' | 'text.generate' | 'text.punctuate' | 'text.normalize',
@@ -131,14 +132,16 @@ export function AiPodcastView({
   models,
   catalog,
   onRunText,
+  onGenerateText,
   onOpenStore,
   onAction,
 }: AiPodcastViewProps) {
   useLocale()
-  const [restored] = useState(() => readPodcastSnapshot(readProjectSnapshot(projectId, 'podcast')))
+  const [restored] = useState(() => readPodcastSnapshot(readProjectSnapshot(projectId, 'podcast') ?? demoProjectSnapshot(projectId)))
   const [stage, setStage] = useState<PodcastStage>(() => restored?.script ? (restored.output ? 'complete' : 'review') : restored?.source ? 'ready' : 'empty')
   const [source, setSource] = useState<SourceDocument | null>(restored?.source ?? null)
   const [sourcePath, setSourcePath] = useState(restored?.sourcePath ?? '')
+  const autoSynthesizeRef = useRef(false)
   const [instruction, setInstruction] = useState(restored?.instruction ?? initialInstruction ?? '')
   const [length, setLength] = useState<PodcastLength>(restored?.length ?? 'brief')
   const [language, setLanguage] = useState<'auto' | 'zh-CN' | 'en'>(restored?.language ?? 'auto')
@@ -327,7 +330,8 @@ export function AiPodcastView({
     })
     const path = typeof selection === 'string' ? selection : null
     if (!path) return
-    await loadDocument(path)
+    const document = await loadDocument(path)
+    if (document && onGenerateText) void generateScript(document)
   }
 
   const reset = () => {
@@ -350,8 +354,15 @@ export function AiPodcastView({
     if (!document) {
       return reject(t('请先上传论文或文档'))
     }
-    if (!selectedLlm?.providerId) {
+    if (!onGenerateText && !selectedLlm?.providerId) {
       return reject(t('请先安装并配置一个文本生成模型'))
+    }
+    const generateText = async (prompt: string, systemPrompt: string, maxTokens: number) => {
+      if (onGenerateText) return onGenerateText(prompt, systemPrompt)
+      const execution = await onRunText(prompt, 'text.generate', selectedLlm!.providerId!, selectedLlm!.version,
+        { systemPrompt, maxTokens }, [], false)
+      if (!isTextResult(execution.output)) throw new Error(t('文本生成模型没有返回有效内容'))
+      return execution.output.text
     }
     const { chunks, truncated } = chunkPodcastSource(document.text)
     if (!chunks.length) {
@@ -366,37 +377,19 @@ export function AiPodcastView({
         setStage('summarizing')
         setProgress({ completed: 0, total: chunks.length })
         for (let index = 0; index < chunks.length; index += 1) {
-          const execution = await onRunText(
+          const text = await generateText(
             `${t('文档片段')} ${index + 1}/${chunks.length}\n<source>\n${chunks[index]}\n</source>`,
-            'text.generate',
-            selectedLlm.providerId,
-            selectedLlm.version,
-            { systemPrompt: PODCAST_NOTES_SYSTEM_PROMPT, temperature: 0.1, maxTokens: 900 },
-            [],
-            false,
-          )
-          if (!isTextResult(execution.output)) throw new Error(t('文本生成模型没有返回有效内容'))
-          notes.push(`${t('片段')} ${index + 1}\n${execution.output.text.trim()}`)
+            PODCAST_NOTES_SYSTEM_PROMPT, 900)
+          notes.push(`${t('片段')} ${index + 1}\n${text.trim()}`)
           setProgress({ completed: index + 1, total: chunks.length })
         }
         material = notes.join('\n\n')
       }
       setStage('scripting')
-      const execution = await onRunText(
-        podcastScriptPrompt(material, instruction, length, language),
-        'text.generate',
-        selectedLlm.providerId,
-        selectedLlm.version,
-        {
-          systemPrompt: PODCAST_SCRIPT_SYSTEM_PROMPT,
-          temperature: 0.55,
-          maxTokens: length === 'deep' ? 6200 : length === 'standard' ? 4000 : 2600,
-        },
-        [],
-        false,
-      )
-      if (!isTextResult(execution.output)) throw new Error(t('文本生成模型没有返回有效内容'))
-      const next = parsePodcastScript(execution.output.text)
+      const text = await generateText(podcastScriptPrompt(material, instruction, length, language),
+        PODCAST_SCRIPT_SYSTEM_PROMPT, length === 'deep' ? 6200 : length === 'standard' ? 4000 : 2600)
+      const next = parsePodcastScript(text)
+      autoSynthesizeRef.current = Boolean(onGenerateText)
       setScript(next)
       setStage('review')
       setProgress({ completed: 0, total: 0 })
@@ -412,7 +405,7 @@ export function AiPodcastView({
     } finally {
       operationRef.current = false
     }
-  }, [busy, instruction, language, length, onAction, onRunText, script, selectedLlm, source])
+  }, [busy, instruction, language, length, onAction, onRunText, onGenerateText, script, selectedLlm, source])
 
   useEffect(() => {
     if (
@@ -427,7 +420,7 @@ export function AiPodcastView({
       sourcePath !== initialSourcePath ||
       instruction.trim() !== initialInstruction.trim()
     ) return
-    if (!selectedLlm) {
+    if (!onGenerateText && !selectedLlm) {
       if (!selectedLlmId && llmModels.length) return
       submittedInitialLaunchRef.current = initialLaunchId
       setError(t('请先安装并配置一个文本生成模型'))
@@ -446,6 +439,7 @@ export function AiPodcastView({
     llmModels.length,
     selectedLlm,
     selectedLlmId,
+    onGenerateText,
     source,
     sourcePath,
     stage,
@@ -570,9 +564,20 @@ export function AiPodcastView({
       }
     }),
   }
+  useEffect(() => {
+    if (!autoSynthesizeRef.current || stage !== 'review' || busy) return
+    autoSynthesizeRef.current = false
+    void synthesize()
+  })
+
   useWorkspaceController(projectId, {
     getState: () => ({
       mode: 'ai-podcast',
+      presentation: {
+        hasArtifact: Boolean(script), busy,
+        message: busy ? stageMessage(stage, progress.completed, progress.total) : outputCurrent ? t('播客音频已生成，可在右侧试听。') : script ? (demoProjectSnapshot(projectId) ? t('示例播客脚本已就绪。') : t('播客脚本已生成，正在准备音频。')) : '',
+        issue: error || (!source && !busy ? t('请在对话中添加播客来源文档。') : script && !selectedTts && !demoProjectSnapshot(projectId) ? t('缺少语音合成模型，请在对话中让我安装语音合成模型。') : ''),
+      },
       revision: JSON.stringify({ sourcePath, instruction, length, language, selectedLlmId, selectedTtsId, voiceA, voiceB, speakerAName, speakerBName, speed, script }),
       busy: busy || operationRef.current,
       context: {
@@ -680,7 +685,7 @@ export function AiPodcastView({
       const taskTitle = taskFileName.replace(/\.[^.]+$/u, '') || t('AI 播客')
       return (
         <main className={`ai-podcast-view project podcast-task-initializing${panelMode ? ' panel-mode' : ''}`}>
-          <header className="podcast-project-header">
+      <header className="podcast-project-header">
             <div>
               <span className="podcast-kicker">AI PODCAST</span>
               <h1 className="podcast-task-title">{taskTitle}</h1>
@@ -694,16 +699,16 @@ export function AiPodcastView({
                 <div><strong>{t('已提交的任务')}</strong><small>{taskFileName}</small></div>
               </div>
               <p>{instruction}</p>
-              <label className="podcast-field podcast-retry-model">
+              {!onGenerateText && (<label className="podcast-field podcast-retry-model">
                 <span>{t('文本生成模型')}</span>
                 <select value={selectedLlmId} disabled={busy} onChange={(event) => setSelectedLlmId(event.target.value)}>
                   {selectedLlmId && !selectedLlm && <option value={selectedLlmId}>{t('已保存的模型暂不可用')}</option>}
                   {!selectedLlmId && !llmModels.length && <option value="">{t('无可用 LLM')}</option>}
                   {llmModels.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}
                 </select>
-              </label>
+              </label>)}
               {error && <p className="podcast-error compact">{error}</p>}
-              {!llmModels.length && (
+              {!onGenerateText && !llmModels.length && (
                 <button className="podcast-store-link full" type="button" onClick={onOpenStore}>
                   {t('前往模型商店安装或配置 LLM')}
                 </button>
@@ -712,7 +717,7 @@ export function AiPodcastView({
                 <button
                   className="podcast-primary-action"
                   type="button"
-                  disabled={busy || !selectedLlm}
+                  disabled={busy || (!onGenerateText && !selectedLlm)}
                   onClick={() => void (async () => {
                     // Mark this as submitted before loading, so the launch effect cannot submit twice.
                     submittedInitialLaunchRef.current = initialLaunchId
@@ -753,7 +758,7 @@ export function AiPodcastView({
           <h1>{t('AI 播客')}</h1>
           <p>{t('上传论文或文档，先生成可以复核的主持人与嘉宾对话，再用两种音色合成为完整音频。')}</p>
         </section>
-        <section className="smart-cut-composer podcast-composer">
+        <section className="editor-setup">
           {source && (
             <div className="smart-cut-video-attachment podcast-document-chip">
               <FileText size={18} />
@@ -766,48 +771,50 @@ export function AiPodcastView({
               </button>
             </div>
           )}
-          {instruction && <p className="editor-task-brief">{instruction}</p>}
-          <div className="smart-cut-composer-toolbar podcast-composer-options">
+          <div className="editor-setup-fields">
             <button className="smart-cut-attach-button podcast-attach" type="button" disabled={busy} onClick={() => void chooseDocument()}>
               <Paperclip size={15} /> <span>{source ? t('替换文档') : t('上传文档')}</span>
             </button>
-            <label className="smart-cut-planner-model">
-              <Sparkles size={13} />
+            {!onGenerateText && (<label className="smart-cut-planner-model">
+              <span>{t('文本生成模型')}</span>
               <select value={selectedLlmId} disabled={busy} onChange={(event) => setSelectedLlmId(event.target.value)}>
                 {selectedLlmId && !selectedLlm && <option value={selectedLlmId}>{t('已保存的模型暂不可用')}</option>}
                 {!llmModels.length && <option value="">{t('无可用 LLM')}</option>}
                 {llmModels.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}
               </select>
-            </label>
-            <label>
+            </label>)}
+            {!onGenerateText && (<label>
+              <span>{t('时长')}</span>
               <select value={length} disabled={busy} onChange={(event) => setLength(event.target.value as PodcastLength)}>
                 <option value="brief">{t('约 3 分钟')}</option>
                 <option value="standard">{t('约 6 分钟')}</option>
                 <option value="deep">{t('约 10 分钟')}</option>
               </select>
-            </label>
-            <label>
+            </label>)}
+            {!onGenerateText && (<label>
+              <span>{t('语言')}</span>
               <select value={language} disabled={busy} onChange={(event) => setLanguage(event.target.value as 'auto' | 'zh-CN' | 'en')}>
                 <option value="auto">{t('自动语言')}</option>
                 <option value="zh-CN">中文</option>
                 <option value="en">English</option>
               </select>
-            </label>
+            </label>)}
             <button
-              className="smart-cut-send podcast-send"
+              className="editor-setup-action"
               type="button"
-              disabled={busy || !source || !selectedLlm}
+              disabled={busy || !source || (!onGenerateText && !selectedLlm)}
               aria-label={t('生成播客脚本')}
               onClick={() => void generateScript()}
             >
               {busy ? <LoaderCircle className="podcast-spin" size={16} /> : <Play size={17} />}
+              {t('生成播客脚本')}
             </button>
           </div>
         </section>
 
         <section className="smart-cut-entry-status podcast-entry-status">
           {busy && <p className="podcast-status">{stageMessage(stage, progress.completed, progress.total)}</p>}
-          {!llmModels.length && (
+          {!onGenerateText && !llmModels.length && (
             <button className="podcast-store-link" type="button" onClick={onOpenStore}>{t('前往模型商店安装或配置 LLM')}</button>
           )}
           {error && <p className="podcast-error">{error}</p>}
@@ -817,7 +824,12 @@ export function AiPodcastView({
   }
 
   return (
-    <main className={`ai-podcast-view project${output ? ' has-output' : ''}${panelMode ? ' panel-mode' : ''}`}>
+    <main className={`ai-podcast-view project${demoProjectSnapshot(projectId) ? ' demo-results' : ''}${output ? ' has-output' : ''}${panelMode ? ' panel-mode' : ''}`}>
+          {Boolean(demoProjectSnapshot(projectId)) && <div className="demo-artifact-audio">
+        <strong>音频预览 · 示例波形</strong>
+        <div aria-label="示例音频波形">{Array.from({ length: 48 }, (_, index) => <i key={index} style={{ height: 8 + ((index * 17) % 32) }} />)}</div>
+        <small>仅展示生成结果布局，不包含可播放音频</small>
+      </div>}
       <header className="podcast-project-header">
         <div>
           <span className="podcast-kicker">AI PODCAST</span>
@@ -877,14 +889,14 @@ export function AiPodcastView({
           </button>
           <details className="podcast-script-options">
             <summary>{t('脚本生成设置')}</summary>
-            <label className="podcast-field">
+            {!onGenerateText && (<label className="podcast-field">
               <span>{t('文本生成模型')}</span>
               <select value={selectedLlmId} disabled={busy} onChange={(event) => setSelectedLlmId(event.target.value)}>
                 {selectedLlmId && !selectedLlm && <option value={selectedLlmId}>{t('已保存的模型暂不可用')}</option>}
                 {!llmModels.length && <option value="">{t('无可用 LLM')}</option>}
                 {llmModels.map((model) => <option value={model.id} key={model.id}>{model.name}</option>)}
               </select>
-            </label>
+            </label>)}
             <div className="podcast-speaker-setting">
               <label className="podcast-field">
                 <span>{t('目标长度')}</span>
@@ -907,7 +919,7 @@ export function AiPodcastView({
                 </select>
               </label>
             </div>
-            <button className="podcast-reset" type="button" disabled={busy || !source || !selectedLlm} onClick={() => void generateScript()}>
+            <button className="podcast-reset" type="button" disabled={busy || !source || (!onGenerateText && !selectedLlm)} onClick={() => void generateScript()}>
               <RotateCcw size={14} />{t('重新生成并替换脚本')}
             </button>
           </details>

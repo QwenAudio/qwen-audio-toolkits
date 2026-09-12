@@ -111,3 +111,7 @@
 @container workspace-editor (max-width: 350px) {
   .video-translation-settings-grid { grid-template-columns: 1fr; }
 }
+
+.demo-dubbing-preview { position: relative; padding-top: 56.25%; margin-bottom: 18px; border-radius: 12px; overflow: hidden; background: #203b3c; }
+.demo-dubbing-preview .demo-artifact-video { bottom: 34px; }
+.demo-dubbing-preview > p { position: relative; z-index: 2; margin: 0; padding: 10px 12px; font-size: 11px; color: #e0eae5; background: #203b3c; }

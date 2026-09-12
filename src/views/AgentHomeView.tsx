@@ -27,13 +27,9 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import type {
   AgentCreationMode,
-  AgentCreationOptions,
   GeneralAgentAttachment,
   GeneralAgentMessage,
   GeneralAgentMessageModelOptions,
-  VideoDubbingLanguages,
-  VideoDubbingMode,
-  VideoDubbingStyle,
 } from '../domain/agents'
 import {
   agentFileCanPreview,
@@ -75,8 +71,6 @@ interface AgentHomeViewProps {
   modelInstallMode: OnDemandModelInstallMode
   messageModelOptions: Record<string, GeneralAgentMessageModelOptions>
   selectedModeId: AgentCreationMode | null
-  creationOptions?: AgentCreationOptions
-  onCreationOptionsChange: (options: AgentCreationOptions) => void
   onModelInstallModeChange: (mode: OnDemandModelInstallMode) => void
   onMessageModelSelect: (messageId: string, modelId: string) => void
   chatAvailable: boolean
@@ -90,15 +84,7 @@ interface AgentHomeViewProps {
     attachment: { path: string; name: string } | null
   }) => void
   onRunMessageAction: (message: GeneralAgentMessage, modelId?: string | null) => void
-  onLaunch: (
-    mode: AgentCreationMode,
-    prompt: string,
-    sourcePath: string,
-    videoDubbingMode?: VideoDubbingMode,
-    videoDubbingLanguages?: VideoDubbingLanguages,
-    videoDubbingStyle?: VideoDubbingStyle,
-  ) => void
-  onOpenStore: () => void
+
 }
 
 const MODE_ORDER: AgentCreationMode[] = [
@@ -346,8 +332,8 @@ export function AgentHomeView({
       : selectedEntry === 'ai-podcast' ? [t('语速设为 1.1 倍'), t('更新播客音频')]
         : selectedEntry === 'meeting-notes' ? [t('查看会议总结'), t('查看实时转写')]
         : [t('配音风格设为轻松'), t('开始配音')]
-  const attachmentCompatible = workspaceCanOperate || !attachment || !selectedEntry || attachmentMatchesMode(attachment.path, selectedEntry)
-  const canSubmit = Boolean(draftPrompt.trim()) && !submitting && !choosingAttachment && attachmentCompatible && !chatModelUnavailable
+  const attachmentCompatible = !attachment || !selectedEntry || attachmentMatchesMode(attachment.path, selectedEntry)
+  const canSubmit = Boolean(draftPrompt.trim() || attachment) && !submitting && !choosingAttachment && attachmentCompatible && !chatModelUnavailable
   const attachmentHelp = !attachmentCompatible && selectedModeId === 'ai-podcast'
     ? t('AI 播客仅支持 PDF、DOCX、TXT 和 Markdown，请更换附件')
     : !attachmentCompatible
@@ -405,7 +391,7 @@ export function AgentHomeView({
   }
 
   const submitPrompt = () => {
-    const trimmed = draftPrompt.trim()
+    const trimmed = draftPrompt.trim() || messages.find(message => message.role === 'user')?.content || t('请按任务要求处理这个素材。')
     if (!canSubmit) return
     setComposerError(null)
     followMessagesRef.current = true
@@ -721,7 +707,7 @@ export function AgentHomeView({
               </div>
             )}
 
-	            {attachment && !workspaceCanOperate && (
+	            {attachment && (
 	              <AgentFilePreview
 	                compact
 	                file={attachment}
@@ -742,7 +728,7 @@ export function AgentHomeView({
               aria-label={t('描述任务')}
               aria-describedby={composerError || !attachmentCompatible || chatModelUnavailable ? 'agent-composer-status' : undefined}
               aria-invalid={!attachmentCompatible}
-              placeholder={workspaceCanOperate ? t('告诉 AI 怎样修改右侧内容…') : inWorkspace ? t('继续补充任务要求，或与 Agent 讨论…') : t('描述你想完成的音视频任务，例如：把这个视频翻译成中文配音版，并保留原说话节奏')}
+              placeholder={workspaceCanOperate ? t('继续补充要求、添加素材，或让 Agent 修改结果…') : inWorkspace ? t('继续补充任务要求，或与 Agent 讨论…') : t('描述你想完成的音视频任务，例如：把这个视频翻译成中文配音版，并保留原说话节奏')}
               onChange={(event) => onDraftPromptChange(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
@@ -751,7 +737,7 @@ export function AgentHomeView({
               }}
             />
             <div className="agent-home-composer-toolbar">
-              {!workspaceCanOperate && <button
+              {<button
                 type="button"
                 className="agent-attach-button"
                 disabled={submitting || choosingAttachment || selectedEntry === 'meeting-notes'}
@@ -761,7 +747,7 @@ export function AgentHomeView({
                 {choosingAttachment ? <LoaderCircle className="model-spin" size={14} /> : <Paperclip size={14} />}
                 {attachment ? t('更换文件') : t('添加文件')}
               </button>}
-              {!workspaceCanOperate && <button
+              {<button
                 type="button"
                 className="agent-install-mode-toggle"
                 disabled={submitting}

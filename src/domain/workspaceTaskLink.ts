@@ -39,7 +39,6 @@ export function ensureWorkspaceTaskLink(
 ): { conversation: AgentConversation; task: GeneralAgentTask } | null {
   const existing = tasks.find((task) => task.id === conversation.sourceTaskId)
   if (existing) return { conversation, task: existing }
-  if (conversation.mode === 'agent-chat') return null
 
   const attachment = conversation.sourcePath
     ? {

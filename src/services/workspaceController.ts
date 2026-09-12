@@ -17,6 +17,7 @@ export interface WorkspaceActionDefinition {
 
 export interface WorkspaceEditorState {
   mode: AgentCreationMode
+  presentation?: WorkspacePresentation
   /** Change when editable content changes, excluding playback/progress ticks. */
   revision: string
   busy: boolean
@@ -44,4 +45,25 @@ export function registerWorkspaceController(projectId: string, controller: Works
 
 export function getWorkspaceController(projectId: string): WorkspaceController | null {
   return controllers.get(projectId) ?? null
+}
+
+export interface WorkspacePresentation {
+  hasArtifact: boolean
+  busy: boolean
+  message: string
+  issue?: string
+}
+const presentations = new Map<string, WorkspacePresentation>()
+const presentationListeners = new Set<() => void>()
+export function publishWorkspacePresentation(id: string, value: WorkspacePresentation): void {
+  if (JSON.stringify(presentations.get(id)) === JSON.stringify(value)) return
+  presentations.set(id, value)
+  presentationListeners.forEach(listener => listener())
+}
+export function getWorkspacePresentation(id: string | null): WorkspacePresentation | undefined {
+  return id ? presentations.get(id) : undefined
+}
+export function subscribeWorkspacePresentation(listener: () => void): () => void {
+  presentationListeners.add(listener)
+  return () => { presentationListeners.delete(listener) }
 }
