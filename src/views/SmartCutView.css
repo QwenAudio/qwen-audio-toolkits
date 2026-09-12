@@ -275,6 +275,9 @@
   opacity: .48;
   cursor: default;
 }
+.smart-cut-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent, #4c7e6c) 85%, #000);
+}
 
 .smart-cut-engine {
   display: flex;
@@ -691,6 +694,13 @@
 .smart-cut-batch-actions { display: flex; gap: 6px; margin: 10px 0; }
 .smart-cut-batch-actions button:last-child { margin-left: auto; }
 .smart-cut-batch-actions button:disabled { opacity: .38; cursor: default; }
+.smart-cut-tuning button:hover,
+.smart-cut-batch-actions button:hover:not(:disabled),
+.smart-cut-review-footer > button:hover,
+.smart-cut-audition:hover {
+  background: color-mix(in srgb, var(--text-primary, #202422) 5%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary, #202422) 18%, var(--cut-border));
+}
 .smart-cut-manual-summary {
   display: grid;
   gap: 7px;

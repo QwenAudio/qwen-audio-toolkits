@@ -87,6 +87,11 @@
   font-weight: 680;
   letter-spacing: -.03em;
 }
+.podcast-title-input:focus-visible {
+  outline: 2px solid var(--podcast-accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
 .podcast-project-header p { margin: 5px 0 0; color: var(--podcast-muted); font-size: 12px; }
 .podcast-task-title { margin: 5px 0 0; font-size: 22px; font-weight: 660; letter-spacing: -.02em; }
 .podcast-task-submission > p:not(.podcast-error) { margin: 16px 0 0; color: var(--text-primary, #202422); font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
@@ -107,6 +112,13 @@
   border-radius: 8px;
   font-size: 11px;
   cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.podcast-reset:hover,
+.podcast-script-heading button:hover,
+.podcast-export:hover {
+  background: color-mix(in srgb, var(--text-primary, #202422) 4%, var(--surface-raised, #fff));
+  border-color: color-mix(in srgb, var(--text-primary, #202422) 18%, var(--podcast-border));
 }
 
 .podcast-workspace {
@@ -176,6 +188,7 @@
   cursor: pointer;
 }
 .podcast-primary-action:disabled { opacity: .42; cursor: default; }
+.podcast-primary-action:hover:not(:disabled) { background: color-mix(in srgb, var(--podcast-accent) 85%, #000); }
 
 .podcast-output-meta { display: flex; justify-content: flex-end; gap: 8px; color: var(--podcast-muted); font-size: 10px; white-space: nowrap; }
 .podcast-export { color: var(--podcast-accent); }

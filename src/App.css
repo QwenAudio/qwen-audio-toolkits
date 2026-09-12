@@ -4134,15 +4134,24 @@ button.job-state {
   background: var(--primary);
   border: 1px solid var(--primary);
 }
+.install-button:hover {
+  background: color-mix(in srgb, var(--primary) 85%, #000);
+}
 .installed-button {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 6%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 26%, var(--line));
 }
+.installed-button:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
 .installed-button.hide-skill-button {
   color: var(--ink-soft);
   background: var(--surface-raised);
   border-color: var(--line);
+}
+.installed-button.hide-skill-button:hover {
+  background: var(--surface-soft);
 }
 .installed-button.confirming-delete {
   color: var(--danger);
