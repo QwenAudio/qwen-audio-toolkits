@@ -221,6 +221,58 @@ const APP_AGENT_DEFINITIONS = [
       { name: 'notes', label: '会议纪要', type: 'text', modes: ['stream'] },
     ],
   },
+  {
+    id: 'qwenaudio.agent-chat',
+    name: 'Agent 对话',
+    author: 'QwenAudio',
+    description:
+      '通过 ACP 连接本地编码 Agent（Kimi Code、Qwen Code、Codex 等），直接对话、规划并执行开发任务。',
+    license: 'Apache-2.0',
+    capabilities: ['多轮对话', '工具调用', '任务规划', '权限确认'],
+    harnessCapabilities: [],
+    runtime: 'ACP 子进程',
+    acceleration: ['本地 CLI'],
+    version: '1.0.0',
+    size: '内置',
+    enabled: true,
+    sidebarVisible: true,
+    builtin: true,
+    featured: true,
+    tone: 'violet',
+    adapter: 'agent-chat',
+    installPath: '',
+    catalogManaged: true,
+    installable: true,
+    extensionKind: 'workspace-agent',
+    workspaceEntry: 'agent-chat',
+    agent: {
+      task: '连接本地编码 Agent CLI，进行多轮对话并协助完成开发任务。',
+      usage: {
+        inputRequirements: [
+          '本机安装并登录一个支持的 Agent CLI（如 kimi）。',
+          '首次对话前请在终端完成 CLI 登录。',
+        ],
+        limitations: [
+          '附件以文件路径形式随消息发送，由 Agent 用自己的工具读取。',
+          '需要授权的操作会弹出确认卡片，请人工确认。',
+        ],
+        examples: [
+          '你好，介绍一下你自己能做什么。',
+          '帮我用 Python 写一个快速排序并解释思路。',
+        ],
+      },
+      harness: {
+        kind: 'app-workflow',
+        entry: 'agent-chat',
+      },
+    },
+    inputs: [
+      { name: 'instruction', label: '对话内容', type: 'text', modes: ['batch'] },
+    ],
+    outputs: [
+      { name: 'reply', label: 'Agent 回复', type: 'text', modes: ['batch'] },
+    ],
+  },
 ] as const satisfies ReadonlyArray<Omit<ModelPlugin, 'installed'>>
 
 export function defaultInstalledAppAgentIds(): string[] {

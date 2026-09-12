@@ -1,7 +1,7 @@
 const defaultDelay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
 
 export function isRetryableApiError(message) {
-  return /error sending request|timed? out|connection|temporar|fetch failed|econn|enotfound|eai_again|socket|网络|连接|超时/iu.test(String(message))
+  return /error sending request|timed? out|connection|temporar|fetch failed|econn|enotfound|eai_again|socket|429|too many requests|throttl|网络|连接|超时/iu.test(String(message))
 }
 
 function retryMessageOf(error) {

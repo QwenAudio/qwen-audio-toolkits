@@ -3042,10 +3042,9 @@ pub fn harness_start_realtime_stream(
         .await;
         let completed_at = timestamp_millis();
         let duration_ms = started.elapsed().as_millis() as u64;
-        let artifact = result
-            .as_ref()
-            .ok()
-            .and_then(|payload| artifact_from_payload(CAPABILITY_CONVERSATION, payload.clone()).ok());
+        let artifact = result.as_ref().ok().and_then(|payload| {
+            artifact_from_payload(CAPABILITY_CONVERSATION, payload.clone()).ok()
+        });
         let updated = task_runtime.update(&task_app, &task_run_id, |run| {
             run.completed_at = Some(completed_at);
             run.duration_ms = Some(duration_ms);
@@ -3185,10 +3184,9 @@ async fn run_realtime_stream(
         HeaderValue::from_str(&format!("Bearer {}", config.api_key))
             .map_err(|error| format!("百炼 AK 格式无效: {error}"))?,
     );
-    websocket_request.headers_mut().insert(
-        "OpenAI-Beta",
-        HeaderValue::from_static("realtime=v1"),
-    );
+    websocket_request
+        .headers_mut()
+        .insert("OpenAI-Beta", HeaderValue::from_static("realtime=v1"));
     websocket_request.headers_mut().insert(
         "User-Agent",
         HeaderValue::from_static("qwenaudio-toolkits/0.1"),
@@ -5576,12 +5574,18 @@ async fn execute_bailian_tts(
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
         .or_else(|| (model_id == BAILIAN_COSYVOICE_MODEL).then(|| "longxiaochun_v2".to_string()))
-        .ok_or_else(|| match model_id {
-            BAILIAN_QWEN3_TTS_VC_MODEL => "Qwen3 TTS Voice Cloning 需要 qwen-voice-enrollment 复刻的音色 ID",
-            BAILIAN_QWEN3_TTS_VD_MODEL => "Qwen3 TTS Voice Design 需要 qwen-voice-design 设计的音色 ID",
-            _ => "CosyVoice v3.5 需要声音复刻或声音设计生成的音色 ID",
-        }
-        .to_string())?;
+        .ok_or_else(|| {
+            match model_id {
+                BAILIAN_QWEN3_TTS_VC_MODEL => {
+                    "Qwen3 TTS Voice Cloning 需要 qwen-voice-enrollment 复刻的音色 ID"
+                }
+                BAILIAN_QWEN3_TTS_VD_MODEL => {
+                    "Qwen3 TTS Voice Design 需要 qwen-voice-design 设计的音色 ID"
+                }
+                _ => "CosyVoice v3.5 需要声音复刻或声音设计生成的音色 ID",
+            }
+            .to_string()
+        })?;
     let is_qwen3_tts = model_id.starts_with("qwen3-tts-");
     let instruction = optional_string(&request.parameters, "instruction");
     let (url, input) = if is_qwen3_tts {
@@ -5594,7 +5598,10 @@ async fn execute_bailian_tts(
             input["optimize_instructions"] = json!(true);
         }
         (
-            format!("{}/api/v1/services/aigc/multimodal-generation/generation", config.base_url),
+            format!(
+                "{}/api/v1/services/aigc/multimodal-generation/generation",
+                config.base_url
+            ),
             input,
         )
     } else {
@@ -5605,11 +5612,16 @@ async fn execute_bailian_tts(
             "sample_rate": 24000,
             "rate": speed
         });
-        if let Some(instruction) = instruction.map(|value| value.chars().take(100).collect::<String>()) {
+        if let Some(instruction) =
+            instruction.map(|value| value.chars().take(100).collect::<String>())
+        {
             input["instruction"] = json!(instruction);
         }
         (
-            format!("{}/api/v1/services/audio/tts/SpeechSynthesizer", config.base_url),
+            format!(
+                "{}/api/v1/services/audio/tts/SpeechSynthesizer",
+                config.base_url
+            ),
             input,
         )
     };

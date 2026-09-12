@@ -325,10 +325,7 @@ fn spawn_acp_client(
         .env("DASHSCOPE_API_KEY", api_key)
         .env("DASHSCOPE_BASE_URL", base_url)
         .env("DASHSCOPE_MODEL", model)
-        .env(
-            "OPENCODE_CONFIG_CONTENT",
-            opencode_config(model, base_url),
-        )
+        .env("OPENCODE_CONFIG_CONTENT", opencode_config(model, base_url))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -391,7 +388,8 @@ fn acquire_acp_client(
     let mut index = pool.len();
     while index > 0 {
         index -= 1;
-        if pool[index].cwd != *cwd || pool[index].model != model || pool[index].base_url != base_url {
+        if pool[index].cwd != *cwd || pool[index].model != model || pool[index].base_url != base_url
+        {
             continue;
         }
         let mut client = pool.remove(index);

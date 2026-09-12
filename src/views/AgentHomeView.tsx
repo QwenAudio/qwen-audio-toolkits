@@ -27,6 +27,9 @@ import type {
   GeneralAgentAttachment,
   GeneralAgentMessage,
   GeneralAgentMessageModelOptions,
+  VideoDubbingLanguages,
+  VideoDubbingMode,
+  VideoDubbingStyle,
 } from '../domain/agents'
 import {
   agentFileCanPreview,
@@ -54,6 +57,7 @@ interface AgentHomeViewProps {
   selectedModeId: AgentCreationMode | null
   onModelInstallModeChange: (mode: OnDemandModelInstallMode) => void
   onMessageModelSelect: (messageId: string, modelId: string) => void
+  chatAvailable: boolean
   onSelectedModeChange: (mode: AgentCreationMode | null) => void
   onDraftPromptChange: (prompt: string) => void
   onAttachmentChange: (attachment: { path: string; name: string } | null) => void
@@ -64,10 +68,19 @@ interface AgentHomeViewProps {
     attachment: { path: string; name: string } | null
   }) => void
   onRunMessageAction: (message: GeneralAgentMessage, modelId?: string | null) => void
+  onLaunch: (
+    mode: AgentCreationMode,
+    prompt: string,
+    sourcePath: string,
+    videoDubbingMode?: VideoDubbingMode,
+    videoDubbingLanguages?: VideoDubbingLanguages,
+    videoDubbingStyle?: VideoDubbingStyle,
+  ) => void
   onOpenStore: () => void
 }
 
 const MODE_ORDER: AgentCreationMode[] = [
+  'agent-chat',
   'smart-cut',
   'ai-podcast',
   'video-dubbing',
@@ -75,6 +88,7 @@ const MODE_ORDER: AgentCreationMode[] = [
 ]
 
 const MODE_ICONS = {
+  'agent-chat': MessageSquareText,
   'smart-cut': Scissors,
   'ai-podcast': Radio,
   'video-dubbing': Languages,
@@ -119,9 +133,11 @@ function attachmentMatchesMode(path: string, mode: AgentCreationMode | null): bo
   }
   return mode === 'meeting-notes'
     ? false
-    : mode === 'ai-podcast'
-      ? DOCUMENT_EXTENSIONS.includes(extension as (typeof DOCUMENT_EXTENSIONS)[number])
-      : VIDEO_EXTENSIONS.includes(extension as (typeof VIDEO_EXTENSIONS)[number])
+    : mode === 'agent-chat'
+      ? true
+      : mode === 'ai-podcast'
+        ? DOCUMENT_EXTENSIONS.includes(extension as (typeof DOCUMENT_EXTENSIONS)[number])
+        : VIDEO_EXTENSIONS.includes(extension as (typeof VIDEO_EXTENSIONS)[number])
 }
 
 function formatAgentTime(timestamp: number): string {
@@ -248,7 +264,6 @@ export function AgentHomeView({
     () => modes.find((candidate) => candidate.workspaceEntry === selectedModeId) ?? null,
     [modes, selectedModeId],
   )
-  const attachmentCompatible = !attachment || attachmentMatchesMode(attachment.path, selectedModeId)
   const hasConversation = messages.length > 0 || submitting
   const visibleMessageCount = messages.length + (submitting ? 1 : 0)
   const showSkillRow = modes.length > 0
@@ -269,6 +284,9 @@ export function AgentHomeView({
   useEffect(() => {
     setExpandedModelChoices(new Set())
   }, [taskId])
+
+  const selectedEntry = selectedMode?.workspaceEntry ?? null
+  const attachmentCompatible = !attachment || !selectedEntry || attachmentMatchesMode(attachment.path, selectedEntry)
 
   const chooseAttachment = async () => {
     const filters = selectedModeId === 'ai-podcast'

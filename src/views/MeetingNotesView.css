@@ -82,6 +82,16 @@
 
 @keyframes meeting-pulse { 50% { opacity: .55; } }
 
+.meeting-notes-view.panel-mode { padding: 16px 16px 18px; }
+.meeting-notes-view.panel-mode .meeting-notes-header { gap: 12px; padding: 2px 2px 12px; }
+.meeting-notes-view.panel-mode .meeting-notes-header h1 { max-width: 100%; font-size: 17px; }
+.meeting-notes-view.panel-mode .meeting-toolbar { flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.meeting-notes-view.panel-mode .meeting-panels { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1.35fr) minmax(200px, .65fr); gap: 10px; }
+.meeting-notes-view.panel-mode .meeting-transcript-scroll,
+.meeting-notes-view.panel-mode .meeting-summary-content { padding: 13px; }
+.meeting-notes-view.panel-mode .meeting-turn { grid-template-columns: 64px minmax(0, 1fr); gap: 9px; }
+.meeting-notes-view.panel-mode .meeting-turn p { font-size: 13px; line-height: 1.62; }
+
 @media (max-width: 980px) {
   .meeting-notes-view { padding: 18px 18px 22px; }
   .meeting-panels { grid-template-columns: 1fr; grid-template-rows: minmax(420px, 1fr) minmax(360px, .8fr); }

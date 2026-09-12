@@ -1,3 +1,4 @@
+mod acp;
 mod acp_agent;
 mod advanced_models;
 mod agents;
@@ -10,6 +11,7 @@ mod downloads;
 mod harness;
 #[cfg(all(target_os = "macos", debug_assertions))]
 mod macos_window_smoke;
+mod mcp_server;
 mod native_worker;
 mod onnx_audio;
 mod plugins;
@@ -37,15 +39,14 @@ use harness::{
     harness_catalog, harness_create_bailian_voice, harness_delete_api_provider,
     harness_delete_bailian_voice, harness_delete_run, harness_finish_enhancement_stream,
     harness_finish_funasr_stream, harness_finish_realtime_stream, harness_finish_vad_stream,
-    harness_get_run, harness_get_run_output, harness_get_run_preview,
-    harness_list_bailian_voices, harness_list_runs, harness_push_enhancement_stream,
-    harness_push_funasr_stream, harness_push_realtime_stream, harness_push_vad_stream,
-    harness_retry_run, harness_save_api_provider, harness_save_bailian_provider,
-    harness_start_cosyvoice_stream, harness_start_enhancement_stream,
-    harness_start_funasr_stream, harness_start_realtime_stream, harness_start_run,
-    harness_start_vad_stream, ApiProviderSettings, ApiProviderUpdate, BailianProviderSettings,
-    BailianProviderUpdate, HarnessCatalog, HarnessExecution, HarnessRun, HarnessRuntime,
-    HarnessTaskRequest,
+    harness_get_run, harness_get_run_output, harness_get_run_preview, harness_list_bailian_voices,
+    harness_list_runs, harness_push_enhancement_stream, harness_push_funasr_stream,
+    harness_push_realtime_stream, harness_push_vad_stream, harness_retry_run,
+    harness_save_api_provider, harness_save_bailian_provider, harness_start_cosyvoice_stream,
+    harness_start_enhancement_stream, harness_start_funasr_stream, harness_start_realtime_stream,
+    harness_start_run, harness_start_vad_stream, ApiProviderSettings, ApiProviderUpdate,
+    BailianProviderSettings, BailianProviderUpdate, HarnessCatalog, HarnessExecution, HarnessRun,
+    HarnessRuntime, HarnessTaskRequest,
 };
 use plugins::{
     plugin_api_catalog, plugin_cancel_download, plugin_catalog, plugin_dependency_bindings,
@@ -85,7 +86,7 @@ use video_translation::{
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
 
-fn api_address(identifier: &str) -> &'static str {
+pub(crate) fn api_address(identifier: &str) -> &'static str {
     if identifier == "org.qwenaudio.toolkits.agentpreview" {
         "127.0.0.1:3848"
     } else {
@@ -200,6 +201,39 @@ struct LocalApiState {
     tts: Arc<TtsRuntime>,
     asr: Arc<AsrRuntime>,
     audio: Arc<AudioProcessingRuntime>,
+    bridge: Arc<AgentBridgeRuntime>,
+}
+
+#[derive(Default)]
+pub struct AgentBridgeRuntime {
+    meeting_states: std::sync::Mutex<std::collections::HashMap<String, Value>>,
+}
+
+impl AgentBridgeRuntime {
+    fn set_meeting_state(&self, session_id: &str, state: Value) {
+        if let Ok(mut states) = self.meeting_states.lock() {
+            states.insert(session_id.to_string(), state);
+        }
+    }
+
+    fn meeting_state(&self, session_id: &str) -> Option<Value> {
+        self.meeting_states
+            .lock()
+            .ok()
+            .and_then(|states| states.get(session_id).cloned())
+    }
+
+    pub fn remove_session(&self, session_id: &str) {
+        if let Ok(mut states) = self.meeting_states.lock() {
+            states.remove(session_id);
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentPanelRequest {
+    panel: String,
 }
 
 #[derive(Serialize)]
@@ -608,6 +642,49 @@ async fn api_save_bailian_provider(
         .map_err(api_bad_request)
 }
 
+async fn api_agent_request_panel(
+    AxumState(state): AxumState<LocalApiState>,
+    AxumPath(session_id): AxumPath<String>,
+    Json(request): Json<AgentPanelRequest>,
+) -> ApiResult<Value> {
+    if request.panel != "meeting-notes" {
+        return Err(api_bad_request(format!("未知任务面板: {}", request.panel)));
+    }
+    acp::emit_panel_requested(&state.app, &session_id, &request.panel);
+    Ok(Json(json!({ "opened": true, "panel": request.panel })))
+}
+
+async fn api_agent_meeting_state_get(
+    AxumState(state): AxumState<LocalApiState>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Json<Value> {
+    Json(
+        state
+            .bridge
+            .meeting_state(&session_id)
+            .unwrap_or_else(|| json!({ "recording": false, "segments": [] })),
+    )
+}
+
+async fn api_agent_meeting_state_put(
+    AxumState(state): AxumState<LocalApiState>,
+    AxumPath(session_id): AxumPath<String>,
+    Json(snapshot): Json<Value>,
+) -> Json<Value> {
+    state.bridge.set_meeting_state(&session_id, snapshot);
+    Json(json!({ "ok": true }))
+}
+
+#[tauri::command]
+fn agent_set_meeting_state(
+    bridge: tauri::State<'_, Arc<AgentBridgeRuntime>>,
+    session_id: String,
+    snapshot: Value,
+) -> Result<(), String> {
+    bridge.set_meeting_state(&session_id, snapshot);
+    Ok(())
+}
+
 fn api_error(status: StatusCode, error: String) -> (StatusCode, Json<ApiError>) {
     (status, Json(ApiError { error }))
 }
@@ -659,6 +736,14 @@ fn start_local_api(state: LocalApiState) {
                 "/v1/providers/bailian",
                 get(api_bailian_provider_settings).put(api_save_bailian_provider),
             )
+            .route(
+                "/v1/agent/sessions/{session_id}/panel",
+                post(api_agent_request_panel),
+            )
+            .route(
+                "/v1/agent/sessions/{session_id}/meeting-state",
+                get(api_agent_meeting_state_get).put(api_agent_meeting_state_put),
+            )
             .layer(DefaultBodyLimit::max(700 * 1024 * 1024))
             .with_state(state);
 
@@ -702,6 +787,7 @@ pub fn run() {
     let asr_runtime = Arc::new(AsrRuntime::default());
     let tts_runtime = Arc::new(TtsRuntime::default());
     let harness_runtime = Arc::new(HarnessRuntime::default());
+    let acp_runtime = Arc::new(acp::AcpRuntime::default());
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -710,6 +796,8 @@ pub fn run() {
         .manage(asr_runtime)
         .manage(tts_runtime)
         .manage(harness_runtime)
+        .manage(acp_runtime)
+        .manage(Arc::new(AgentBridgeRuntime::default()))
         .manage(CloseBehavior(AtomicBool::new(false)))
         .manage(SystemAudioRuntime::new())
         .manage(VideoTranslationRuntime::default())
@@ -750,6 +838,7 @@ pub fn run() {
                 tts: app.state::<Arc<TtsRuntime>>().inner().clone(),
                 asr: app.state::<Arc<AsrRuntime>>().inner().clone(),
                 audio: app.state::<Arc<AudioProcessingRuntime>>().inner().clone(),
+                bridge: app.state::<Arc<AgentBridgeRuntime>>().inner().clone(),
             });
             #[cfg(all(target_os = "macos", debug_assertions))]
             if std::env::var_os("QWEN_AUDIO_WINDOW_SMOKE_TEST").is_some() {
@@ -826,6 +915,13 @@ pub fn run() {
             harness_push_enhancement_stream,
             harness_finish_enhancement_stream,
             harness_start_cosyvoice_stream,
+            acp::acp_list_providers,
+            acp::acp_start_session,
+            acp::acp_send_prompt,
+            acp::acp_cancel_turn,
+            acp::acp_respond_permission,
+            acp::acp_finish_session,
+            agent_set_meeting_state,
             system_audio_start,
             system_audio_play_chunk,
             system_audio_flush_playback,
@@ -855,9 +951,15 @@ pub fn run() {
         if let RunEvent::Reopen { .. } = event {
             restore_main_window(app);
         }
+        if let RunEvent::ExitRequested { .. } | RunEvent::Exit = event {
+            acp::acp_shutdown_all(app);
+        }
     });
 }
 
 pub fn run_native_worker_from_arguments(arguments: &[String]) -> Option<i32> {
+    if mcp_server::is_mcp_server_arguments(arguments) {
+        return Some(mcp_server::run());
+    }
     native_worker::run_from_arguments(arguments)
 }

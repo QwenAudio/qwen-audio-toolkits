@@ -12,7 +12,9 @@ import {
   formatTranslationContext,
   normalizeDubbingLanguage,
   normalizeDubbingMode,
+  normalizeDubbingStyle,
   speechRateGuidance,
+  ttsStyleInstruction,
 } from './lib/video-dubbing/script-planner.mjs'
 
 assert.equal(normalizeDubbingMode('rewrite'), 'rewrite')
@@ -37,6 +39,17 @@ assert.equal(speechRateGuidance('en'), '每秒约 2 至 2.5 个单词')
 
 assert.equal(formatTranslationContext(null), '')
 assert.equal(formatTranslationContext({}), '')
+
+assert.equal(normalizeDubbingStyle('formal'), 'formal')
+assert.equal(normalizeDubbingStyle('unknown'), 'natural')
+assert.doesNotMatch(buildTransformationPrompt('translate', '', { style: 'natural' }), /风格要求/u)
+assert.match(buildTransformationPrompt('translate', '', { style: 'formal' }), /正式/u)
+assert.match(buildTransformationPrompt('translate', '', { style: 'casual' }), /口语/u)
+assert.match(ttsStyleInstruction('formal', '简体中文'), /播音腔/u)
+assert.match(ttsStyleInstruction('casual', 'English'), /聊天/u)
+assert.match(ttsStyleInstruction('natural', '简体中文'), /自然、清晰/u)
+assert.match(formatTranslationContext({ tone: '轻快' }), /语气风格：轻快/u)
+assert.equal(formatTranslationContext({ tone: '轻快' }, { includeTone: false }), '')
 const formattedContext = formatTranslationContext({
   summary: '访谈节目',
   tone: '口语化',

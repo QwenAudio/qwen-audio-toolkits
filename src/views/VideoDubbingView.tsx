@@ -9,7 +9,7 @@ import {
   type VideoDubbingProgress,
   type VideoDubbingTurn,
 } from '../services/videoDubbing'
-import type { VideoDubbingLanguages, VideoDubbingMode } from '../domain/agents'
+import type { VideoDubbingLanguages, VideoDubbingMode, VideoDubbingStyle } from '../domain/agents'
 import { t, useLocale } from '../i18n'
 import './VideoDubbingView.css'
 
@@ -19,6 +19,7 @@ interface VideoDubbingViewProps {
   initialLaunchId: number
   dubbingMode: VideoDubbingMode
   dubbingLanguages?: VideoDubbingLanguages
+  dubbingStyle?: VideoDubbingStyle
   onAction: (message: string) => void
 }
 
@@ -53,6 +54,7 @@ export function VideoDubbingView({
   initialLaunchId,
   dubbingMode,
   dubbingLanguages,
+  dubbingStyle,
   onAction,
 }: VideoDubbingViewProps) {
   useLocale()
@@ -79,6 +81,7 @@ export function VideoDubbingView({
         dubbingMode,
         outputDirRef.current || undefined,
         dubbingLanguages,
+        dubbingStyle,
       )
       activeTaskRef.current = result.taskId
       outputDirRef.current = result.outputDir
@@ -91,7 +94,7 @@ export function VideoDubbingView({
     } finally {
       setStarting(false)
     }
-  }, [dubbingMode, dubbingLanguages, initialInstruction, initialSourcePath, starting])
+  }, [dubbingMode, dubbingLanguages, dubbingStyle, initialInstruction, initialSourcePath, starting])
 
   useEffect(() => {
     let disposed = false
