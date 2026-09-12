@@ -1,5 +1,6 @@
-mod advanced_models;
 mod acp;
+mod acp_agent;
+mod advanced_models;
 mod agents;
 mod app_language;
 mod asr;
@@ -38,15 +39,14 @@ use harness::{
     harness_catalog, harness_create_bailian_voice, harness_delete_api_provider,
     harness_delete_bailian_voice, harness_delete_run, harness_finish_enhancement_stream,
     harness_finish_funasr_stream, harness_finish_realtime_stream, harness_finish_vad_stream,
-    harness_get_run, harness_get_run_output, harness_get_run_preview,
-    harness_list_bailian_voices, harness_list_runs, harness_push_enhancement_stream,
-    harness_push_funasr_stream, harness_push_realtime_stream, harness_push_vad_stream,
-    harness_retry_run, harness_save_api_provider, harness_save_bailian_provider,
-    harness_start_cosyvoice_stream, harness_start_enhancement_stream,
-    harness_start_funasr_stream, harness_start_realtime_stream, harness_start_run,
-    harness_start_vad_stream, ApiProviderSettings, ApiProviderUpdate, BailianProviderSettings,
-    BailianProviderUpdate, HarnessCatalog, HarnessExecution, HarnessRun, HarnessRuntime,
-    HarnessTaskRequest,
+    harness_get_run, harness_get_run_output, harness_get_run_preview, harness_list_bailian_voices,
+    harness_list_runs, harness_push_enhancement_stream, harness_push_funasr_stream,
+    harness_push_realtime_stream, harness_push_vad_stream, harness_retry_run,
+    harness_save_api_provider, harness_save_bailian_provider, harness_start_cosyvoice_stream,
+    harness_start_enhancement_stream, harness_start_funasr_stream, harness_start_realtime_stream,
+    harness_start_run, harness_start_vad_stream, ApiProviderSettings, ApiProviderUpdate,
+    BailianProviderSettings, BailianProviderUpdate, HarnessCatalog, HarnessExecution, HarnessRun,
+    HarnessRuntime, HarnessTaskRequest,
 };
 use plugins::{
     plugin_api_catalog, plugin_cancel_download, plugin_catalog, plugin_dependency_bindings,
@@ -648,10 +648,7 @@ async fn api_agent_request_panel(
     Json(request): Json<AgentPanelRequest>,
 ) -> ApiResult<Value> {
     if request.panel != "meeting-notes" {
-        return Err(api_bad_request(format!(
-            "未知任务面板: {}",
-            request.panel
-        )));
+        return Err(api_bad_request(format!("未知任务面板: {}", request.panel)));
     }
     acp::emit_panel_requested(&state.app, &session_id, &request.panel);
     Ok(Json(json!({ "opened": true, "panel": request.panel })))
@@ -869,6 +866,7 @@ pub fn run() {
             runtime_status,
             set_close_behavior,
             app_language::set_ui_language,
+            acp_agent::agent_acp_prompt,
             app_data_directory,
             reveal_in_file_manager,
             cleanup_download_cache,

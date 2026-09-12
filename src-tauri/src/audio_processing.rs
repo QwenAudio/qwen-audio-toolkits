@@ -261,6 +261,7 @@ pub struct AudioProcessRequest {
     audio_data_url: String,
     clip_name: String,
     operations: Vec<String>,
+    output_file_name: Option<String>,
     selection_start: Option<f32>,
     selection_end: Option<f32>,
     denoise_strength: Option<f32>,
@@ -275,6 +276,7 @@ impl AudioProcessRequest {
         audio_data_url: String,
         clip_name: String,
         operations: Vec<String>,
+        output_file_name: Option<String>,
         selection_start: Option<f32>,
         selection_end: Option<f32>,
         denoise_strength: Option<f32>,
@@ -286,6 +288,7 @@ impl AudioProcessRequest {
             audio_data_url,
             clip_name,
             operations,
+            output_file_name,
             selection_start,
             selection_end,
             denoise_strength,
@@ -564,9 +567,16 @@ pub(crate) async fn process_audio_with_runtime(
         }
         fs::create_dir_all(&output_dir)
             .map_err(|error| format!("无法创建处理结果目录: {error}"))?;
-        let operation_slug = request.operations.join("-");
-        let stem = safe_file_stem(&request.clip_name);
-        let file_name = format!("{stem}-{operation_slug}-{}.wav", timestamp_millis());
+        let file_name = request
+            .output_file_name
+            .as_deref()
+            .map(safe_wav_file_name)
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| {
+                let operation_slug = request.operations.join("-");
+                let stem = safe_file_stem(&request.clip_name);
+                format!("{stem}-{operation_slug}-{}.wav", timestamp_millis())
+            });
         let file_path = output_dir.join(&file_name);
         let bytes = encode_wav_bytes(&audio)?;
         fs::write(&file_path, &bytes).map_err(|error| format!("无法保存处理后的 WAV: {error}"))?;
@@ -1072,6 +1082,15 @@ fn safe_file_stem(file_name: &str) -> String {
         "audio".to_string()
     } else {
         safe
+    }
+}
+
+fn safe_wav_file_name(file_name: &str) -> String {
+    let stem = safe_file_stem(file_name);
+    if stem.to_lowercase().ends_with(".wav") {
+        stem
+    } else {
+        format!("{stem}.wav")
     }
 }
 

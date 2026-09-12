@@ -21,9 +21,27 @@ advantage is the set of audio capabilities it already owns behind one Harness:
 - LLM providers and declarative model configuration;
 - waveform, spectrogram, caption, and audio result views.
 
-The proposed product is therefore an **audio-first video workspace** in which a
-human can edit precisely and an Agent can operate the same project through a
-small, deterministic, reversible command API.
+The proposed product is therefore an **audio-first, Agent-driven audio and
+video creation IDE**. The Agent understands user intent, plans workflows,
+orchestrates models, and produces reviewable edits; dedicated editing surfaces
+provide timeline, waveform, caption, dubbing, and preview controls; the model
+store supplies local and cloud capabilities on demand.
+
+This goal is organized around three product pillars:
+
+1. **Conversational Agent workflow**: the user describes an audio or video goal
+   in natural language, then the Agent plans the workflow, chooses tools and
+   models, runs long tasks, and returns reviewable edits instead of opaque
+   results.
+2. **On-demand open source model store**: open-source local models, runtime packages,
+   dependencies, and cloud model definitions are installed only when a skill or
+   project needs them.
+3. **Dedicated professional editing surfaces**: timeline, waveform, transcript,
+   caption, dubbing, and preview interfaces provide precise manual control,
+   while the Agent operates the same project state.
+
+In this product, a human can edit precisely and an Agent can operate the same
+project through a small, deterministic, reversible command API.
 
 The initial promise is:
 
@@ -952,65 +970,84 @@ Keep small, redistributable fixtures for:
 
 ## Delivery phases and gates
 
-### Phase 0: domain foundation
+The implementation order should follow the product pillars. A thin shared
+foundation comes first so the Agent, model store, and editor surfaces operate
+on the same project state; after that, delivery proceeds in pillar order:
+conversational Agent workflow, on-demand open source model store, and dedicated
+professional editing surfaces.
+
+### Phase 0: shared project foundation
 
 - project folder and schema;
 - asset probing and fingerprints;
 - rational time and timeline model;
-- command journal, transactions, undo/redo;
-- one video and multiple audio/caption tracks;
+- command journal, transactions, and undo/redo primitives;
+- media assets, transcripts, speaker segments, model runs, and generated
+  artifacts as first-class project objects;
 - schema and command tests.
 
-Gate: the same project can be edited through UI commands and a test command
-client, saved, reopened, and deterministically undone/redone.
+Gate: a project can be created, populated by existing Harness runs, saved,
+reopened, and deterministically updated through the command API.
 
-### Phase 1: safe silence rough cut
+### Phase 1: conversational Agent workflow
 
-- video import, ffprobe normalization, and linked audio analysis;
-- VAD and ASR with frame-aligned timestamps;
-- lightweight visual continuity scoring;
-- reviewable silence candidates and retained-pause policy;
-- reversible ripple delete;
-- before/after preview, captions, and MP4 export.
+- Agent session tied to a project and current revision;
+- project context summary for audio, video, transcript, model state, and
+  selected ranges;
+- typed tool and command catalog, including safe dry-run planning;
+- plan preview with required inputs, affected ranges, model requirements, and
+  approval state;
+- atomic apply and one-step undo for accepted Agent transactions;
+- initial skill templates for dubbing, translation, podcast, meeting notes, and
+  smart cut.
 
-Gate: safe silences can be proposed, previewed, applied, undone, reopened, and
-exported without A/V drift or cutting across a shot boundary.
+Gate: the Agent can turn a natural-language request into a reviewable plan,
+detect missing capabilities, and apply only approved transactions against the
+current project revision.
 
-### Phase 2: language-aware rough cut
+### Phase 2: on-demand open source model store
 
-- filler/discourse-marker classification;
-- repetition, self-correction, and failed-take candidates;
-- transcript-linked selection and deletion;
-- conservative, standard, and aggressive proposal policies;
-- jump-cut risk display and boundary treatment.
+- skill-to-capability dependency resolution;
+- recommended open-source model packs for ASR, VAD, TTS, enhancement,
+  diarization, separation, punctuation, and text normalization;
+- install prompts with size, license, runtime location, and local/cloud
+  execution boundary;
+- resumable downloads, runtime package reuse, dependency bindings, and
+  uninstall safety;
+- continuation of the blocked Agent plan after required models finish
+  installing.
 
-Gate: golden Chinese fixtures preserve meaning under conservative mode, every
-deletion maps to an inspectable transcript range, and low-confidence language
-decisions are not silently applied.
+Gate: a skill can declare required capabilities, the app can recommend and
+install missing open-source models on demand, and the original Agent workflow
+continues without forcing the user to manually study the model catalog.
 
-### Phase 3: Editor Agent
+### Phase 3: dedicated professional editing surfaces
 
-- project context summary;
-- typed tool catalog;
-- plan preview and affected-range visualization;
-- atomic apply and one-step undo;
-- task templates for silence cleanup, filler cleanup, retakes, and pacing.
+- transcript editor linked to media time;
+- waveform, segment list, speaker lanes, captions, and preview player;
+- basic timeline with one video track and multiple audio/caption tracks;
+- affected-range visualization for Agent proposals;
+- manual trim, split, caption edit, generated-take selection, and undo/redo;
+- before/after preview and baseline export.
 
-Gate: the Agent never mutates an outdated revision and every accepted plan is
-reversible without restoring the whole project folder.
+Gate: human edits and Agent edits produce the same project commands, can be
+reviewed in the same surfaces, and can be saved, reopened, undone, previewed,
+and exported.
 
-### Phase 4: derivatives, dubbing, and localization
+### Phase 4: first end-to-end creation skills
 
-- duration-targeted rough cuts;
-- simple aspect-ratio conversion and templates.
 - dialogue segments, voices, and per-line TTS takes;
 - video dubbing, ADR, translation, timing policies, and audio ducking;
+- AI podcast script, roles, generated takes, chapters, and mastered audio;
+- safe silence cleanup, filler cleanup, retakes, and pacing;
+- duration-targeted rough cuts;
+- simple aspect-ratio conversion and templates;
 - multi-language project branches.
 
 Gate: UI edits and Agent edits produce the same timeline commands and match the
 exported result; generated lines can fail and retry independently.
 
-### Phase 5: richer editor
+### Phase 5: richer editor and automation
 
 - additional video tracks;
 - compositing and keyframes;
@@ -1049,17 +1086,22 @@ decisions are:
 
 ## Initial recommendation
 
-Build Phase 0 and the first talking-head slice as one carefully bounded product:
-one video, its linked audio, an ASR transcript, VAD-derived silence, lightweight
-visual continuity analysis, reviewable edit candidates, reversible ripple
-delete, captions, preview, and H.264/AAC export.
+Build the first release in the same order as the product pillars:
 
-Begin with safe silence compression. Add filler, repetition, and failed-take
-suggestions only after frame-accurate timestamps, preview/export parity, and
-undo are proven. Dubbing and localization then reuse the same transcript,
-dialogue, project, and timeline foundations.
+1. Create the shared project foundation, then make the conversational Agent the
+   primary entry point. It should understand the project, propose plans, detect
+   missing capabilities, and apply only approved, reversible transactions.
+2. Close the on-demand open source model store loop next. A blocked Agent plan
+   should be able to recommend ASR, VAD, TTS, enhancement, diarization, or text
+   models, install the selected dependencies, and then continue the workflow.
+3. Add dedicated editing surfaces after the Agent and model dependency flow have
+   a stable project object to operate on. Start with transcript, waveform,
+   captions, preview, and a minimal timeline rather than a full nonlinear
+   editor.
 
-Once those foundations exist, the Agent becomes an orchestrator over stable
-tools rather than an LLM attempting to manipulate UI state or compose FFmpeg
-commands. That is the difference between an impressive demo and an editor users
-can trust with real projects.
+The first end-to-end creation skill should stay narrow. Video dubbing or
+translation is the strongest candidate because it naturally exercises Agent
+planning, model dependency resolution, transcript editing, TTS takes, captions,
+preview, and export. Smart cut, AI podcast, and meeting notes should then reuse
+the same project, command, and model-store foundations instead of becoming
+separate mini-applications.

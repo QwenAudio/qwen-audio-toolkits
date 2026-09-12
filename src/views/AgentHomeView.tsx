@@ -1,30 +1,73 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowUp,
-  Check,
+  Bot,
+  Copy,
+  File,
+  FileAudio,
+  FileText,
+  FileVideo,
   Languages,
+  LoaderCircle,
   MessageSquareText,
   Mic2,
+  PackagePlus,
   Paperclip,
+  Check,
   Radio,
   Scissors,
   Sparkles,
   X,
 } from 'lucide-react'
+import { convertFileSrc } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import type { AgentCreationMode, VideoDubbingLanguages, VideoDubbingMode, VideoDubbingStyle } from '../domain/agents'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import type {
+  AgentCreationMode,
+  GeneralAgentAttachment,
+  GeneralAgentMessage,
+  GeneralAgentMessageModelOptions,
+  VideoDubbingLanguages,
+  VideoDubbingMode,
+  VideoDubbingStyle,
+} from '../domain/agents'
+import {
+  agentFileCanPreview,
+  agentFileKind,
+  uniqueAgentFiles,
+} from '../domain/agentFiles'
+import type { OnDemandModelInstallMode } from '../domain/onDemandModels'
 import { t, useLocale } from '../i18n'
 import type { ModelPlugin } from '../types'
 import './AgentHomeView.css'
 
+const AUDIO_EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'webm'] as const
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v', 'webm', 'mkv'] as const
 const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'markdown'] as const
 
 interface AgentHomeViewProps {
   skills: ModelPlugin[]
+  taskId: string | null
+  messages: GeneralAgentMessage[]
+  draftPrompt: string
+  attachment: { path: string; name: string } | null
+  submitting: boolean
+  modelInstallMode: OnDemandModelInstallMode
+  messageModelOptions: Record<string, GeneralAgentMessageModelOptions>
   selectedModeId: AgentCreationMode | null
+  onModelInstallModeChange: (mode: OnDemandModelInstallMode) => void
+  onMessageModelSelect: (messageId: string, modelId: string) => void
   chatAvailable: boolean
   onSelectedModeChange: (mode: AgentCreationMode | null) => void
+  onDraftPromptChange: (prompt: string) => void
+  onAttachmentChange: (attachment: { path: string; name: string } | null) => void
+  onSubmitPrompt: (request: {
+    content: string
+    selectedModeName: string | null
+    attachmentHint: string
+    attachment: { path: string; name: string } | null
+  }) => void
+  onRunMessageAction: (message: GeneralAgentMessage, modelId?: string | null) => void
   onLaunch: (
     mode: AgentCreationMode,
     prompt: string,
@@ -52,66 +95,42 @@ const MODE_ICONS = {
   'meeting-notes': Mic2,
 } satisfies Record<AgentCreationMode, typeof Scissors>
 
-const PROMPTS: Record<AgentCreationMode, ReadonlyArray<{
-  title: string
-  detail: string
-  dubbingMode?: VideoDubbingMode
-}>> = {
-  'smart-cut': [
-    { title: '保守粗剪', detail: '删除明显口水词和超过 0.8 秒的静音，保留自然停顿并生成字幕' },
-    { title: '只清理口水词', detail: '保留所有停顿，只删除高置信度口水词和重复表达' },
-    { title: '压缩口播节奏', detail: '去掉长静音和说错重录，逐项让我确认后再导出' },
-  ],
-  'ai-podcast': [
-    { title: '大众解读', detail: '用轻松中文解释文档重点，也讲清结论的限制' },
-    { title: '主持人访谈', detail: '整理成主持人与专家的对话，保留专业细节和争议' },
-    { title: '快速摘要', detail: '生成约三分钟的双人播客，只保留最重要的发现和启示' },
-  ],
-  'video-dubbing': [
-    { title: '自然中文配音', detail: '把英文视频翻译成自然中文，克隆原说话人音色并保留讲话停顿', dubbingMode: 'translate' },
-    { title: '忠实双语版', detail: '忠实翻译对白，生成中文配音和中英双语字幕', dubbingMode: 'translate' },
-    { title: '精简原稿', detail: '保持原语言和原意，删除口吃、重复和冗余表达，让口播更简洁', dubbingMode: 'rewrite' },
-    { title: '专业润色', detail: '保持原语言，把原视频台词改得更自然、专业，并贴合原讲话时长', dubbingMode: 'rewrite' },
-    { title: '产品介绍模板', detail: '大家好，欢迎了解我们的产品。接下来，我会用几个简单步骤介绍它的核心功能和使用方式。', dubbingMode: 'script' },
-    { title: '教程旁白模板', detail: '这一部分将演示完整的操作流程。请跟随画面中的步骤，依次完成设置、确认和提交。', dubbingMode: 'script' },
-  ],
-  'meeting-notes': [
-    { title: '项目周会', detail: '重点整理项目进展、风险、决策和带负责人的行动项' },
-    { title: '需求评审', detail: '记录需求共识、争议点、最终结论和仍待确认的问题' },
-    { title: '客户访谈', detail: '提炼客户痛点、原话证据、需求优先级和后续跟进事项' },
-  ],
-  'agent-chat': [
-    { title: '自我介绍', detail: '你好，介绍一下你自己能做什么' },
-    { title: '写个示例', detail: '帮我用 Python 写一个快速排序，并解释你的实现思路' },
-    { title: '排查问题', detail: '帮我分析一段报错日志，列出可能的原因和排查步骤' },
-  ],
+const QUICK_PROMPTS: ReadonlyArray<{
+  label: string
+  prompt: string
+  mode?: AgentCreationMode
+}> = [
+  {
+    label: '视频翻译规划',
+    mode: 'video-dubbing',
+    prompt: '我想把一个英文视频做成中文配音版，请先帮我规划 workflow、需要哪些模型、哪些地方需要人工确认。',
+  },
+  {
+    label: 'AI 播客规划',
+    mode: 'ai-podcast',
+    prompt: '我想把一篇文档做成双人 AI 播客，请给出从导入、脚本、配音到导出的执行计划。',
+  },
+  {
+    label: '智能剪辑规划',
+    mode: 'smart-cut',
+    prompt: '我想自动清理一段口播视频里的静音、口水词和重复表达，请先给我一个可审阅的剪辑方案。',
+  },
+]
+
+function attachmentHint(path: string): string {
+  return `\n\n已选择素材：${path}\n请在规划时考虑这个素材，但当前阶段不要直接处理或修改文件。`
 }
 
-const VIDEO_DUBBING_MODES: ReadonlyArray<{
-  id: VideoDubbingMode
-  name: string
-  description: string
-}> = [
-  { id: 'translate', name: '翻译原声', description: '翻译原台词后配音' },
-  { id: 'rewrite', name: '修改原稿', description: '按要求改写原台词' },
-  { id: 'script', name: '使用新文案', description: '替换为你提供的完整文案' },
-]
-
-const DUBBING_LANGUAGE_OPTIONS: ReadonlyArray<{ code: string; name: string }> = [
-  { code: 'zh', name: '中文' },
-  { code: 'en', name: 'English' },
-  { code: 'ja', name: '日本語' },
-  { code: 'ko', name: '한국어' },
-]
-
-const DUBBING_STYLE_OPTIONS: ReadonlyArray<{ code: VideoDubbingStyle; name: string }> = [
-  { code: 'natural', name: '自然' },
-  { code: 'formal', name: '正式' },
-  { code: 'casual', name: '口语' },
-]
-
-function attachmentMatchesMode(path: string, mode: AgentCreationMode): boolean {
+function attachmentMatchesMode(path: string, mode: AgentCreationMode | null): boolean {
   const extension = path.split('.').at(-1)?.toLowerCase() ?? ''
+  if (!mode) {
+    return [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS, ...DOCUMENT_EXTENSIONS].includes(
+      extension as
+        | (typeof AUDIO_EXTENSIONS)[number]
+        | (typeof VIDEO_EXTENSIONS)[number]
+        | (typeof DOCUMENT_EXTENSIONS)[number],
+    )
+  }
   return mode === 'meeting-notes'
     ? false
     : mode === 'agent-chat'
@@ -121,33 +140,111 @@ function attachmentMatchesMode(path: string, mode: AgentCreationMode): boolean {
         : VIDEO_EXTENSIONS.includes(extension as (typeof VIDEO_EXTENSIONS)[number])
 }
 
+function formatAgentTime(timestamp: number): string {
+  return new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(timestamp))
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.append(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  textarea.remove()
+}
+
+function agentFileIcon(file: GeneralAgentAttachment): typeof File {
+  const kind = agentFileKind(file)
+  if (kind === 'audio') return FileAudio
+  if (kind === 'video') return FileVideo
+  if (kind === 'document') return FileText
+  return File
+}
+
+function AgentFilePreview({
+  file,
+  compact = false,
+  invalid = false,
+  disabled = false,
+  onRemove,
+}: {
+  file: GeneralAgentAttachment
+  compact?: boolean
+  invalid?: boolean
+  disabled?: boolean
+  onRemove?: () => void
+}) {
+  const Icon = agentFileIcon(file)
+  const canPreview = agentFileCanPreview(file)
+  const source = canPreview ? convertFileSrc(file.path) : ''
+  return (
+    <div
+      className={`agent-file-preview${compact ? ' compact' : ''}${invalid ? ' invalid' : ''}`}
+      title={file.path}
+    >
+      <div className="agent-file-preview-icon">
+        <Icon size={compact ? 14 : 17} strokeWidth={1.8} />
+      </div>
+      <div className="agent-file-preview-body">
+        <strong>{file.name}</strong>
+        <span>{file.path}</span>
+        {canPreview && (
+          <audio
+            controls
+            preload="metadata"
+            src={source}
+            aria-label={t('播放 {0}', [file.name])}
+          />
+        )}
+      </div>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={t('移除附件')}
+          disabled={disabled}
+          onClick={onRemove}
+        >
+          <X size={13} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function AgentHomeView({
   skills,
+  taskId,
+  messages,
+  draftPrompt,
+  attachment,
+  submitting,
+  modelInstallMode,
+  messageModelOptions,
   selectedModeId,
-  chatAvailable,
+  onModelInstallModeChange,
+  onMessageModelSelect,
   onSelectedModeChange,
-  onLaunch,
+  onDraftPromptChange,
+  onAttachmentChange,
+  onSubmitPrompt,
+  onRunMessageAction,
   onOpenStore,
 }: AgentHomeViewProps) {
   useLocale()
-  const [videoDubbingMode, setVideoDubbingMode] = useState<VideoDubbingMode>('translate')
-  const [sourceLanguage, setSourceLanguage] = useState('auto')
-  const [targetLanguage, setTargetLanguage] = useState('zh')
-  const [dubbingStyle, setDubbingStyle] = useState<VideoDubbingStyle>('natural')
-  const [prompt, setPrompt] = useState('')
-  const [attachment, setAttachment] = useState<{ path: string; name: string } | null>(null)
-  const [greeting, setGreeting] = useState<string | null>(null)
-  const [composerHint, setComposerHint] = useState<string | null>(null)
-  const [hasGreeted, setHasGreeted] = useState<boolean>(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-
-  useEffect(() => {
-    if (greeting) textareaRef.current?.focus()
-  }, [greeting])
-
-  useEffect(() => {
-    setComposerHint(null)
-  }, [selectedModeId])
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
+  const [expandedModelChoices, setExpandedModelChoices] = useState<Set<string>>(() => new Set())
+  const messageListRef = useRef<HTMLDivElement | null>(null)
+  const promptRef = useRef<HTMLTextAreaElement | null>(null)
 
   const modes = useMemo(
     () =>
@@ -167,84 +264,40 @@ export function AgentHomeView({
     () => modes.find((candidate) => candidate.workspaceEntry === selectedModeId) ?? null,
     [modes, selectedModeId],
   )
+  const hasConversation = messages.length > 0 || submitting
+  const visibleMessageCount = messages.length + (submitting ? 1 : 0)
+  const showSkillRow = modes.length > 0
+
+  useEffect(() => {
+    if (!hasConversation) return
+    const list = messageListRef.current
+    if (!list) return
+    list.scrollTop = list.scrollHeight
+  }, [
+    attachment?.path,
+    hasConversation,
+    messages.length,
+    selectedModeId,
+    submitting,
+  ])
+
+  useEffect(() => {
+    setExpandedModelChoices(new Set())
+  }, [taskId])
+
   const selectedEntry = selectedMode?.workspaceEntry ?? null
-  const available =
-    selectedEntry === 'agent-chat' ? chatAvailable : (selectedMode?.installed ?? false)
   const attachmentCompatible = !attachment || !selectedEntry || attachmentMatchesMode(attachment.path, selectedEntry)
 
-  const getComposerHint = (): string | null => {
-    if (!selectedEntry) {
-      if (chatAvailable && !attachment) return null
-      return t('请先选择一个技能')
-    }
-    if (!available) {
-      return selectedEntry === 'agent-chat'
-        ? t('未检测到可用的 Agent CLI，请先安装并登录（如 kimi）')
-        : t('请先安装对应技能')
-    }
-    if (
-      selectedEntry !== 'meeting-notes' &&
-      selectedEntry !== 'agent-chat' &&
-      !attachment
-    ) {
-      return t('该任务需要文件，请添加文件')
-    }
-    return null
-  }
-
-  const canLaunchFromComposer = (): boolean =>
-    (!selectedEntry && chatAvailable) ||
-    (Boolean(selectedEntry) &&
-      (selectedEntry === 'meeting-notes' ||
-        selectedEntry === 'agent-chat' ||
-        Boolean(attachment && attachmentCompatible)) &&
-      available)
-
-  const showGreeting = () => {
-    setGreeting(t('你好，我是 QwenAudio Toolkits，你的本地 AI 音频工作站。我可以帮你完成语音识别、语音合成、音频增强、实时语音对话、视频配音、口播剪辑、AI 播客等任务。选择一个技能或模型开始创作吧！'))
-    setPrompt('')
-    setHasGreeted(true)
-  }
-
-  const chooseMode = (nextMode: AgentCreationMode) => {
-    if (nextMode === 'meeting-notes') setAttachment(null)
-    onSelectedModeChange(nextMode)
-  }
-
-  const launch = () => {
-    const trimmed = prompt.trim()
-    if (!trimmed) return
-    setGreeting(null)
-    if (!selectedEntry) {
-      if (chatAvailable) {
-        onLaunch('agent-chat', trimmed, attachment?.path ?? '')
-        return
-      }
-      if (!attachment && !hasGreeted) showGreeting()
-      return
-    }
-    if (canLaunchFromComposer()) {
-      onLaunch(
-        selectedEntry,
-        trimmed,
-        attachment?.path ?? '',
-        selectedEntry === 'video-dubbing' ? videoDubbingMode : undefined,
-        selectedEntry === 'video-dubbing'
-          ? { source: sourceLanguage, target: targetLanguage }
-          : undefined,
-        selectedEntry === 'video-dubbing' ? dubbingStyle : undefined,
-      )
-    } else if (!attachment && !hasGreeted) {
-      showGreeting()
-    }
-  }
-
   const chooseAttachment = async () => {
-    const filters = selectedEntry === 'ai-podcast'
+    const filters = selectedModeId === 'ai-podcast'
       ? [{ name: t('文档'), extensions: [...DOCUMENT_EXTENSIONS] }]
-      : selectedEntry === 'smart-cut' || selectedEntry === 'video-dubbing'
+      : selectedModeId === 'smart-cut' || selectedModeId === 'video-dubbing'
         ? [{ name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] }]
-        : [{ name: t('所有文件'), extensions: ['*'] }]
+        : [
+            { name: t('音频文件'), extensions: [...AUDIO_EXTENSIONS] },
+            { name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] },
+            { name: t('文档'), extensions: [...DOCUMENT_EXTENSIONS] },
+          ]
     const selection = await open({
       title: t('添加创作素材'),
       multiple: false,
@@ -253,269 +306,323 @@ export function AgentHomeView({
     })
     const path = typeof selection === 'string' ? selection : null
     if (!path) return
-    setAttachment({
+    onAttachmentChange({
       path,
       name: path.split(/[\\/]/u).at(-1) || t('未命名文件'),
     })
-    setComposerHint(null)
+    promptRef.current?.focus()
+  }
+
+  const submitPrompt = async () => {
+    const trimmed = draftPrompt.trim()
+    if (!trimmed || submitting || !attachmentCompatible) return
+    onSubmitPrompt({
+      content: trimmed,
+      selectedModeName: selectedMode ? t(selectedMode.name) : null,
+      attachmentHint: attachment ? attachmentHint(attachment.path) : '',
+      attachment,
+    })
+    if (attachment) onAttachmentChange(null)
+  }
+
+  const copyMessage = async (message: GeneralAgentMessage) => {
+    const content = message.content.trim()
+    if (!content) return
+    await copyTextToClipboard(content)
+    setCopiedMessageId(message.id)
+    window.setTimeout(() => {
+      setCopiedMessageId((current) => current === message.id ? null : current)
+    }, 1200)
   }
 
   return (
-    <main className="agent-home-view">
+    <main className={`agent-home-view${hasConversation ? ' has-conversation' : ''}`}>
+      <div
+        className="agent-home-drag-region"
+        data-tauri-drag-region
+        aria-hidden="true"
+        onMouseDown={(event) => {
+          if (event.button !== 0) return
+          void getCurrentWindow().startDragging().catch(() => undefined)
+        }}
+      />
       <section className="agent-home-shell">
-        <header className="agent-home-heading">
-          <div className="agent-home-mark"><Sparkles size={23} strokeWidth={1.65} /></div>
-          <span>{t('新任务')}</span>
-          <h1>{t('今天想创作什么？')}</h1>
-          <p>{t('描述任务，选择技能和模型完成音频创作与处理。')}</p>
-        </header>
+        {!hasConversation && (
+          <header className="agent-home-heading">
+            <div className="agent-home-mark"><Sparkles size={23} strokeWidth={1.65} /></div>
+            <span>{t('新任务')}</span>
+            <h1>{t('今天想创作什么？')}</h1>
+            <p>{t('直接和 Agent 对话，让它先理解目标、规划流程、识别需要的模型能力。')}</p>
+          </header>
+        )}
 
-        <div className="agent-home-composer">
-          {attachment && (
+        <section className="agent-chat-panel" aria-label={t('通用 Agent 对话')}>
+          {hasConversation && (
             <div
-              className={`agent-attachment-chip${attachmentCompatible ? '' : ' invalid'}`}
-              aria-invalid={!attachmentCompatible}
+	              className={`agent-message-list${visibleMessageCount <= 2 ? ' is-short' : ''}`}
+              ref={messageListRef}
+              aria-live="polite"
             >
-              <Paperclip size={14} />
-              <span title={attachment.path}>{attachment.name}</span>
-              <button
-                type="button"
-                aria-label={t('移除附件')}
-                onClick={() => {
-                  setAttachment(null)
-                  setComposerHint(null)
-                }}
-              >
-                <X size={13} />
-              </button>
+	              {messages.map((message) => (
+	                <article
+	                  key={message.id}
+	                  className={`agent-message ${message.role}`}
+	                >
+	                  <div className="agent-message-avatar">
+	                    {message.role === 'assistant' ? <Bot size={16} /> : <MessageSquareText size={16} />}
+	                  </div>
+	                  <div className="agent-message-body">
+	                    <div className="agent-message-bubble">
+	                      <p>{message.content}</p>
+	                      {uniqueAgentFiles([
+	                        message.attachment,
+	                        ...(message.attachments ?? []),
+	                      ]).map((file) => (
+	                        <AgentFilePreview file={file} key={`${file.path}-${file.name}`} />
+	                      ))}
+	                      {message.action && (() => {
+	                        const modelOptions = messageModelOptions[message.id]
+	                        const expanded = expandedModelChoices.has(message.id)
+	                        const visibleChoices = modelOptions
+	                          ? expanded
+	                            ? modelOptions.choices
+	                            : modelOptions.choices.slice(0, 3)
+	                          : []
+	                        const hiddenChoiceCount = modelOptions
+	                          ? Math.max(0, modelOptions.choices.length - visibleChoices.length)
+	                          : 0
+	                        return (
+	                          <div className={`agent-message-action ${message.action.status}`}>
+	                            <div className="agent-message-action-head">
+	                              <div>
+	                                <strong>
+	                                  {message.action.kind === 'install-on-demand-model'
+	                                    ? message.action.modelName
+	                                    : t('需要确认')}
+	                                </strong>
+	                                <span>
+	                                  {message.action.kind === 'install-on-demand-model'
+	                                    ? t('用于{0}', [message.action.needLabel])
+	                                    : modelOptions
+	                                      ? t('选择用于{0}的模型', [modelOptions.needLabel])
+	                                      : t('确认后继续')}
+	                                </span>
+	                              </div>
+	                              <button
+	                                type="button"
+	                                disabled={submitting || message.action.status === 'running' || message.action.status === 'done'}
+	                                onClick={() => onRunMessageAction(message, modelOptions?.selectedModelId)}
+	                              >
+	                                {message.action.status === 'running' ? (
+	                                  <LoaderCircle className="model-spin" size={14} />
+	                                ) : message.action.kind === 'confirm-agent-plan' ? (
+	                                  <Check size={14} />
+	                                ) : (
+	                                  <PackagePlus size={14} />
+	                                )}
+	                                {message.action.kind === 'install-on-demand-model'
+	                                  ? message.action.status === 'done'
+	                                    ? t('已安装')
+	                                    : message.action.status === 'failed'
+	                                      ? t('重试安装')
+	                                      : message.action.status === 'running'
+	                                        ? t('正在安装')
+	                                        : t('安装并继续')
+	                                  : message.action.status === 'done'
+	                                    ? t('已确认')
+	                                    : message.action.status === 'running'
+	                                      ? t('正在确认')
+	                                      : t(message.action.label)}
+	                              </button>
+	                            </div>
+	                            {modelOptions && (
+	                              <div className="agent-model-choice-panel" aria-label={t('选择模型')}>
+	                                <div className="agent-model-choice-list">
+	                                  {visibleChoices.map((choice) => (
+	                                    <button
+	                                      type="button"
+	                                      className={choice.id === modelOptions.selectedModelId ? 'selected' : ''}
+	                                      disabled={submitting || message.action?.status === 'running' || message.action?.status === 'done'}
+	                                      key={choice.id}
+	                                      title={choice.description}
+	                                      onClick={() => onMessageModelSelect(message.id, choice.id)}
+	                                    >
+	                                      <span>{choice.name}</span>
+	                                      <small>{choice.installed ? t('已安装') : t('待安装')}</small>
+	                                    </button>
+	                                  ))}
+	                                </div>
+	                                {modelOptions.choices.length > 3 && (
+	                                  <button
+	                                    type="button"
+	                                    className="agent-model-choice-toggle"
+	                                    onClick={() => setExpandedModelChoices((current) => {
+	                                      const next = new Set(current)
+	                                      if (next.has(message.id)) {
+	                                        next.delete(message.id)
+	                                      } else {
+	                                        next.add(message.id)
+	                                      }
+	                                      return next
+	                                    })}
+	                                  >
+	                                    {expanded
+	                                      ? t('收起模型')
+	                                      : t('展开其余 {0} 个模型', [hiddenChoiceCount])}
+	                                  </button>
+	                                )}
+	                              </div>
+	                            )}
+	                          </div>
+	                        )
+	                      })()}
+	                    </div>
+	                    <div className="agent-message-tools">
+	                      <time>{formatAgentTime(message.createdAt)}</time>
+	                      <button
+	                        type="button"
+	                        className="agent-message-copy"
+	                        aria-label={copiedMessageId === message.id ? t('已复制') : t('复制消息')}
+	                        title={copiedMessageId === message.id ? t('已复制') : t('复制消息')}
+	                        onClick={() => void copyMessage(message)}
+	                      >
+	                        {copiedMessageId === message.id ? <Check size={13} /> : <Copy size={13} />}
+	                      </button>
+	                    </div>
+	                  </div>
+	                </article>
+	              ))}
+	              {submitting && (
+	                <article className="agent-message assistant">
+	                  <div className="agent-message-avatar"><Bot size={16} /></div>
+	                  <div className="agent-message-body">
+	                    <div className="agent-message-bubble">
+	                      <p className="agent-thinking">
+	                        <LoaderCircle className="model-spin" size={14} />
+	                        {t('正在处理当前任务…')}
+	                      </p>
+	                    </div>
+	                  </div>
+	                </article>
+	              )}
             </div>
           )}
-          <textarea
-            ref={textareaRef}
-            rows={3}
-            value={prompt}
-            placeholder={t(
-              selectedEntry === 'video-dubbing' && videoDubbingMode === 'script'
-                ? '粘贴完整配音文案'
-                : selectedEntry === 'video-dubbing' && videoDubbingMode === 'rewrite'
-                  ? '描述你希望如何修改原稿'
-                  : !selectedEntry && chatAvailable
-                    ? '描述任务，或直接输入与 Agent 对话'
-                    : '描述任务，输入/调用技能',
-            )}
-            onChange={(event) => {
-              setPrompt(event.target.value)
-              if (composerHint) setComposerHint(null)
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-              const trimmed = prompt.trim()
-              if (!trimmed) return
-              if (canLaunchFromComposer()) {
-                event.preventDefault()
-                launch()
-                return
-              }
-              if (!attachment && !hasGreeted) {
-                event.preventDefault()
-                showGreeting()
-                return
-              }
-              const hint = getComposerHint()
-              if (hint) {
-                event.preventDefault()
-                setComposerHint(hint)
-              }
-            }}
-          />
-          <div className="agent-home-composer-toolbar">
-            <button
-              type="button"
-              className="agent-attach-button"
-              disabled={selectedEntry === 'meeting-notes'}
-              onClick={() => void chooseAttachment()}
-            >
-              <Paperclip size={14} />
-              {t('添加文件')}
-            </button>
-            <span className={attachmentCompatible ? '' : 'invalid'}>
-              {!attachmentCompatible && selectedEntry === 'ai-podcast'
-                ? t('AI 播客仅支持 PDF、DOCX、TXT 和 Markdown，请更换附件')
-                : !attachmentCompatible
-                  ? t('此任务仅支持视频文件，请更换附件')
-                  : attachment
-                    ? selectedEntry === 'agent-chat' || !selectedEntry
-                      ? t('文件路径会随消息一起发给 Agent')
-                      : t('文件将与 Prompt 一起提交')
-                    : selectedEntry === 'agent-chat' || (!selectedEntry && chatAvailable)
-                      ? t('直接输入开始对话，也可以附加文件让 Agent 处理')
-                      : selectedEntry === 'meeting-notes'
-                        ? t('实时会议无需添加文件')
-                        : selectedEntry === 'ai-podcast'
-                          ? t('支持 PDF、DOCX、TXT 和 Markdown')
-                          : selectedEntry
-                            ? t('支持 MP4、MOV、M4V、WebM 和 MKV')
-                            : t('支持视频、PDF 和文档')}
-            </span>
-            {selectedMode && !available && selectedEntry !== 'agent-chat' && (
-              <button type="button" className="agent-install-link" onClick={onOpenStore}>
-                {t('安装对应技能')}
-              </button>
-            )}
-            <button
-              className="agent-home-submit"
-              type="button"
-              disabled={
-                !prompt.trim() ||
-                (!canLaunchFromComposer() && (hasGreeted || !!attachment))
-              }
-              aria-label={t('进入技能工作区')}
-              onClick={launch}
-            >
-              <ArrowUp size={18} strokeWidth={2.2} />
-            </button>
-          </div>
-        </div>
 
-        {greeting && (
-          <div className="agent-greeting" role="status">
-            <p>{greeting}</p>
-          </div>
-        )}
-        {composerHint && (
-          <div className="agent-composer-hint" role="alert">
-            <p>{composerHint}</p>
-          </div>
-        )}
-
-        <div className="agent-mode-heading">{t('选择技能')}</div>
-        <div className="agent-mode-picker" aria-label={t('选择技能')}>
-          {modes.map((item) => {
-            const modeId = item.workspaceEntry
-            const Icon = MODE_ICONS[modeId]
-            const active = modeId === selectedModeId
-            return (
-              <button
-                className={`agent-mode-card ${item.tone}${active ? ' active' : ''}`}
-                type="button"
-                key={item.id}
-                aria-pressed={active}
-                onClick={() => chooseMode(modeId)}
-              >
-                <span className="agent-mode-icon"><Icon size={19} strokeWidth={1.7} /></span>
-                <span className="agent-mode-copy">
-                  <strong>{t(item.name)}</strong>
-                  <small>{t(item.description)}</small>
-                </span>
-                {active && <Check className="agent-mode-check" size={16} />}
-              </button>
-            )
-          })}
-        </div>
-
-        {selectedMode && selectedEntry ? (
-          <section className="agent-prompt-stage" aria-live="polite">
-            <div className="agent-prompt-heading">
-              <div>
-                <span>{t(selectedMode.name)}</span>
-                <h2>{t('选择一个 Prompt 开始')}</h2>
-              </div>
-              <small>{t('也可以选择后继续修改')}</small>
-            </div>
-
-            {selectedEntry === 'video-dubbing' && (
-              <>
-                <div className="agent-dubbing-mode-picker" role="group" aria-label={t('选择配音方式')}>
-                  {VIDEO_DUBBING_MODES.map((item) => (
-                    <button
-                      type="button"
-                      className={videoDubbingMode === item.id ? 'active' : ''}
-                      key={item.id}
-                      onClick={() => {
-                        setVideoDubbingMode(item.id)
-                        setPrompt('')
-                      }}
-                    >
-                      <strong>{t(item.name)}</strong>
-                      <small>{t(item.description)}</small>
-                    </button>
-                  ))}
-                </div>
-                <div className="agent-dubbing-language-row">
-                  <label>
-                    {t('源语言')}
-                    <select
-                      value={sourceLanguage}
-                      onChange={(event) => setSourceLanguage(event.target.value)}
-                    >
-                      <option value="auto">{t('自动检测')}</option>
-                      {DUBBING_LANGUAGE_OPTIONS.map((option) => (
-                        <option key={option.code} value={option.code}>{option.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {videoDubbingMode === 'translate' && (
-                    <label>
-                      {t('目标语言')}
-                      <select
-                        value={targetLanguage}
-                        onChange={(event) => setTargetLanguage(event.target.value)}
-                      >
-                        {DUBBING_LANGUAGE_OPTIONS.map((option) => (
-                          <option key={option.code} value={option.code}>{option.name}</option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {videoDubbingMode !== 'script' && (
-                    <label>
-                      {t('风格')}
-                      <select
-                        value={dubbingStyle}
-                        onChange={(event) => setDubbingStyle(event.target.value as VideoDubbingStyle)}
-                      >
-                        {DUBBING_STYLE_OPTIONS.map((option) => (
-                          <option key={option.code} value={option.code}>{option.name}</option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                </div>
-                {videoDubbingMode === 'script' && (
-                  <p className="agent-dubbing-note">
-                    {t('新文案会按原视频的人声时间轴分配；当前不支持无对白视频的画面理解配音。')}
-                  </p>
-                )}
-              </>
-            )}
-
-            <div className="agent-prompt-list">
-              {PROMPTS[selectedEntry]
-                .filter((suggestion) => selectedEntry !== 'video-dubbing' || suggestion.dubbingMode === videoDubbingMode)
-                .map((suggestion) => {
-                  const active = prompt === suggestion.detail
+          <div className="agent-home-composer">
+            {showSkillRow && (
+              <div className={`agent-context-row${hasConversation ? ' compact' : ''}`} aria-label={t('技能选择')}>
+                {modes.map((item) => {
+                  const modeId = item.workspaceEntry
+                  const Icon = MODE_ICONS[modeId]
+                  const active = modeId === selectedModeId
                   return (
                     <button
+                      className={`agent-context-chip ${item.tone}${active ? ' active' : ''}`}
                       type="button"
-                      className={active ? 'active' : ''}
-                      key={suggestion.title}
+                      key={item.id}
+                      disabled={submitting}
+                      aria-pressed={active}
                       onClick={() => {
-                        if (suggestion.dubbingMode) setVideoDubbingMode(suggestion.dubbingMode)
-                        setPrompt(suggestion.detail)
+                        onSelectedModeChange(active ? null : modeId)
+                        promptRef.current?.focus()
                       }}
                     >
-                      <MessageSquareText size={16} strokeWidth={1.65} />
-                      <span>
-                        <strong>{t(suggestion.title)}</strong>
-                        <small>{t(suggestion.detail)}</small>
-                      </span>
-                      <ArrowUp size={15} className="agent-prompt-arrow" />
+                      <Icon size={14} strokeWidth={1.8} />
+                      <span>{t(item.name)}</span>
                     </button>
                   )
                 })}
+                <button type="button" className="agent-context-chip store" disabled={submitting} onClick={onOpenStore}>
+                  {t('管理技能和模型')}
+                </button>
+              </div>
+            )}
+	            {attachment && (
+	              <AgentFilePreview
+	                compact
+	                file={attachment}
+	                invalid={!attachmentCompatible}
+	                disabled={submitting}
+	                onRemove={() => onAttachmentChange(null)}
+	              />
+	            )}
+            <textarea
+              ref={promptRef}
+              rows={3}
+              value={draftPrompt}
+              disabled={submitting}
+              placeholder={t('描述你想完成的音视频任务，例如：把这个视频翻译成中文配音版，并保留原说话节奏')}
+              onChange={(event) => onDraftPromptChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+                event.preventDefault()
+                void submitPrompt()
+              }}
+            />
+            <div className="agent-home-composer-toolbar">
+              <button type="button" className="agent-attach-button" disabled={submitting} onClick={() => void chooseAttachment()}>
+                <Paperclip size={14} />
+                {t('添加文件')}
+              </button>
+              <button
+                type="button"
+                className="agent-install-mode-toggle"
+                disabled={submitting}
+                title={t('控制缺少开源模型时是先询问还是自动安装')}
+                onClick={() =>
+                  onModelInstallModeChange(modelInstallMode === 'ask' ? 'auto' : 'ask')
+                }
+              >
+                {modelInstallMode === 'ask' ? t('询问') : t('自动')}
+              </button>
+	              <span className={attachmentCompatible ? '' : 'invalid'}>
+	                {submitting
+	                  ? t('正在处理当前任务…')
+	                  : !attachmentCompatible && selectedModeId === 'ai-podcast'
+	                  ? t('AI 播客仅支持 PDF、DOCX、TXT 和 Markdown，请更换附件')
+	                  : !attachmentCompatible
+	                    ? t('当前技能不支持这个文件类型，请更换附件或取消技能选择')
+                    : attachment
+                      ? t('文件路径会作为上下文发送给 Agent')
+                      : t('可选：添加音频、视频、PDF 或文档作为任务上下文')}
+              </span>
+              <button
+                className="agent-home-submit"
+                type="button"
+                disabled={!draftPrompt.trim() || submitting || !attachmentCompatible}
+                aria-label={t('发送给 Agent')}
+                onClick={() => void submitPrompt()}
+              >
+                {submitting ? <LoaderCircle className="model-spin" size={17} /> : <ArrowUp size={18} strokeWidth={2.2} />}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {!hasConversation && (
+          <section className="agent-prompt-stage" aria-label={t('快速开始')}>
+            <div className="agent-prompt-list">
+              {QUICK_PROMPTS.map((suggestion) => (
+                <button
+                  type="button"
+                  key={suggestion.label}
+                  onClick={() => {
+                    if (suggestion.mode) onSelectedModeChange(suggestion.mode)
+                    onDraftPromptChange(suggestion.prompt)
+                    window.requestAnimationFrame(() => promptRef.current?.focus())
+                  }}
+                >
+                  <MessageSquareText size={16} strokeWidth={1.65} />
+                  <span>
+                    <strong>{t(suggestion.label)}</strong>
+                    <small>{t(suggestion.prompt)}</small>
+                  </span>
+                  <ArrowUp size={15} className="agent-prompt-arrow" />
+                </button>
+              ))}
             </div>
           </section>
-        ) : null}
+        )}
       </section>
     </main>
   )

@@ -172,7 +172,10 @@ fn tool_definitions() -> Vec<Value> {
 }
 
 fn handle_tools_call(client: &reqwest::blocking::Client, params: &Value) -> Value {
-    let name = params.get("name").and_then(Value::as_str).unwrap_or_default();
+    let name = params
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
     let outcome = match name {
         "list_installed_models" => list_installed_models(client),
@@ -205,11 +208,7 @@ fn api_get(client: &reqwest::blocking::Client, path: &str) -> Result<Value, Stri
         .map_err(|error| format!("QwenAudio 本地服务返回无效数据: {error}"))
 }
 
-fn api_post(
-    client: &reqwest::blocking::Client,
-    path: &str,
-    body: &Value,
-) -> Result<Value, String> {
+fn api_post(client: &reqwest::blocking::Client, path: &str, body: &Value) -> Result<Value, String> {
     client
         .post(format!("{}{path}", api_base_url()))
         .json(body)
@@ -217,7 +216,10 @@ fn api_post(
         .map_err(|error| format!("无法连接 QwenAudio 本地服务: {error}"))?
         .error_for_status()
         .map_err(|error| {
-            let status = error.status().map(|code| code.to_string()).unwrap_or_default();
+            let status = error
+                .status()
+                .map(|code| code.to_string())
+                .unwrap_or_default();
             format!("QwenAudio 本地服务请求失败 {status}: {error}")
         })?
         .json::<Value>()
@@ -322,8 +324,7 @@ fn audio_file_to_wav_data_url(file_path: &str) -> Result<(String, String), Strin
         .map(|extension| extension.eq_ignore_ascii_case("wav"))
         .unwrap_or(false);
     if is_wav {
-        let bytes = std::fs::read(&path)
-            .map_err(|error| format!("无法读取音频文件: {error}"))?;
+        let bytes = std::fs::read(&path).map_err(|error| format!("无法读取音频文件: {error}"))?;
         let data_url = format!("data:audio/wav;base64,{}", STANDARD.encode(bytes));
         return Ok((data_url, clip_name));
     }
@@ -331,7 +332,9 @@ fn audio_file_to_wav_data_url(file_path: &str) -> Result<(String, String), Strin
         "未检测到 FFmpeg，无法解码该音频格式。请安装 FFmpeg 或使用 WAV 文件".to_string()
     })?;
     let output = Command::new(ffmpeg)
-        .args(["-i", file_path, "-ac", "1", "-ar", "16000", "-f", "wav", "pipe:1"])
+        .args([
+            "-i", file_path, "-ac", "1", "-ar", "16000", "-f", "wav", "pipe:1",
+        ])
         .stderr(Stdio::null())
         .output()
         .map_err(|error| format!("无法启动 FFmpeg: {error}"))?;
@@ -368,13 +371,14 @@ fn start_run(
         .ok_or_else(|| "任务启动失败".to_string())
 }
 
-fn wait_for_run(
-    client: &reqwest::blocking::Client,
-    run_id: &str,
-) -> Result<Value, String> {
+fn wait_for_run(client: &reqwest::blocking::Client, run_id: &str) -> Result<Value, String> {
     for _ in 0..RUN_TIMEOUT_POLLS {
         let run = api_get(client, &format!("/v1/runs/{run_id}"))?;
-        match run.get("status").and_then(Value::as_str).unwrap_or_default() {
+        match run
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
             "completed" => return Ok(run),
             "failed" | "canceled" => {
                 let error = run
@@ -398,7 +402,10 @@ fn run_output(client: &reqwest::blocking::Client, run_id: &str) -> Result<Value,
         .ok_or_else(|| "任务结果不可用".to_string())
 }
 
-fn transcribe_audio(client: &reqwest::blocking::Client, arguments: &Value) -> Result<Value, String> {
+fn transcribe_audio(
+    client: &reqwest::blocking::Client,
+    arguments: &Value,
+) -> Result<Value, String> {
     let file_path = arguments
         .get("file_path")
         .and_then(Value::as_str)
@@ -462,7 +469,10 @@ fn transcribe_audio(client: &reqwest::blocking::Client, arguments: &Value) -> Re
     }))
 }
 
-fn synthesize_speech(client: &reqwest::blocking::Client, arguments: &Value) -> Result<Value, String> {
+fn synthesize_speech(
+    client: &reqwest::blocking::Client,
+    arguments: &Value,
+) -> Result<Value, String> {
     let text = arguments
         .get("text")
         .and_then(Value::as_str)
@@ -526,7 +536,10 @@ fn start_meeting_capture(client: &reqwest::blocking::Client) -> Result<Value, St
 
 fn get_meeting_transcript(client: &reqwest::blocking::Client) -> Result<Value, String> {
     let session_id = bridge_session_id()?;
-    let state = api_get(client, &format!("/v1/agent/sessions/{session_id}/meeting-state"))?;
+    let state = api_get(
+        client,
+        &format!("/v1/agent/sessions/{session_id}/meeting-state"),
+    )?;
     let has_segments = state
         .get("segments")
         .and_then(Value::as_array)

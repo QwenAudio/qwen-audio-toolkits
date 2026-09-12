@@ -173,9 +173,14 @@ pub fn emit_panel_requested(app: &AppHandle, session_id: &str, panel: &str) {
 }
 
 enum AcpCommand {
-    Prompt { text: String },
+    Prompt {
+        text: String,
+    },
     Cancel,
-    RespondPermission { request_key: String, option_id: Option<String> },
+    RespondPermission {
+        request_key: String,
+        option_id: Option<String>,
+    },
 }
 
 pub struct AcpRuntime {
@@ -212,7 +217,13 @@ fn augmented_path_entries() -> Vec<PathBuf> {
     let mut entries: Vec<PathBuf> = Vec::new();
     if let Some(home) = env::var_os("HOME") {
         let home = PathBuf::from(home);
-        for relative in [".local/bin", ".cargo/bin", ".volta/bin", ".npm-global/bin", "bin"] {
+        for relative in [
+            ".local/bin",
+            ".cargo/bin",
+            ".volta/bin",
+            ".npm-global/bin",
+            "bin",
+        ] {
             entries.push(home.join(relative));
         }
     }
@@ -367,7 +378,10 @@ fn content_blocks_text(blocks: &Value) -> Option<String> {
 }
 
 fn translate_session_update(state: &AcpSessionState, session_id: &str, update: &Value) {
-    let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+    let kind = update
+        .get("sessionUpdate")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     match kind {
         "agent_message_chunk" => {
             let mut event = AcpSessionEvent::base(session_id, "agent_message_chunk");
@@ -426,20 +440,17 @@ fn translate_session_update(state: &AcpSessionState, session_id: &str, update: &
         }
         "plan" => {
             let mut event = AcpSessionEvent::base(session_id, "plan");
-            event.plan = update
-                .get("plan")
-                .and_then(Value::as_array)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .map(|entry| {
-                            json!({
-                                "content": entry.get("content").cloned().unwrap_or(Value::Null),
-                                "status": entry.get("status").cloned().unwrap_or(Value::Null),
-                            })
+            event.plan = update.get("plan").and_then(Value::as_array).map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| {
+                        json!({
+                            "content": entry.get("content").cloned().unwrap_or(Value::Null),
+                            "status": entry.get("status").cloned().unwrap_or(Value::Null),
                         })
-                        .collect()
-                });
+                    })
+                    .collect()
+            });
             state.emit(event);
         }
         "user_message_chunk" => {}
@@ -493,7 +504,8 @@ fn handle_server_request(state: Arc<AcpSessionState>, id: &Value, method: &str, 
             if let Ok(mut permissions) = state_for_response.permissions.lock() {
                 permissions.remove(&request_key);
             }
-            let mut resolved = AcpSessionEvent::base(&state_for_response.session_id, "permission_resolved");
+            let mut resolved =
+                AcpSessionEvent::base(&state_for_response.session_id, "permission_resolved");
             resolved.request_id = Some(request_key);
             state_for_response.emit(resolved);
             let _ = state_for_response.writer_tx.try_send(json!({
@@ -544,9 +556,9 @@ fn spawn_reader_task(state: Arc<AcpSessionState>, stdout: tokio::process::ChildS
                     );
                     continue;
                 }
-                let request_id = id.as_u64().or_else(|| {
-                    id.as_str().and_then(|value| value.parse::<u64>().ok())
-                });
+                let request_id = id
+                    .as_u64()
+                    .or_else(|| id.as_str().and_then(|value| value.parse::<u64>().ok()));
                 let Some(request_id) = request_id else {
                     continue;
                 };
@@ -645,10 +657,7 @@ fn agent_session_id_of(state: &AcpSessionState) -> String {
         .unwrap_or_default()
 }
 
-async fn run_command_loop(
-    state: Arc<AcpSessionState>,
-    mut command_rx: mpsc::Receiver<AcpCommand>,
-) {
+async fn run_command_loop(state: Arc<AcpSessionState>, mut command_rx: mpsc::Receiver<AcpCommand>) {
     while let Some(command) = command_rx.recv().await {
         let internal_session_id = state.session_id.clone();
         let agent_session_id = agent_session_id_of(&state);
@@ -719,7 +728,10 @@ async fn run_command_loop(
                     }
                 }
             }
-            AcpCommand::RespondPermission { request_key, option_id } => {
+            AcpCommand::RespondPermission {
+                request_key,
+                option_id,
+            } => {
                 if let Ok(mut permissions) = state.permissions.lock() {
                     if let Some(sender) = permissions.remove(&request_key) {
                         let _ = sender.send(option_id);
