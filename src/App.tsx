@@ -50,7 +50,7 @@ import {
 } from "./components/ProviderSettings";
 import { WorkspaceSaveIndicator } from "./components/WorkspaceSaveIndicator";
 import { runWorkspaceAgentRequest } from "./services/workspaceAgent";
-import { resolveAcpSelection, type AgentModelOption } from "./domain/agentModelSelection";
+import { getAgentSelection, resolveAcpSelection, type AgentModelOption } from "./domain/agentModelSelection";
 import { requestAcpConversation } from "./services/acpConversation";
 import {
   appAgentsWithInstallState,
@@ -1090,7 +1090,8 @@ function App() {
   const orderedRunnablePlugins = useMemo(() => {
     return runnablePlugins;
   }, [runnablePlugins]);
-  const chosenAcpProvider = selectedGeneralTask?.chatModel?.transport === 'acp' ? selectedGeneralTask.chatModel.providerId : null;
+  const selectedChatModel = getAgentSelection(selectedGeneralTask?.chatModel);
+  const chosenAcpProvider = selectedChatModel.providerId;
   const chatModelOptions = Object.values(acpModels).flatMap(value => value.options);
   const loadAcpModels = useCallback(async (providerId: string) => {
     if (acpModelLoads.current.has(providerId)) return;
@@ -3908,7 +3909,7 @@ function App() {
                   skills={appAgents}
                   chatModelOptions={chatModelOptions}
                   acpProviders={acpProviders}
-                  chatModel={selectedGeneralTask?.chatModel?.transport === 'acp' ? selectedGeneralTask.chatModel : null}
+                  chatModel={selectedChatModel}
                   chatModelLoading={Boolean(chosenAcpProvider && acpModels[chosenAcpProvider]?.loading)}
                   chatModelError={chosenAcpProvider ? acpModels[chosenAcpProvider]?.error : undefined}
                   onRetryModels={() => { if (chosenAcpProvider) void loadAcpModels(chosenAcpProvider); }}

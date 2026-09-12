@@ -1794,7 +1794,7 @@
   "配音设置已修改": "Dubbing settings changed",
   "设置已修改，请重新生成配音。旧视频和配音稿仅供参考。": "Settings changed. Regenerate dubbing to apply them. The previous video and script are shown for reference.",
   "重新生成配音": "Regenerate dubbing",
-  "所选对话模型不可用，请重新选择 Provider 和模型。": "The selected chat model is unavailable. Choose a provider and model again.",
+  "所选对话模型不可用，请重新选择 Agent 和模型。": "The selected chat model is unavailable. Choose an Agent and model again.",
   "所选模型未返回文本，请重试或更换模型。": "The selected model returned no text. Retry or choose another model.",
   "对话模型": "Chat model",
   "对话 Provider": "Chat provider",
@@ -1815,5 +1815,6 @@
   "正在读取…": "Loading…",
   "Agent 请求权限": "Agent permission request",
   "停止 Agent 回复": "Stop Agent reply",
-  "拒绝": "Deny"
+  "拒绝": "Deny",
+  "帮我整理会议记录，识别发言内容，总结关键结论、待办事项和负责人。": "Help me organize the meeting notes, transcribe the discussion, and summarize key decisions, action items, and owners."
 }

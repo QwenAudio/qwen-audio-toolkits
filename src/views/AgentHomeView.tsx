@@ -45,7 +45,6 @@ import { t, useLocale } from '../i18n'
 import type { ModelPlugin, AcpProviderInfo, AcpSessionEvent } from '../types'
 import type { AgentModelSelection } from '../domain/agents'
 import type { AgentModelOption } from '../domain/agentModelSelection'
-import { SkillLaunchPanel } from '../components/SkillLaunchPanel'
 import './AgentHomeView.css'
 
 const AUDIO_EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'webm'] as const
@@ -117,27 +116,12 @@ const MODE_ICONS = {
   'meeting-notes': Mic2,
 } satisfies Record<AgentCreationMode, typeof Scissors>
 
-const QUICK_PROMPTS: ReadonlyArray<{
-  label: string
-  prompt: string
-  mode?: AgentCreationMode
-}> = [
-  {
-    label: '视频翻译规划',
-    mode: 'video-dubbing',
-    prompt: '我想把一个英文视频做成中文配音版，请先帮我规划 workflow、需要哪些模型、哪些地方需要人工确认。',
-  },
-  {
-    label: 'AI 播客规划',
-    mode: 'ai-podcast',
-    prompt: '我想把一篇文档做成双人 AI 播客，请给出从导入、脚本、配音到导出的执行计划。',
-  },
-  {
-    label: '智能剪辑规划',
-    mode: 'smart-cut',
-    prompt: '我想自动清理一段口播视频里的静音、口水词和重复表达，请先给我一个可审阅的剪辑方案。',
-  },
-]
+const TASK_PROMPTS: Partial<Record<AgentCreationMode, string>> = {
+  'video-dubbing': '我想把一个英文视频做成中文配音版，请先帮我规划 workflow、需要哪些模型、哪些地方需要人工确认。',
+  'ai-podcast': '我想把一篇文档做成双人 AI 播客，请给出从导入、脚本、配音到导出的执行计划。',
+  'smart-cut': '我想自动清理一段口播视频里的静音、口水词和重复表达，请先给我一个可审阅的剪辑方案。',
+  'meeting-notes': '帮我整理会议记录，识别发言内容，总结关键结论、待办事项和负责人。',
+}
 
 function attachmentHint(path: string): string {
   return `\n\n已选择素材：${path}\n请在规划时考虑这个素材，但当前阶段不要直接处理或修改文件。`
@@ -262,8 +246,6 @@ export function AgentHomeView({
   modelInstallMode,
   messageModelOptions,
   selectedModeId,
-  creationOptions = {},
-  onCreationOptionsChange,
   onModelInstallModeChange,
   onMessageModelSelect,
   onSelectedModeChange,
@@ -271,8 +253,6 @@ export function AgentHomeView({
   onAttachmentChange,
   onSubmitPrompt,
   onRunMessageAction,
-  onLaunch,
-  onOpenStore,
 }: AgentHomeViewProps) {
   useLocale()
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
@@ -792,13 +772,12 @@ export function AgentHomeView({
               <div className="agent-composer-send-controls">
                 <div className="agent-chat-model-selectors" role="group" aria-label={t('ACP Agent 与模型')}>
                   <label>
-                    <span>Provider</span>
+                    <span>Agent</span>
                     <select aria-label={t('ACP Agent')} title={t('ACP Agent')} value={chatModel?.providerId ?? ''} disabled={submitting}
                       onChange={event => {
-                        onChatModelChange(event.target.value ? { transport: 'acp', providerId: event.target.value, modelId: '' } : null)
+                        onChatModelChange({ transport: 'acp', providerId: event.target.value, modelId: '' })
                         setComposerError(null)
                       }}>
-                      <option value="">{t('自动选择 Agent')}</option>
                       {chatModel && !acpProviders.some(provider => provider.id === chatModel.providerId) &&
                         <option value={chatModel.providerId} disabled>{chatModel.providerId} · {t('不可用')}</option>}
                       {acpProviders.map(provider => <option key={provider.id} value={provider.id} disabled={!provider.available}>
@@ -841,7 +820,7 @@ export function AgentHomeView({
                 className={`agent-composer-status${composerError || !attachmentCompatible || chatModelUnavailable ? ' invalid' : ''}`}
                 role={composerError || !attachmentCompatible || chatModelUnavailable ? 'alert' : 'status'}
               >
-                {composerError ?? (submitting ? t('正在处理当前任务…') : chatModelUnavailable ? t('所选对话模型不可用，请重新选择 Provider 和模型。') : attachmentHelp)}
+                {composerError ?? (submitting ? t('正在处理当前任务…') : chatModelUnavailable ? t('所选对话模型不可用，请重新选择 Agent 和模型。') : attachmentHelp)}
               </span>
               <span id="agent-composer-keyboard-hint" className="agent-composer-keyboard-hint">
                 <kbd>Enter</kbd> {t('发送')}<span aria-hidden="true"> · </span><kbd>Shift + Enter</kbd> {t('换行')}
@@ -864,6 +843,10 @@ export function AgentHomeView({
                     onClick={() => {
                       setComposerError(null)
                       onSelectedModeChange(active ? null : modeId)
+                      const preset = TASK_PROMPTS[modeId]
+                      if (preset && (!active || draftPrompt === t(preset))) {
+                        onDraftPromptChange(active ? '' : t(preset))
+                      }
                       promptRef.current?.focus()
                     }}
                   >
@@ -874,48 +857,10 @@ export function AgentHomeView({
               })}
             </div>
           )}
-          {!inWorkspace && selectedMode && selectedEntry && selectedEntry !== 'agent-chat' && (
-            <SkillLaunchPanel
-              mode={selectedEntry}
-              name={t(selectedMode.name)}
-              draftPrompt={draftPrompt}
-              attachment={attachment}
-              messages={messages}
-              options={creationOptions}
-              disabled={submitting || choosingAttachment}
-              installed={selectedMode.installed}
-              onOpenStore={onOpenStore}
-              onChooseFile={() => void chooseAttachment()}
-              onOptionsChange={onCreationOptionsChange}
-              onLaunch={onLaunch}
-            />
-          )}
+
         </section>
 
-        {!hasConversation && (
-          <section className="agent-prompt-stage" aria-label={t('快速开始')}>
-            <div className="agent-prompt-list">
-              {QUICK_PROMPTS.map((suggestion) => (
-                <button
-                  type="button"
-                  key={suggestion.label}
-                  onClick={() => {
-                    if (suggestion.mode) onSelectedModeChange(suggestion.mode)
-                    onDraftPromptChange(t(suggestion.prompt))
-                    window.requestAnimationFrame(() => promptRef.current?.focus())
-                  }}
-                >
-                  <span className="agent-prompt-icon"><MessageSquareText size={15} strokeWidth={1.65} /></span>
-                  <span>
-                    <strong>{t(suggestion.label)}</strong>
-                    <small>{t(suggestion.prompt)}</small>
-                  </span>
-                  <ArrowUp size={15} className="agent-prompt-arrow" />
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+
       </section>
     </main>
   )

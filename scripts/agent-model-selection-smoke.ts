@@ -18,9 +18,11 @@ assert.deepEqual(parseAcpModelCatalog({}), { models: [], currentModelId: null })
 const providers = [{ id: 'codex', name: 'Codex', available: true }, { id: 'qoder', name: 'Qoder', available: true }]
 const selection = { transport: 'acp' as const, providerId: 'qoder', modelId: 'agent-advertised-model' }
 assert.deepEqual(resolveAcpSelection(selection, providers), selection)
-assert.equal(resolveAcpSelection(null, providers).providerId, 'codex')
-assert.equal(resolveAcpSelection({ providerId: 'old.api', modelId: 'old-model' }, providers).providerId, 'codex', 'old text model choices must not route into ACP')
+assert.equal(resolveAcpSelection(null, providers).providerId, 'qoder')
+assert.equal(resolveAcpSelection({ providerId: 'old.api', modelId: 'old-model' }, providers).providerId, 'qoder', 'old text model choices must not route into ACP')
 assert.throws(() => resolveAcpSelection(selection, providers.filter(provider => provider.id !== 'qoder')), 'never silently replace an explicitly chosen Agent')
+assert.equal(resolveAcpSelection(null, providers).modelId, '')
+assert.throws(() => resolveAcpSelection(null, providers.filter(provider => provider.id !== 'qoder')), 'default Qoder must not silently fall back')
 assert.throws(() => resolveAcpSelection(null, []))
 let emit!: (event: AcpSessionEvent) => void
 let finished = 0
