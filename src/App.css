@@ -919,6 +919,7 @@ button:disabled {
   line-height: 1;
   cursor: pointer;
   border-radius: 6px;
+  white-space: nowrap;
 }
 .primary-action {
   color: var(--surface-raised);
@@ -4123,6 +4124,7 @@ button.job-state {
   font-weight: 600;
   cursor: pointer;
   border-radius: 5px;
+  white-space: nowrap;
 }
 .install-button {
   color: var(--surface-raised);

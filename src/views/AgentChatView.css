@@ -92,7 +92,7 @@
 .agent-chat-permission.resolved { background: color-mix(in srgb, var(--text-primary, #202422) 3%, transparent); border-color: var(--chat-border); }
 .agent-chat-permission.resolved .agent-chat-role { color: var(--chat-muted); }
 .agent-chat-permission-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
-.agent-chat-permission-actions button { display: inline-flex; min-height: 29px; align-items: center; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer; font-size: 11.5px; font-weight: 640; }
+.agent-chat-permission-actions button { display: inline-flex; min-height: 29px; align-items: center; padding: 0 12px; border: 0; border-radius: 8px; cursor: pointer; font-size: 11.5px; font-weight: 640; white-space: nowrap; }
 .agent-chat-permission-actions button.allow { color: #fff; background: var(--accent, #4c7e6c); }
 .agent-chat-permission-actions button.deny { color: var(--text-primary, #202422); background: color-mix(in srgb, var(--text-primary, #202422) 7%, transparent); }
 .agent-chat-permission > small { display: inline-block; margin-top: 6px; color: var(--chat-muted); font-size: 10.5px; }
@@ -109,7 +109,7 @@
 .agent-chat-composer textarea::placeholder { color: var(--chat-muted); }
 .agent-chat-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .agent-chat-hint { color: var(--chat-muted); font-size: 11px; }
-.agent-chat-actions button { display: inline-flex; min-height: 33px; align-items: center; gap: 7px; padding: 0 15px; color: #fff; background: var(--accent, #4c7e6c); border: 0; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 640; }
+.agent-chat-actions button { display: inline-flex; min-height: 33px; align-items: center; gap: 7px; padding: 0 15px; color: #fff; background: var(--accent, #4c7e6c); border: 0; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 640; white-space: nowrap; }
 .agent-chat-actions button:disabled { opacity: .45; cursor: default; }
 .agent-chat-actions button.stop { background: #d65a55; }
 

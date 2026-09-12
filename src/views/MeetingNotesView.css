@@ -29,7 +29,7 @@
 .meeting-source-picker button { display: inline-flex; min-height: 31px; align-items: center; gap: 6px; padding: 0 10px; color: var(--meeting-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; }
 .meeting-source-picker button:hover:not(:disabled), .meeting-source-picker button.active { color: var(--text-primary, #202422); background: color-mix(in srgb, var(--text-primary, #202422) 6%, transparent); }
 .meeting-source-picker button:disabled { cursor: default; opacity: .55; }
-.meeting-start-button, .meeting-stop-button, .meeting-store-button { display: inline-flex; min-height: 32px; align-items: center; gap: 7px; padding: 0 12px; color: #fff; background: var(--accent, #4c7e6c); border: 0; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 620; }
+.meeting-start-button, .meeting-stop-button, .meeting-store-button { display: inline-flex; min-height: 32px; align-items: center; gap: 7px; padding: 0 12px; color: #fff; background: var(--accent, #4c7e6c); border: 0; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 620; white-space: nowrap; }
 .meeting-stop-button { background: #d65a55; }
 .meeting-store-button { color: var(--accent, #4c7e6c); background: color-mix(in srgb, var(--accent, #4c7e6c) 10%, transparent); }
 .meeting-start-button:disabled { opacity: .5; cursor: default; }

@@ -18,6 +18,7 @@
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 7px 10px; color: var(--ink-soft); background: var(--surface-raised, #fff);
   border: 1px solid var(--line); border-radius: 8px; font-size: 12px; cursor: pointer;
+  white-space: nowrap;
 }
 .video-translation-source { align-self: flex-end; width: min(620px, 78%); padding: 13px 15px; background: var(--list-active); border: 1px solid var(--line); border-radius: 14px; }
 .video-translation-source strong { display: block; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }

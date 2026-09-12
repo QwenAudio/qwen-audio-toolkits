@@ -52,6 +52,7 @@
   border: 0;
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .podcast-store-link.full { width: 100%; padding: 8px; border: 1px dashed color-mix(in srgb, var(--podcast-accent) 35%, transparent); border-radius: 8px; }
 .podcast-entry-status { text-align: center; }

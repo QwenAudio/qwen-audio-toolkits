@@ -686,6 +686,7 @@
   background: transparent;
   font-size: 12px;
   cursor: pointer;
+  white-space: nowrap;
 }
 .smart-cut-batch-actions { display: flex; gap: 6px; margin: 10px 0; }
 .smart-cut-batch-actions button:last-child { margin-left: auto; }

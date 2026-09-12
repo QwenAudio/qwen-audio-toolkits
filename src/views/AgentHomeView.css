@@ -217,10 +217,10 @@
 .agent-home-composer-toolbar { display: flex; min-height: 32px; align-items: center; gap: 9px; }
 .agent-home-composer-toolbar > span { display: inline-flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; color: var(--agent-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .agent-home-composer-toolbar > span.invalid { color: #b84f4f; }
-.agent-attach-button { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 9px; color: var(--agent-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; }
+.agent-attach-button { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 9px; color: var(--agent-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .agent-attach-button:hover { color: var(--agent-ink); background: color-mix(in srgb, var(--agent-ink) 5%, transparent); }
 .agent-attach-button:disabled { opacity: .38; cursor: default; }
-.agent-install-mode-toggle { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; padding: 0 9px; color: var(--agent-muted); background: color-mix(in srgb, var(--agent-ink) 4%, transparent); border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; }
+.agent-install-mode-toggle { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; padding: 0 9px; color: var(--agent-muted); background: color-mix(in srgb, var(--agent-ink) 4%, transparent); border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .agent-install-mode-toggle:hover { color: var(--agent-ink); background: color-mix(in srgb, var(--accent, #4c7e6c) 9%, transparent); }
 .agent-install-mode-toggle:disabled { opacity: .45; cursor: wait; }
 .agent-home-submit { display: grid; width: 31px; height: 31px; margin-left: auto; padding: 0; place-items: center; color: #fff; background: var(--accent, #4c7e6c); border: 0; border-radius: 50%; cursor: pointer; }
@@ -413,6 +413,7 @@
   cursor: pointer;
   font-size: 12px;
   font-weight: 650;
+  white-space: nowrap;
 }
 
 .agent-message-action button:disabled {
