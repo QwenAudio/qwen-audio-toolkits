@@ -1454,6 +1454,7 @@
   "{0} · 音频降噪": "{0} · Audio denoise",
   "已完成语音识别，结果如下：\n\n{0}": "Speech recognition is complete. Result:\n\n{0}",
   "未识别到可用文本。": "No usable text was recognized.",
+  "未识别到文本": "No text recognized",
   "已完成降噪，输出新文件 `{0}`。文件位置：{1}": "Denoising is complete. New file `{0}` was created at: {1}",
   "已完成 {0} 个步骤：\n\n{1}": "{0} steps complete:\n\n{1}",
   "已安装": "Installed",
