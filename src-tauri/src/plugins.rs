@@ -3,10 +3,10 @@ use crate::downloads::{
     DownloadProgressRange,
 };
 use crate::harness::{
-    CAPABILITY_ASR, CAPABILITY_AUDIO_TAGGING, CAPABILITY_DIARIZATION, CAPABILITY_ENHANCE,
-    CAPABILITY_KWS, CAPABILITY_LANGUAGE_ID, CAPABILITY_LIVE, CAPABILITY_PUNCTUATION,
-    CAPABILITY_SOURCE_SEPARATION, CAPABILITY_SPEAKER_EMBED, CAPABILITY_TEXT,
-    CAPABILITY_TEXT_NORMALIZE, CAPABILITY_TTS, CAPABILITY_VAD,
+    CAPABILITY_ASR, CAPABILITY_AUDIO_TAGGING, CAPABILITY_CONVERSATION, CAPABILITY_DIARIZATION,
+    CAPABILITY_ENHANCE, CAPABILITY_KWS, CAPABILITY_LANGUAGE_ID, CAPABILITY_LIVE,
+    CAPABILITY_PUNCTUATION, CAPABILITY_SOURCE_SEPARATION, CAPABILITY_SPEAKER_EMBED,
+    CAPABILITY_TEXT, CAPABILITY_TEXT_NORMALIZE, CAPABILITY_TTS, CAPABILITY_VAD,
 };
 use minisign_verify::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
@@ -3713,6 +3713,7 @@ fn validate_remote_api_model(model: &ApiModelCatalogEntry) -> Result<(), String>
             model.harness_capability == CAPABILITY_ASR
         }
         "bailian-llm" | "compatible-llm" => model.harness_capability == CAPABILITY_TEXT,
+        "bailian-realtime" => model.harness_capability == CAPABILITY_CONVERSATION,
         _ => false,
     };
     if !capability_matches {
@@ -8615,7 +8616,7 @@ mod tests {
     fn exported_catalog_matches_the_runtime_schema() {
         let catalog = parse_remote_catalog(include_bytes!("../../catalog/model-catalog.json"))
             .expect("parse exported model catalog");
-        assert_eq!(catalog.api_models.len(), 16);
+        assert_eq!(catalog.api_models.len(), 20);
         assert!(catalog.api_models.iter().any(|model| model
             .aliases
             .iter()
