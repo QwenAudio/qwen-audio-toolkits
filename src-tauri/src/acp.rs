@@ -138,6 +138,7 @@ struct AcpProviderSpec {
     name: &'static str,
     command: &'static [&'static str],
     env: &'static [(&'static str, &'static str)],
+    cwd_flag: Option<&'static str>,
 }
 
 const ACP_PROVIDERS: &[AcpProviderSpec] = &[
@@ -146,24 +147,35 @@ const ACP_PROVIDERS: &[AcpProviderSpec] = &[
         name: "Qoder",
         command: &["qoder", "--acp"],
         env: &[],
+        cwd_flag: None,
+    },
+    AcpProviderSpec {
+        id: "opencode",
+        name: "opencode",
+        command: &["opencode", "acp"],
+        env: &[("OPENCODE_DISABLE_AUTOUPDATE", "1")],
+        cwd_flag: Some("--cwd"),
     },
     AcpProviderSpec {
         id: "kimi",
         name: "Kimi Code",
         command: &["kimi", "acp"],
         env: &[],
+        cwd_flag: None,
     },
     AcpProviderSpec {
         id: "codex",
         name: "Codex",
         command: &["npx", "-y", "@agentclientprotocol/codex-acp"],
         env: &[],
+        cwd_flag: None,
     },
     AcpProviderSpec {
         id: "qwen-code",
         name: "Qwen Code",
         command: &["npx", "-y", "@qwen-code/qwen-code", "--acp"],
         env: &[],
+        cwd_flag: None,
     },
 ];
 
@@ -843,14 +855,19 @@ pub async fn acp_start_session(
         .or_else(|| env::var("HOME").ok().map(PathBuf::from))
         .ok_or_else(|| "无法确定 Agent 工作目录".to_string())?;
 
-    let mut child = Command::new(spec.command[0])
+    let mut command = Command::new(spec.command[0]);
+    command
         .args(&spec.command[1..])
         .current_dir(&cwd)
         .envs(acp_process_env(spec.env))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true)
+        .kill_on_drop(true);
+    if let Some(cwd_flag) = spec.cwd_flag {
+        command.arg(cwd_flag).arg(&cwd);
+    }
+    let mut child = command
         .spawn()
         .map_err(|error| format!("无法启动 {}: {error}", spec.name))?;
 
@@ -1185,5 +1202,16 @@ mod tests {
                 .command,
             &["qoder", "--acp"]
         );
+    }
+
+    #[test]
+    fn opencode_uses_acp_with_explicit_cwd() {
+        let provider = ACP_PROVIDERS
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .unwrap();
+        assert_eq!(provider.command, &["opencode", "acp"]);
+        assert_eq!(provider.cwd_flag, Some("--cwd"));
+        assert_eq!(provider.env, &[("OPENCODE_DISABLE_AUTOUPDATE", "1")]);
     }
 }
