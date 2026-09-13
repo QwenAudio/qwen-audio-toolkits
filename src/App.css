@@ -4966,6 +4966,33 @@ to {
 .settings-value.ready {
   color: var(--primary-hover);
 }
+.settings-select-control {
+  width: min(280px, 44vw);
+  min-height: 31px;
+  flex: 0 1 280px;
+  padding: 5px 8px;
+  color: var(--ink);
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+.settings-select-control:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.settings-select-control:disabled {
+  opacity: 0.55;
+}
+.settings-control-stack {
+  display: inline-flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .settings-danger-action {
   display: inline-flex;
   min-height: 29px;
@@ -5012,6 +5039,9 @@ to {
 .settings-update-action:disabled {
   cursor: default;
   opacity: 0.55;
+}
+.settings-update-action.compact {
+  min-width: 0;
 }
 .settings-group-label {
   font-size: 12px;

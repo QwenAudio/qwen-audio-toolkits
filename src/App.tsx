@@ -608,7 +608,7 @@ function App() {
     useState<Record<string, string>>({});
   const [agentChatAvailable, setAgentChatAvailable] = useState(false);
   const [acpProviders, setAcpProviders] = useState<AcpProviderInfo[]>(demoMode ? [
-    { id: 'qoder', name: 'Qoder', available: true }, { id: 'kimi', name: 'Kimi Code', available: true },
+    { id: 'qoder', name: 'Qoder', available: true }, { id: 'opencode', name: 'opencode', available: true }, { id: 'kimi', name: 'Kimi Code', available: true },
     { id: 'codex', name: 'Codex', available: true }, { id: 'qwen-code', name: 'Qwen Code', available: true },
   ] : []);
   const [acpModels, setAcpModels] = useState<Record<string, { loading: boolean; options: AgentModelOption[]; currentModelId?: string | null; error?: string }>>({});
@@ -1060,6 +1060,20 @@ function App() {
   const selectedChatModel = getAgentSelection(selectedGeneralTask?.chatModel);
   const chosenAcpProvider = selectedChatModel.providerId;
   const chatModelOptions = Object.values(acpModels).flatMap(value => value.options);
+  const chosenAcpProviderModels = chatModelOptions.filter(model => model.providerId === chosenAcpProvider);
+  const chosenAcpDefaultModelId = acpModels[chosenAcpProvider]?.currentModelId;
+  const chosenAcpDefaultModelName =
+    chosenAcpProviderModels.find(model => model.id === chosenAcpDefaultModelId)?.name ??
+    chosenAcpDefaultModelId;
+  const chosenAcpSelectedModel = chosenAcpProviderModels.find(model => model.id === selectedChatModel.modelId);
+  const chosenAcpProviderAvailable = acpProviders.some(provider => provider.id === chosenAcpProvider && provider.available);
+  const chatModelLoading = Boolean(chosenAcpProvider && acpModels[chosenAcpProvider]?.loading);
+  const chatModelError = chosenAcpProvider ? acpModels[chosenAcpProvider]?.error : undefined;
+  const chatModelUnavailable = Boolean(
+    selectedChatModel &&
+    (!chosenAcpProviderAvailable ||
+      (selectedChatModel.modelId && !chatModelLoading && !chosenAcpSelectedModel?.available)),
+  );
   const loadAcpModels = useCallback(async (providerId: string) => {
     if (acpModelLoads.current.has(providerId)) return;
     acpModelLoads.current.add(providerId);
@@ -1601,6 +1615,18 @@ function App() {
     if (!selectedGeneralTask && !attachment) return
     const task = materializeGeneralTask({ attachment })
     updateGeneralTask(task.id, { attachment })
+  }
+  const updateAgentChatModel = (chatModel: GeneralAgentTask['chatModel']) => {
+    const task = materializeGeneralTask();
+    const agentLocked = isWorkspaceTaskView || task.messages.length > 0 || task.submitting;
+    if (
+      agentLocked &&
+      getAgentSelection(chatModel).providerId !== getAgentSelection(task.chatModel).providerId
+    ) {
+      return;
+    }
+    pendingGeneralTaskRef.current = { ...task, chatModel };
+    updateGeneralTask(task.id, { chatModel });
   }
   const refreshModelStoreState = async () => {
     const [nextPlugins, nextCatalog] = await Promise.all([
@@ -3106,9 +3132,100 @@ function App() {
               onClick={() => selectAutoUpdateCheck(!autoUpdateCheck)}
             />
           </div>
-        </div>
-        <div className="settings-group-label">{t("更新与数据")}</div>
-        <div className="settings-card">
+	        </div>
+	        <div className="settings-group-label">{t("Agent 设置")}</div>
+	        <div className="settings-card">
+	          <div className="settings-row">
+	            <span>
+	              <strong>{t("ACP Agent")}</strong>
+	              <small>{t("选择用于对话和任务规划的本地 ACP Agent")}</small>
+	            </span>
+	            <select
+	              className="settings-select-control"
+	              value={selectedChatModel.providerId}
+	              disabled={
+	                isWorkspaceTaskView ||
+	                Boolean(selectedGeneralTask && (selectedGeneralTask.messages.length > 0 || selectedGeneralTask.submitting))
+	              }
+	              aria-label={t("ACP Agent")}
+	              onChange={(event) =>
+	                updateAgentChatModel({
+	                  transport: "acp",
+	                  providerId: event.target.value,
+	                  modelId: "",
+	                })
+	              }
+	            >
+	              {!acpProviders.some(provider => provider.id === selectedChatModel.providerId) && (
+	                <option value={selectedChatModel.providerId} disabled>
+	                  {selectedChatModel.providerId} · {t("不可用")}
+	                </option>
+	              )}
+	              {acpProviders.map(provider => (
+	                <option key={provider.id} value={provider.id} disabled={!provider.available}>
+	                  {provider.name}{provider.available ? "" : ` · ${t("不可用")}`}
+	                </option>
+	              ))}
+	            </select>
+	          </div>
+	          <div className="settings-row">
+	            <span>
+	              <strong>{t("Agent 模型")}</strong>
+	              <small>
+	                {chatModelError ??
+	                  (isWorkspaceTaskView ||
+	                  Boolean(selectedGeneralTask && (selectedGeneralTask.messages.length > 0 || selectedGeneralTask.submitting))
+	                    ? t("任务进行中或已有对话后不可切换 Agent")
+	                    : t("模型列表由桌面端 ACP Agent 提供。"))}
+	              </small>
+	            </span>
+	            <div className="settings-control-stack">
+	              <select
+	                className="settings-select-control"
+	                value={selectedChatModel.modelId}
+	                disabled={chatModelLoading || chosenAcpProviderModels.length === 0}
+	                aria-label={t("Agent 模型")}
+	                onChange={(event) =>
+	                  updateAgentChatModel({
+	                    ...selectedChatModel,
+	                    modelId: event.target.value,
+	                  })
+	                }
+	              >
+	                <option value="">
+	                  {chatModelLoading
+	                    ? t("正在读取…")
+	                    : chosenAcpDefaultModelName || t("Agent 默认模型")}
+	                </option>
+	                {selectedChatModel.modelId && !chosenAcpSelectedModel && (
+	                  <option value={selectedChatModel.modelId} disabled>
+	                    {selectedChatModel.modelId} · {t("不可用")}
+	                  </option>
+	                )}
+	                {chosenAcpProviderModels
+	                  .filter(model => model.id !== chosenAcpDefaultModelId || model.id === selectedChatModel.modelId)
+	                  .map(model => (
+	                    <option key={model.id} value={model.id} disabled={!model.available}>
+	                      {model.name}
+	                    </option>
+	                  ))}
+	              </select>
+	              {chatModelError && (
+	                <button
+	                  type="button"
+	                  className="settings-update-action compact"
+	                  disabled={chatModelLoading}
+	                  onClick={() => void loadAcpModels(chosenAcpProvider)}
+	                >
+	                  {chatModelLoading ? <LoaderCircle className="model-spin" size={13} /> : <RefreshCw size={13} />}
+	                  {t("重试")}
+	                </button>
+	              )}
+	            </div>
+	          </div>
+	        </div>
+	        <div className="settings-group-label">{t("更新与数据")}</div>
+	        <div className="settings-card">
           <div className="settings-row">
             <span>
               <strong>{t("软件更新")}</strong>
@@ -3210,14 +3327,14 @@ function App() {
             </span>
             <span className="settings-value ready">{runtime.apiUrl}</span>
           </div>
-          <div className="settings-row">
-            <span>
-              <strong>{t("运行设备")}</strong>
-              <small>{runtime.platform}</small>
-            </span>
-            <span className="settings-value">{runtime.device}</span>
-          </div>
-        </div>
+	          <div className="settings-row">
+	            <span>
+	              <strong>{t("运行设备")}</strong>
+	              <small>{runtime.platform}</small>
+	            </span>
+	            <span className="settings-value">{runtime.device}</span>
+	          </div>
+	        </div>
       </>
     ),
     appearance: (
@@ -3894,42 +4011,29 @@ function App() {
               >
                 <AgentHomeView
                   skills={appAgents}
-                  chatModelOptions={chatModelOptions}
-                  defaultModelId={acpModels[chosenAcpProvider]?.currentModelId}
-                  acpProviders={acpProviders}
-                  chatModel={selectedChatModel}
-                  chatModelLoading={Boolean(chosenAcpProvider && acpModels[chosenAcpProvider]?.loading)}
-                  chatModelError={chosenAcpProvider ? acpModels[chosenAcpProvider]?.error : undefined}
-                  onRetryModels={() => { if (chosenAcpProvider) void loadAcpModels(chosenAcpProvider); }}
+                  chatModelUnavailable={chatModelUnavailable}
                   acpPermissions={acpPermissions.filter(item => item.taskId === selectedGeneralTask?.id).map(item => item.event)}
                   onAcpPermission={(event, optionId) => {
                     if (!event.requestId) return;
                     void respondAcpPermission(event.sessionId, event.requestId, optionId).then(() =>
                       setAcpPermissions(current => current.filter(item => item.event.sessionId !== event.sessionId || item.event.requestId !== event.requestId)),
                     ).catch(error => notify(String(error)));
-                  }}
-                  acpRunning={Boolean(selectedGeneralTask && activeAcpTasks.includes(selectedGeneralTask.id))}
-                  onCancelAcp={() => { if (selectedGeneralTask) acpTurns.current.get(selectedGeneralTask.id)?.abort(); }}
-                  onChatModelChange={chatModel => {
-                    const task = materializeGeneralTask();
-                    const agentLocked = isWorkspaceTaskView || task.messages.length > 0 || task.submitting;
-                    if (agentLocked && getAgentSelection(chatModel).providerId !== getAgentSelection(task.chatModel).providerId) return;
-                    pendingGeneralTaskRef.current = { ...task, chatModel };
-                    updateGeneralTask(task.id, { chatModel });
-                  }}
-                  workspaceTitle={isWorkspaceTaskView ? selectedAgentConversation?.title : undefined}
+	                  }}
+	                  acpRunning={Boolean(selectedGeneralTask && activeAcpTasks.includes(selectedGeneralTask.id))}
+	                  onCancelAcp={() => { if (selectedGeneralTask) acpTurns.current.get(selectedGeneralTask.id)?.abort(); }}
+	                  workspaceTitle={isWorkspaceTaskView ? selectedAgentConversation?.title : undefined}
                   workspaceCanOperate={isWorkspaceTaskView && Boolean(workspacePresentation?.hasArtifact)}
                   taskId={selectedGeneralTask?.id ?? null}
-                  messages={selectedGeneralTask?.messages ?? []}
-                  draftPrompt={selectedGeneralTask?.draftPrompt ?? ""}
-                  attachment={selectedGeneralTask?.attachment ?? null}
-                  submitting={selectedGeneralTask?.submitting ?? false}
-                  modelInstallMode={agentModelInstallMode}
-                  messageModelOptions={resolveTaskMessageModelOptions(selectedGeneralTask)}
-                  selectedModeId={isWorkspaceTaskView ? selectedAgentConversation?.mode ?? null : selectedGeneralTask?.selectedModeId ?? agentHomeMode}
-                  chatAvailable={agentChatAvailable}
-                  onModelInstallModeChange={setAgentModelInstallMode}
-                  onMessageModelSelect={(messageId, modelId) => {
+	                  messages={selectedGeneralTask?.messages ?? []}
+	                  draftPrompt={selectedGeneralTask?.draftPrompt ?? ""}
+	                  attachment={selectedGeneralTask?.attachment ?? null}
+	                  submitting={selectedGeneralTask?.submitting ?? false}
+	                  modelInstallMode={agentModelInstallMode}
+	                  messageModelOptions={resolveTaskMessageModelOptions(selectedGeneralTask)}
+	                  selectedModeId={isWorkspaceTaskView ? selectedAgentConversation?.mode ?? null : selectedGeneralTask?.selectedModeId ?? agentHomeMode}
+	                  chatAvailable={agentChatAvailable}
+	                  onModelInstallModeChange={setAgentModelInstallMode}
+	                  onMessageModelSelect={(messageId, modelId) => {
                     setAgentMessageModelSelections((current) => ({
                       ...current,
                       [messageId]: modelId,

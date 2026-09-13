@@ -23,6 +23,7 @@ function request(overrides: { method?: string; host?: string; origin?: string; r
 assert.equal(request().status, 200)
 const providers = JSON.parse(request().body) as Array<{ id: string; available: boolean }>
 assert.ok(providers.some(provider => provider.id === 'codex'))
+assert.ok(providers.some(provider => provider.id === 'opencode'))
 assert.ok(providers.some(provider => provider.id === 'qoder'))
 assert.ok(providers.every(provider => typeof provider.available === 'boolean'))
 for (const input of [

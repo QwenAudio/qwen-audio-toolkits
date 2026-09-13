@@ -190,7 +190,7 @@
   background: color-mix(in srgb, var(--agent-ink) 7%, transparent);
 }
 .agent-file-preview > button:disabled { opacity: .45; cursor: wait; }
-.agent-home-composer-toolbar { display: flex; flex-wrap: wrap; min-height: 32px; align-items: center; gap: 9px; border-top: 1px solid color-mix(in srgb, var(--agent-border) 60%, transparent); padding-top: 10px; margin-top: 24px; }
+.agent-home-composer-toolbar { display: flex; flex-wrap: wrap; min-height: 32px; align-items: center; gap: 9px; padding-top: 10px; margin-top: 24px; }
 .agent-attach-button { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 9px; color: var(--agent-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; white-space: nowrap; }
 .agent-attach-button:hover { color: var(--agent-ink); background: color-mix(in srgb, var(--agent-ink) 5%, transparent); }
 .agent-attach-button:disabled { opacity: .38; cursor: default; }
@@ -745,9 +745,9 @@
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  flex: 0 1 360px;
+  flex: 0 0 auto;
   max-width: 100%;
-  min-width: min(100%, 280px);
+  min-width: 0;
 }
 .agent-chat-model-selectors { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; flex: 1; min-width: 0; }
 .agent-chat-model-selectors label { display: flex; align-items: center; gap: 5px; min-width: 0; }

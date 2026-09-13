@@ -9,6 +9,7 @@ import { parseAcpModelCatalog, type AcpModelCatalog } from '../../src/domain/acp
 
 const providers = [
   { id: 'qoder', name: 'Qoder', command: ['qoder', '--acp'] },
+  { id: 'opencode', name: 'opencode', command: ['opencode', 'acp'] },
   { id: 'kimi', name: 'Kimi Code', command: ['kimi', 'acp'] },
   { id: 'codex', name: 'Codex', command: ['npx', '-y', '@agentclientprotocol/codex-acp'] },
   { id: 'qwen-code', name: 'Qwen Code', command: ['npx', '-y', '@qwen-code/qwen-code', '--acp'] },
@@ -27,8 +28,17 @@ export async function inspectLocalAcpModels(providerId: string): Promise<AcpMode
   const command = executable(provider.command[0])
   if (!command) throw new Error(`未找到 ${provider.name}，请先安装并登录。`)
   const cwd = await mkdtemp(join(tmpdir(), 'qwenaudio-acp-models-'))
-  const child = spawn(command, provider.command.slice(1), {
-    cwd, env: { ...process.env, PATH: paths.join(delimiter), NO_BROWSER: '1' },
+  const args = provider.id === 'opencode'
+    ? [...provider.command.slice(1), '--cwd', cwd]
+    : provider.command.slice(1)
+  const env = {
+    ...process.env,
+    PATH: paths.join(delimiter),
+    NO_BROWSER: '1',
+    ...(provider.id === 'opencode' ? { OPENCODE_DISABLE_AUTOUPDATE: '1' } : {}),
+  }
+  const child = spawn(command, args, {
+    cwd, env,
     stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
   })
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()

@@ -226,7 +226,7 @@ const APP_AGENT_DEFINITIONS = [
     name: 'Agent 对话',
     author: 'QwenAudio',
     description:
-      '通过 ACP 连接本地编码 Agent（Kimi Code、Qwen Code、Codex 等），直接对话、规划并执行开发任务。',
+      '通过 ACP 连接本地编码 Agent（opencode、Kimi Code、Qwen Code、Codex 等），直接对话、规划并执行开发任务。',
     license: 'Apache-2.0',
     capabilities: ['多轮对话', '工具调用', '任务规划', '权限确认'],
     harnessCapabilities: [],
@@ -249,7 +249,7 @@ const APP_AGENT_DEFINITIONS = [
       task: '连接本地编码 Agent CLI，进行多轮对话并协助完成开发任务。',
       usage: {
         inputRequirements: [
-          '本机安装并登录一个支持的 Agent CLI（如 kimi）。',
+          '本机安装并登录一个支持的 Agent CLI（如 opencode 或 kimi）。',
           '首次对话前请在终端完成 CLI 登录。',
         ],
         limitations: [

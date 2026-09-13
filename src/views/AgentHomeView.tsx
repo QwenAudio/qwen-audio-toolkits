@@ -38,9 +38,7 @@ import {
 } from '../domain/agentFiles'
 import type { OnDemandModelInstallMode } from '../domain/onDemandModels'
 import { t, useLocale } from '../i18n'
-import type { ModelPlugin, AcpProviderInfo, AcpSessionEvent } from '../types'
-import type { AgentModelSelection } from '../domain/agents'
-import type { AgentModelOption } from '../domain/agentModelSelection'
+import type { ModelPlugin, AcpSessionEvent } from '../types'
 import './AgentHomeView.css'
 
 const AUDIO_EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'webm'] as const
@@ -49,18 +47,11 @@ const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'markdown'] as const
 
 interface AgentHomeViewProps {
   skills: ModelPlugin[]
-  acpProviders: AcpProviderInfo[]
-  chatModelLoading: boolean
-  chatModelError?: string
-  onRetryModels: () => void
   acpPermissions: AcpSessionEvent[]
   onAcpPermission: (event: AcpSessionEvent, optionId?: string) => void
   acpRunning: boolean
   onCancelAcp: () => void
-  chatModelOptions: AgentModelOption[]
-  defaultModelId?: string | null
-  chatModel: AgentModelSelection | null
-  onChatModelChange: (selection: AgentModelSelection | null) => void
+  chatModelUnavailable: boolean
   workspaceTitle?: string
   workspaceCanOperate?: boolean
   taskId: string | null
@@ -219,11 +210,8 @@ function AgentFilePreview({
 
 export function AgentHomeView({
   skills,
-  acpProviders, chatModelLoading, chatModelError, onRetryModels, acpPermissions, onAcpPermission, acpRunning, onCancelAcp,
-  chatModelOptions,
-  defaultModelId,
-  chatModel,
-  onChatModelChange,
+  acpPermissions, onAcpPermission, acpRunning, onCancelAcp,
+  chatModelUnavailable,
   workspaceTitle,
   workspaceCanOperate = false,
   taskId,
@@ -322,11 +310,6 @@ export function AgentHomeView({
   }, [submitting])
 
   const selectedEntry = selectedMode?.workspaceEntry ?? null
-  const providerModels = chatModelOptions.filter(model => model.providerId === chatModel?.providerId)
-  const defaultModelName = providerModels.find(model => model.id === defaultModelId)?.name ?? defaultModelId
-  const selectedChatModel = providerModels.find(model => model.id === chatModel?.modelId)
-  const chatModelUnavailable = Boolean(chatModel && (!acpProviders.some(provider => provider.id === chatModel.providerId && provider.available) ||
-    (chatModel.modelId && !chatModelLoading && !selectedChatModel?.available)))
   const workspaceExamples = !workspaceCanOperate ? []
     : selectedEntry === 'smart-cut' ? [t('关闭字幕'), t('撤销剪辑')]
       : selectedEntry === 'ai-podcast' ? [t('语速设为 1.1 倍'), t('更新播客音频')]
@@ -756,38 +739,9 @@ export function AgentHomeView({
                   onModelInstallModeChange(modelInstallMode === 'ask' ? 'auto' : 'ask')
                 }
               >
-                {t('模型安装：{0}', [modelInstallMode === 'ask' ? t('询问') : t('自动')])}
+                {modelInstallMode === 'ask' ? t('询问') : t('自动')}
               </button>}
               <div className="agent-composer-send-controls">
-                <div className="agent-chat-model-selectors" role="group" aria-label={t('ACP Agent 与模型')}>
-                  <label>
-                    <span>Agent</span>
-                    <select aria-label={t('ACP Agent')} title={t('ACP Agent')} value={chatModel?.providerId ?? ''} disabled={hasConversation}
-                      onChange={event => {
-                        onChatModelChange({ transport: 'acp', providerId: event.target.value, modelId: '' })
-                        setComposerError(null)
-                      }}>
-                      {chatModel && !acpProviders.some(provider => provider.id === chatModel.providerId) &&
-                        <option value={chatModel.providerId} disabled>{chatModel.providerId} · {t('不可用')}</option>}
-                      {acpProviders.map(provider => <option key={provider.id} value={provider.id} disabled={!provider.available}>
-                        {provider.name}{provider.available ? '' : ` · ${t('不可用')}`}
-                      </option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span>{t('模型')}</span>
-                    <select aria-label={t('Agent 模型')} title={t('Agent 模型')} value={chatModel?.modelId ?? ''}
-                      disabled={submitting || !chatModel || chatModelLoading || providerModels.length === 0}
-                      onChange={event => {
-                        if (chatModel) onChatModelChange({ ...chatModel, modelId: event.target.value })
-                        setComposerError(null)
-                      }}>
-                      <option value="">{chatModelLoading ? t('正在读取…') : defaultModelName || t('Agent 默认模型')}</option>
-                      {chatModel?.modelId && !selectedChatModel && <option value={chatModel.modelId} disabled>{chatModel.modelId} · {t('不可用')}</option>}
-                      {providerModels.filter(model => model.id !== defaultModelId || model.id === chatModel?.modelId).map(model => <option key={model.id} value={model.id} disabled={!model.available}>{model.name}</option>)}
-                    </select>
-                  </label>
-                </div>
               <button
                 className="agent-home-submit"
                 type="button"
@@ -800,13 +754,10 @@ export function AgentHomeView({
               </button>
               </div>
             </div>
-            {chatModelError && <div className="agent-model-notice" role="status">
-              <span>{chatModelError}</span><button type="button" disabled={chatModelLoading || submitting} onClick={onRetryModels}>{t('重试')}</button>
-            </div>}
             {(composerError || !attachmentCompatible || chatModelUnavailable) && (
               <div className="agent-home-composer-footer">
                 <span id="agent-composer-status" className="agent-composer-status invalid" role="alert">
-                  {composerError ?? (chatModelUnavailable ? t('所选对话模型不可用，请重新选择 Agent 和模型。') : attachmentHelp)}
+                  {composerError ?? (chatModelUnavailable ? t('所选对话模型不可用，请到设置里的 Agent 设置重新选择。') : attachmentHelp)}
                 </span>
               </div>
             )}
