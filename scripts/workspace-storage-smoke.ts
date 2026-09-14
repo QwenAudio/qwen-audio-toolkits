@@ -14,7 +14,7 @@ const metadata: WorkspaceMetadata = {
   conversations: [{ archived: true, id: 'project-1', title: '播客草稿', mode: 'ai-podcast', prompt: '聊聊音乐', sourcePath: '/audio/source.wav' }],
   generalTasks: [{
     archived: true, id: 'task-1', kind: 'general', title: '创作', draftPrompt: '保留草稿', selectedModeId: 'video-dubbing',
-    chatModel: { transport: 'acp', providerId: 'codex', modelId: '' },
+    chatModel: { transport: 'acp', providerId: 'opencode-bundled', apiProviderId: 'api.custom.persisted', modelId: '' },
     creationOptions: { videoDubbingMode: 'rewrite', videoDubbingStyle: 'casual', videoDubbingLanguages: { source: 'zh', target: 'en' } },
     createdAt: 1, updatedAt: 2, submitting: true,
     messages: [{ id: 'message-1', role: 'assistant', content: '执行中', createdAt: 1,
@@ -51,6 +51,9 @@ assert.equal(parsed.projects['project-1:podcast'].version, 1)
 assert.deepEqual(Object.keys(parsed.projects['project-1:podcast'].state).sort(), ['path', 'script', 'source'])
 assert.equal(parsed.projects['project-1:podcast'].state.source, '')
 assert.equal(parsed.metadata.generalTasks[0].creationOptions?.videoDubbingMode, 'rewrite')
+assert.deepEqual({ ...parsed.metadata.generalTasks[0].chatModel }, {
+  transport: 'acp', providerId: 'opencode-bundled', apiProviderId: 'api.custom.persisted', modelId: '',
+}, 'persist the API Provider bound to bundled OpenCode')
 
 const reopened = new WorkspaceStore(adapter)
 const restored = await reopened.initialize()
@@ -73,6 +76,25 @@ await reopened.flush()
 const reopenedAgain = new WorkspaceStore(adapter)
 assert.equal((await reopenedAgain.initialize()).generalTasks[0].messages.length, 2, 'interruption notice does not duplicate on the next restart')
 assert.equal(restoreWorkspaceMetadata({ ...metadata, selectedId: 'missing-id' }).selectedId, null)
+
+const legacyExternalOpenCode = parseWorkspaceDocument(JSON.stringify({
+  version: 1, revision: 0, updatedAt: 0,
+  metadata: {
+    ...metadata,
+    generalTasks: [{ ...metadata.generalTasks[0], chatModel: { transport: 'acp', providerId: 'opencode', modelId: 'legacy-model' } }],
+  },
+  projects: {},
+}))
+assert.deepEqual({ ...legacyExternalOpenCode.metadata.generalTasks[0].chatModel }, {
+  transport: 'acp', providerId: 'opencode', modelId: 'legacy-model',
+}, 'legacy external OpenCode records load without an API Provider')
+assert.throws(() => parseWorkspaceDocument(JSON.stringify({
+  ...parsed,
+  metadata: {
+    ...parsed.metadata,
+    generalTasks: [{ ...parsed.metadata.generalTasks[0], chatModel: { transport: 'acp', providerId: 'opencode-bundled', apiProviderId: 1, modelId: '' } }],
+  },
+})), 'non-string API Provider bindings must be rejected')
 
 for (const bad of ['{broken', '{"version":99}', JSON.stringify({ ...parsed, projects: { 'project-1:podcast': { ...parsed.projects['project-1:podcast'], version: 99 } } })]) {
   let writes = 0

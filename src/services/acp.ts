@@ -1,12 +1,22 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
+import { invoke } from "./trace/ipcBridge";
 import type { AcpModelCatalog } from '../domain/acpModels';
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen, type UnlistenFn } from "./trace/ipcBridge";
 import type {
   AcpProviderInfo,
   AcpSessionEvent,
   AcpSessionStartRequest,
   AcpSessionStartResponse,
+  OpenCodeConnection,
 } from "../types";
+
+export function listOpenCodeConnections(): Promise<OpenCodeConnection[]> {
+  return invoke<OpenCodeConnection[]>("harness_list_opencode_connections");
+}
+
+export function listOpenCodeModels(providerId: string): Promise<string[]> {
+  return invoke<string[]>("harness_list_opencode_models", { providerId });
+}
 
 export function listAcpProviders(): Promise<AcpProviderInfo[]> {
   if (!isTauri() && import.meta.env.DEV) return localAcpRequest<AcpProviderInfo[]>('/providers');
@@ -20,15 +30,37 @@ async function localAcpRequest<T>(path: string): Promise<T> {
   return data as T;
 }
 
-export async function inspectAcpModels(providerId: string): Promise<AcpModelCatalog> {
+export interface AcpModelInspectionTransport {
+  listOpenCodeModels(providerId: string): Promise<string[]>
+  start(request: AcpSessionStartRequest): Promise<AcpSessionStartResponse>
+  finish(sessionId: string): Promise<void>
+}
+
+const acpModelInspectionTransport: AcpModelInspectionTransport = {
+  listOpenCodeModels,
+  start: startAcpSession,
+  finish: finishAcpSession,
+}
+
+export async function inspectAcpModels(
+  provider: AcpProviderInfo,
+  apiProviderId?: string,
+  transport: AcpModelInspectionTransport = acpModelInspectionTransport,
+): Promise<AcpModelCatalog> {
+  const configuredApiProviderId = apiProviderId?.trim()
+  if (provider.requiresApiProvider) {
+    if (!configuredApiProviderId) return { models: [], currentModelId: null }
+    const models = await transport.listOpenCodeModels(configuredApiProviderId)
+    return { models: models.map(id => ({ id, name: id })), currentModelId: null }
+  }
   if (!isTauri()) {
     if (!import.meta.env.DEV) throw new Error('请在桌面端或本地开发预览中读取 ACP 模型。');
-    return localAcpRequest<AcpModelCatalog>(`/models?provider=${encodeURIComponent(providerId)}`);
+    return localAcpRequest<AcpModelCatalog>(`/models?provider=${encodeURIComponent(provider.id)}`);
   }
-  const session = await startAcpSession({ providerId, enableTools: false });
+  const session = await transport.start({ providerId: provider.id, enableTools: false });
   try {
     return { models: session.modelOptions ?? session.models.map(id => ({ id, name: id })), currentModelId: session.currentModelId ?? null };
-  } finally { await finishAcpSession(session.sessionId); }
+  } finally { await transport.finish(session.sessionId); }
 }
 
 export function startAcpSession(

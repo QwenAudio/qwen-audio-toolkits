@@ -15,8 +15,8 @@ import {
   MessageSquareText,
   Mic2,
   PackagePlus,
-  Paperclip,
   Play,
+  Plus,
   Radio,
   Scissors,
   Sparkles,
@@ -52,6 +52,12 @@ interface AgentHomeViewProps {
   acpRunning: boolean
   onCancelAcp: () => void
   chatModelUnavailable: boolean
+  chatModelOptions: Array<{ id: string; name: string; available: boolean }>
+  chatModelId: string
+  chatModelDefaultName?: string
+  chatModelLoading: boolean
+  chatModelLocked: boolean
+  onChatModelChange: (modelId: string) => void
   workspaceTitle?: string
   workspaceCanOperate?: boolean
   taskId: string | null
@@ -212,6 +218,12 @@ export function AgentHomeView({
   skills,
   acpPermissions, onAcpPermission, acpRunning, onCancelAcp,
   chatModelUnavailable,
+  chatModelOptions,
+  chatModelId,
+  chatModelDefaultName,
+  chatModelLoading,
+  chatModelLocked,
+  onChatModelChange,
   workspaceTitle,
   workspaceCanOperate = false,
   taskId,
@@ -724,11 +736,11 @@ export function AgentHomeView({
                 type="button"
                 className="agent-attach-button"
                 disabled={submitting || choosingAttachment || selectedEntry === 'meeting-notes'}
+                aria-label={attachment ? t('更换文件') : t('添加文件')}
                 title={attachmentHelp}
                 onClick={() => void chooseAttachment()}
               >
-                {choosingAttachment ? <LoaderCircle className="model-spin" size={14} /> : <Paperclip size={14} />}
-                {attachment ? t('更换文件') : t('添加文件')}
+                {choosingAttachment ? <LoaderCircle className="model-spin" size={14} /> : <Plus size={16} strokeWidth={2.2} />}
               </button>}
               {<button
                 type="button"
@@ -742,6 +754,27 @@ export function AgentHomeView({
                 {modelInstallMode === 'ask' ? t('询问') : t('自动')}
               </button>}
               <div className="agent-composer-send-controls">
+                <div className="agent-chat-model-selectors">
+                  <label>
+                    <span>{t('Agent 模型')}</span>
+                    <select
+                      value={chatModelId}
+                      disabled={chatModelLocked || chatModelLoading || chatModelOptions.length === 0}
+                      aria-label={t('Agent 模型')}
+                      onChange={(event) => onChatModelChange(event.target.value)}
+                    >
+                      <option value="">
+                        {chatModelLoading ? t('正在读取…') : chatModelDefaultName || t('Agent 默认模型')}
+                      </option>
+                      {chatModelId && !chatModelOptions.some(model => model.id === chatModelId) && (
+                        <option value={chatModelId} disabled>{chatModelId} · {t('不可用')}</option>
+                      )}
+                      {chatModelOptions.map(model => (
+                        <option key={model.id} value={model.id} disabled={!model.available}>{model.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
               <button
                 className="agent-home-submit"
                 type="button"
@@ -764,7 +797,7 @@ export function AgentHomeView({
           </div>
           {showSkillRow && (
             <div className="agent-context-row" aria-label={t('技能选择')}>
-              {modes.filter(item => item.workspaceEntry !== 'agent-chat').map((item) => {
+              {modes.map((item) => {
                 const modeId = item.workspaceEntry
                 const Icon = MODE_ICONS[modeId]
                 const active = modeId === selectedModeId

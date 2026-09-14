@@ -21,9 +21,25 @@ function request(overrides: { method?: string; host?: string; origin?: string; r
   return { status: response.statusCode, body }
 }
 assert.equal(request().status, 200)
-const providers = JSON.parse(request().body) as Array<{ id: string; available: boolean }>
+const providers = JSON.parse(request().body) as Array<{
+  id: string
+  available: boolean
+  kind?: 'external' | 'bundled'
+  requiresApiProvider?: boolean
+}>
 assert.ok(providers.some(provider => provider.id === 'codex'))
-assert.ok(providers.some(provider => provider.id === 'opencode'))
+const externalOpenCode = providers.find(provider => provider.id === 'opencode')
+assert.deepEqual(externalOpenCode && {
+  id: externalOpenCode.id,
+  kind: externalOpenCode.kind,
+  requiresApiProvider: externalOpenCode.requiresApiProvider,
+}, { id: 'opencode', kind: 'external', requiresApiProvider: false })
+const bundledOpenCode = providers.find(provider => provider.id === 'opencode-bundled')
+assert.deepEqual(bundledOpenCode && {
+  id: bundledOpenCode.id,
+  kind: bundledOpenCode.kind,
+  requiresApiProvider: bundledOpenCode.requiresApiProvider,
+}, { id: 'opencode-bundled', kind: 'bundled', requiresApiProvider: true })
 assert.ok(providers.some(provider => provider.id === 'qoder'))
 assert.ok(providers.every(provider => typeof provider.available === 'boolean'))
 for (const input of [

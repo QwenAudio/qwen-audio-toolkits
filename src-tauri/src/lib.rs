@@ -17,6 +17,7 @@ mod onnx_audio;
 mod plugins;
 mod podcast_audio;
 mod system_audio;
+mod trace_recording;
 mod tts;
 mod vad;
 mod video_editor;
@@ -41,9 +42,10 @@ use harness::{
     harness_delete_bailian_voice, harness_delete_run, harness_finish_enhancement_stream,
     harness_finish_funasr_stream, harness_finish_realtime_stream, harness_finish_vad_stream,
     harness_get_run, harness_get_run_output, harness_get_run_preview, harness_list_bailian_voices,
-    harness_list_runs, harness_push_enhancement_stream, harness_push_funasr_stream,
-    harness_push_realtime_stream, harness_push_vad_stream, harness_retry_run,
-    harness_save_api_provider, harness_save_bailian_provider, harness_start_cosyvoice_stream,
+    harness_list_opencode_connections, harness_list_opencode_models, harness_list_runs,
+    harness_push_enhancement_stream, harness_push_funasr_stream, harness_push_realtime_stream,
+    harness_push_vad_stream, harness_retry_run, harness_save_api_provider,
+    harness_save_bailian_provider, harness_start_cosyvoice_stream,
     harness_start_enhancement_stream, harness_start_funasr_stream, harness_start_realtime_stream,
     harness_start_run, harness_start_vad_stream, ApiProviderSettings, ApiProviderUpdate,
     BailianProviderSettings, BailianProviderUpdate, HarnessCatalog, HarnessExecution, HarnessRun,
@@ -894,6 +896,10 @@ pub fn run() {
             workspace_storage::workspace_restore_media,
             workspace_storage::workspace_set_close_guard,
             workspace_storage::workspace_finish_close,
+            trace_recording::list_recordings,
+            trace_recording::read_recording,
+            trace_recording::write_recording,
+            trace_recording::delete_recording,
             set_close_behavior,
             app_language::set_ui_language,
             acp_agent::agent_acp_prompt,
@@ -925,6 +931,8 @@ pub fn run() {
             harness_retry_run,
             harness_delete_run,
             harness_api_provider_settings,
+            harness_list_opencode_connections,
+            harness_list_opencode_models,
             harness_save_api_provider,
             harness_delete_api_provider,
             harness_bailian_provider_settings,

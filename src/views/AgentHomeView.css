@@ -191,7 +191,7 @@
 }
 .agent-file-preview > button:disabled { opacity: .45; cursor: wait; }
 .agent-home-composer-toolbar { display: flex; flex-wrap: wrap; min-height: 32px; align-items: center; gap: 9px; padding-top: 10px; margin-top: 24px; }
-.agent-attach-button { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; gap: 6px; padding: 0 9px; color: var(--agent-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.agent-attach-button { display: inline-flex; width: 30px; min-height: 30px; flex: 0 0 auto; align-items: center; justify-content: center; padding: 0; color: var(--agent-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
 .agent-attach-button:hover { color: var(--agent-ink); background: color-mix(in srgb, var(--agent-ink) 5%, transparent); }
 .agent-attach-button:disabled { opacity: .38; cursor: default; }
 .agent-install-mode-toggle { display: inline-flex; min-height: 30px; flex: 0 0 auto; align-items: center; padding: 0 9px; color: var(--agent-muted); background: color-mix(in srgb, var(--agent-ink) 4%, transparent); border: 0; border-radius: 8px; cursor: pointer; font-size: 12px; white-space: nowrap; }
@@ -244,6 +244,10 @@
   overflow-x: hidden;
   padding: 4px 2px 8px;
   scrollbar-gutter: stable;
+  scrollbar-width: none;
+}
+.agent-message-list::-webkit-scrollbar {
+  display: none;
 }
 
 .agent-jump-to-latest {
@@ -745,12 +749,12 @@
   align-items: center;
   gap: 8px;
   margin-left: auto;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   max-width: 100%;
   min-width: 0;
 }
-.agent-chat-model-selectors { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; flex: 1; min-width: 0; }
-.agent-chat-model-selectors label { display: flex; align-items: center; gap: 5px; min-width: 0; }
+.agent-chat-model-selectors { display: flex; min-width: 130px; max-width: 260px; flex: 1 1 210px; }
+.agent-chat-model-selectors label { display: flex; width: 100%; align-items: center; gap: 5px; min-width: 0; }
 .agent-chat-model-selectors label > span { flex-shrink: 0; font-size: 11px; color: var(--agent-muted); }
 .agent-chat-model-selectors select { min-width: 0; width: 100%; padding: 6px 4px; border: 1px solid var(--agent-border); border-radius: 7px; background: var(--agent-surface); color: var(--agent-ink); font: inherit; font-size: 12px; text-overflow: ellipsis; }
 .agent-chat-model-selectors select:focus-visible { outline: 2px solid var(--accent, #5d8071); outline-offset: 2px; }

@@ -23,18 +23,16 @@ import {
   AudioLines,
   Check,
   ChevronDown,
+  Cloud,
   Download,
   HardDrive,
   LoaderCircle,
-  Maximize2,
   Menu,
-  Minimize2,
   Monitor,
   Moon,
   RefreshCw,
   Palette,
-  PanelRightClose,
-  PanelRightOpen,
+  PanelRight,
   Settings,
   Settings2,
   ShoppingBag,
@@ -49,9 +47,8 @@ import {
   ProviderSettings,
   type ProviderSettingsKind,
 } from "./components/ProviderSettings";
-import { WorkspaceSaveIndicator } from "./components/WorkspaceSaveIndicator";
 import { runWorkspaceAgentRequest } from "./services/workspaceAgent";
-import { getAgentSelection, resolveAcpSelection, type AgentModelOption } from "./domain/agentModelSelection";
+import { acpApiProviderId, acpModelCacheKey, getAgentSelection, resolveAcpSelection, resolveOpenCodeApiBinding, type AgentModelOption } from "./domain/agentModelSelection";
 import { requestAcpConversation } from "./services/acpConversation";
 import {
   appAgentsWithInstallState,
@@ -60,6 +57,7 @@ import {
   sanitizeInstalledAppAgentIds,
 } from "./appAgents";
 import { initialPlugins, fallbackRuntime } from "./data";
+import { initTraceSystem, recordScenarioId, saveRecording } from "./services/trace";
 import {
   isDemoMode,
   demoConversations,
@@ -95,8 +93,8 @@ import {
   installAppUpdate,
   type AppUpdateInfo,
 } from "./services/updater";
-import { listAcpProviders, inspectAcpModels, respondAcpPermission } from "./services/acp";
-import type { AcpProviderInfo, AcpSessionEvent } from "./types";
+import { listAcpProviders, inspectAcpModels, listOpenCodeConnections, listOpenCodeModels, respondAcpPermission } from "./services/acp";
+import type { AcpProviderInfo, AcpSessionEvent, OpenCodeConnection } from "./types";
 import type {
   ApiModelCatalogEntry,
   AsrTranscriptionResult,
@@ -205,6 +203,7 @@ const CUSTOM_API_MODELS_STORAGE_KEY =
 const RUNS_REMOVED_EVENT = "harness-runs-removed";
 const HISTORY_CLEARED_EVENT = "harness-history-cleared";
 const SIDEBAR_WIDTH_KEY = "qwen-audio-toolkits.sidebar-width-v8";
+const EDITOR_RATIO_KEY = "qwen-audio-toolkits.editor-ratio-v1";
 const THEME_STORAGE_KEY = "qwen-audio-toolkits.theme-v1";
 const ACCENT_STORAGE_KEY = "qwen-audio-toolkits.accent-v1";
 const SIDEBAR_DENSITY_STORAGE_KEY = "qwen-audio-toolkits.sidebar-density-v1";
@@ -215,7 +214,7 @@ const DEFAULT_VOICE_WORKFLOW_MODELS_KEY =
   "qwen-audio-toolkits.default-voice-workflow-models-v2";
 const NATIVE_TITLEBAR_HEIGHT = 46;
 const DRAG_REGION_INTERACTIVE_SELECTOR =
-  'button, a, input, select, textarea, label, video, [contenteditable], [role="button"], [role="link"], [role="tab"], [role="slider"], [role="switch"], [role="checkbox"], [role="menuitem"], [role="option"], [role="dialog"], .modal-backdrop';
+  'button, a, input, select, textarea, label, video, [contenteditable], [role="button"], [role="link"], [role="tab"], [role="slider"], [role="switch"], [role="checkbox"], [role="menuitem"], [role="option"], [role="dialog"]';
 const SHOW_INSTALLED_MODELS_SIDEBAR = false;
 const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000;
 const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000;
@@ -223,6 +222,10 @@ const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 520;
 const MIN_WORKSPACE_WIDTH = 480;
+// Editor share of the conversation:editor split (0–1). Default 1:2 → editor 2/3.
+const DEFAULT_EDITOR_RATIO = 2 / 3;
+const MIN_EDITOR_RATIO = 0.25;
+const MAX_EDITOR_RATIO = 0.8;
 const WORKSPACE_TASK_MODES: ReadonlySet<AppView> = new Set([
   "smart-cut", "ai-podcast", "video-dubbing", "meeting-notes",
 ]);
@@ -287,6 +290,19 @@ function getInitialSidebarWidth() {
     return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored));
   } catch {
     return DEFAULT_SIDEBAR_WIDTH;
+  }
+}
+
+function getInitialEditorRatio() {
+  if (typeof window === "undefined") return DEFAULT_EDITOR_RATIO;
+  try {
+    const value = window.localStorage.getItem(EDITOR_RATIO_KEY);
+    if (value === null) return DEFAULT_EDITOR_RATIO;
+    const stored = Number(value);
+    if (!Number.isFinite(stored)) return DEFAULT_EDITOR_RATIO;
+    return Math.min(MAX_EDITOR_RATIO, Math.max(MIN_EDITOR_RATIO, stored));
+  } catch {
+    return DEFAULT_EDITOR_RATIO;
   }
 }
 
@@ -416,7 +432,7 @@ function summarizeRun(run: HarnessRun): HarnessRun {
 }
 
 type ShellPage = "workspace" | "skills" | "models" | "settings";
-type SettingsSection = "general" | "appearance" | "storage" | "archived";
+type SettingsSection = "general" | "api" | "appearance" | "storage" | "archived";
 
 type AccentColor = "mint" | "indigo" | "amber" | "rose";
 
@@ -499,6 +515,13 @@ const SETTINGS_SECTIONS: {
     Icon: Settings2,
   },
   {
+    id: "api",
+    get label() {
+      return t("API 配置");
+    },
+    Icon: Cloud,
+  },
+  {
     id: "appearance",
     get label() {
       return t("外观");
@@ -515,6 +538,11 @@ const SETTINGS_SECTIONS: {
   { id: "archived", get label() { return t("已归档"); }, Icon: Archive },
 
 ];
+
+// Activate recording/replay from the URL before any service module calls IPC.
+// Replay loads async; its invoke matcher queues until the trace arrives.
+initTraceSystem(__APP_VERSION__);
+const traceRecordingId = recordScenarioId();
 
 function App() {
   const locale = useLocale();
@@ -612,7 +640,13 @@ function App() {
     { id: 'codex', name: 'Codex', available: true }, { id: 'qwen-code', name: 'Qwen Code', available: true },
   ] : []);
   const [acpModels, setAcpModels] = useState<Record<string, { loading: boolean; options: AgentModelOption[]; currentModelId?: string | null; error?: string }>>({});
-  const acpModelLoads = useRef(new Set<string>());
+  const acpModelLoads = useRef(new Map<string, number>());
+  const acpModelGeneration = useRef(0);
+  const [openCodeConnections, setOpenCodeConnections] = useState<{
+    loading: boolean;
+    connections: OpenCodeConnection[];
+    error?: string;
+  }>({ loading: false, connections: [] });
   const acpTurns = useRef(new Map<string, AbortController>());
   const [activeAcpTasks, setActiveAcpTasks] = useState<string[]>([]);
   const [acpPermissions, setAcpPermissions] = useState<Array<{ taskId: string; event: AcpSessionEvent }>>([]);
@@ -667,12 +701,11 @@ function App() {
     window.requestAnimationFrame(() => sidebarTriggerRef.current?.focus());
   }, []);
   const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
+  const [editorRatio, setEditorRatio] = useState(getInitialEditorRatio);
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const extensionsTriggerRef = useRef<HTMLButtonElement>(null);
   const extensionsReturnFocusRef = useRef<HTMLElement | null>(null);
-  const [providerDialogOpen, setProviderDialogOpen] = useState(false);
   const settingsTriggerRef = useRef<HTMLButtonElement>(null);
-  const settingsReturnFocusRef = useRef<HTMLElement | null>(null);
   const [settingsSection, setSettingsSection] =
     useState<SettingsSection>("appearance");
   const [settingsProvider, setSettingsProvider] =
@@ -734,16 +767,6 @@ function App() {
       target?.focus();
     });
   }, [shellPage]);
-  const closeProviderDialog = useCallback(() => {
-    setProviderDialogOpen(false);
-    const returnTarget = settingsReturnFocusRef.current;
-    window.requestAnimationFrame(() => {
-      const target = returnTarget?.isConnected
-        ? returnTarget
-        : settingsTriggerRef.current;
-      target?.focus();
-    });
-  }, []);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-color-scheme: dark)");
@@ -776,19 +799,7 @@ function App() {
   }, [closeSidebar, sidebarOpen]);
 
   useEffect(() => {
-    if (!providerDialogOpen) return undefined;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      closeProviderDialog();
-    };
-    window.addEventListener("keydown", closeOnEscape, true);
-    return () => window.removeEventListener("keydown", closeOnEscape, true);
-  }, [closeProviderDialog, providerDialogOpen]);
-
-  useEffect(() => {
-    if (shellPage === "workspace" || providerDialogOpen || sidebarOpen) return undefined;
+    if (shellPage === "workspace" || sidebarOpen) return undefined;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented ||
         (event.target instanceof Element && event.target.closest('[role="dialog"]'))) {
@@ -800,7 +811,7 @@ function App() {
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [leaveShellPage, providerDialogOpen, shellPage, sidebarOpen]);
+  }, [leaveShellPage, shellPage, sidebarOpen]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme;
@@ -1059,47 +1070,119 @@ function App() {
   }, [runnablePlugins]);
   const selectedChatModel = getAgentSelection(selectedGeneralTask?.chatModel);
   const chosenAcpProvider = selectedChatModel.providerId;
-  const chatModelOptions = Object.values(acpModels).flatMap(value => value.options);
-  const chosenAcpProviderModels = chatModelOptions.filter(model => model.providerId === chosenAcpProvider);
-  const chosenAcpDefaultModelId = acpModels[chosenAcpProvider]?.currentModelId;
+  const selectedAcpProvider = acpProviders.find(provider => provider.id === chosenAcpProvider);
+  const selectedAcpRequiresApiProvider = Boolean(selectedAcpProvider?.requiresApiProvider);
+  const savedAcpApiProviderId = acpApiProviderId(selectedChatModel, selectedAcpProvider);
+  const openCodeApiBinding = resolveOpenCodeApiBinding(savedAcpApiProviderId, openCodeConnections.connections);
+  const chosenAcpApiProviderId = selectedAcpRequiresApiProvider && openCodeApiBinding.isEligible
+    ? savedAcpApiProviderId
+    : undefined;
+  const chosenAcpModelCacheKey = acpModelCacheKey(chosenAcpProvider, chosenAcpApiProviderId);
+  const chosenAcpModelCatalog = acpModels[chosenAcpModelCacheKey];
+  const chosenAcpProviderModels = chosenAcpModelCatalog?.options ?? [];
+  const chosenAcpDefaultModelId = chosenAcpModelCatalog?.currentModelId;
   const chosenAcpDefaultModelName =
     chosenAcpProviderModels.find(model => model.id === chosenAcpDefaultModelId)?.name ??
     chosenAcpDefaultModelId;
   const chosenAcpSelectedModel = chosenAcpProviderModels.find(model => model.id === selectedChatModel.modelId);
-  const chosenAcpProviderAvailable = acpProviders.some(provider => provider.id === chosenAcpProvider && provider.available);
-  const chatModelLoading = Boolean(chosenAcpProvider && acpModels[chosenAcpProvider]?.loading);
-  const chatModelError = chosenAcpProvider ? acpModels[chosenAcpProvider]?.error : undefined;
+  const chosenAcpProviderAvailable = Boolean(selectedAcpProvider?.available);
+  const agentSelectionLocked = isWorkspaceTaskView || Boolean(
+    selectedGeneralTask && (selectedGeneralTask.messages.length > 0 || selectedGeneralTask.submitting),
+  );
+  const apiBindingUnavailable = selectedAcpRequiresApiProvider && !openCodeApiBinding.isEligible;
+  const chatModelLoading = Boolean(chosenAcpProvider && chosenAcpModelCatalog?.loading);
+  const chatModelError = selectedAcpRequiresApiProvider
+    ? openCodeConnections.error ?? chosenAcpModelCatalog?.error
+    : chosenAcpModelCatalog?.error;
   const chatModelUnavailable = Boolean(
     selectedChatModel &&
     (!chosenAcpProviderAvailable ||
-      (selectedChatModel.modelId && !chatModelLoading && !chosenAcpSelectedModel?.available)),
+      apiBindingUnavailable ||
+      (!chatModelLoading &&
+        (selectedAcpRequiresApiProvider
+          ? !chosenAcpSelectedModel?.available
+          : Boolean(selectedChatModel.modelId && !chosenAcpSelectedModel?.available)))),
   );
-  const loadAcpModels = useCallback(async (providerId: string) => {
-    if (acpModelLoads.current.has(providerId)) return;
-    acpModelLoads.current.add(providerId);
-    setAcpModels(current => ({ ...current, [providerId]: { loading: true, options: [] } }));
+  const invalidateAcpModels = useCallback(() => {
+    acpModelGeneration.current += 1;
+    acpModelLoads.current.clear();
+    setAcpModels({});
+  }, []);
+  const refreshOpenCodeConnections = useCallback(async () => {
+    setOpenCodeConnections(current => ({ ...current, loading: true, error: undefined }));
     try {
-      const { models, currentModelId } = await inspectAcpModels(providerId);
-      setAcpModels(current => ({ ...current, [providerId]: { loading: false, currentModelId,
-        options: models.map(model => ({ ...model, providerId, available: true })) } }));
+      const connections = await listOpenCodeConnections();
+      setOpenCodeConnections({ loading: false, connections });
     } catch (error) {
-      setAcpModels(current => ({ ...current, [providerId]: { loading: false, options: [], error: String(error) } }));
-    } finally { acpModelLoads.current.delete(providerId); }
+      setOpenCodeConnections(current => ({
+        ...current,
+        loading: false,
+        error: String(error),
+      }));
+    }
+  }, []);
+  const loadAcpModels = useCallback(async (
+    provider: AcpProviderInfo,
+    apiProviderId?: string,
+    force = false,
+  ) => {
+    const cacheKey = acpModelCacheKey(provider.id, apiProviderId);
+    const generation = acpModelGeneration.current;
+    if (!force && acpModelLoads.current.get(cacheKey) === generation) return;
+    if (provider.requiresApiProvider && !apiProviderId?.trim()) {
+      setAcpModels(current => ({ ...current, [cacheKey]: { loading: false, options: [] } }));
+      return;
+    }
+    acpModelLoads.current.set(cacheKey, generation);
+    setAcpModels(current => ({ ...current, [cacheKey]: { loading: true, options: [] } }));
+    try {
+      const catalog = provider.requiresApiProvider
+        ? {
+            models: (await listOpenCodeModels(apiProviderId!)).map(id => ({ id, name: id })),
+            currentModelId: null,
+          }
+        : await inspectAcpModels(provider);
+      if (generation !== acpModelGeneration.current) return;
+      setAcpModels(current => ({ ...current, [cacheKey]: {
+        loading: false,
+        currentModelId: catalog.currentModelId,
+        options: catalog.models.map(model => ({ ...model, providerId: provider.id, available: true })),
+      } }));
+    } catch (error) {
+      if (generation !== acpModelGeneration.current) return;
+      setAcpModels(current => ({ ...current, [cacheKey]: { loading: false, options: [], error: String(error) } }));
+    } finally {
+      if (acpModelLoads.current.get(cacheKey) === generation) {
+        acpModelLoads.current.delete(cacheKey);
+      }
+    }
   }, []);
   useEffect(() => {
-    if (chosenAcpProvider && !acpModels[chosenAcpProvider] && acpProviders.some(provider => provider.id === chosenAcpProvider && provider.available)) {
-      void loadAcpModels(chosenAcpProvider);
+    if (!selectedAcpRequiresApiProvider) return;
+    void refreshOpenCodeConnections();
+  }, [selectedAcpRequiresApiProvider, refreshOpenCodeConnections]);
+  useEffect(() => {
+    if (selectedAcpProvider?.available && !acpModels[chosenAcpModelCacheKey]) {
+      void loadAcpModels(selectedAcpProvider, chosenAcpApiProviderId);
     }
-  }, [chosenAcpProvider, acpModels, acpProviders, loadAcpModels]);
+  }, [selectedAcpProvider, chosenAcpApiProviderId, chosenAcpModelCacheKey, acpModels, loadAcpModels]);
   const requestTaskAgentReply = async (task: GeneralAgentTask, messages: GeneralAgentMessage[], workspacePlanning = false) => {
     if (!isTauriRuntime()) throw new Error(t('ACP Agent 对话需要在桌面端运行。'));
     if (acpTurns.current.has(task.id)) throw new Error(t('当前任务的 Agent 正在处理，请稍后重试。'));
     const selection = resolveAcpSelection(task.chatModel, acpProviders);
+    const provider = acpProviders.find(candidate => candidate.id === selection.providerId);
+    if (!provider) throw new Error(t('未找到可用的 ACP Agent，请先安装并登录所选 Agent。'));
+    if (provider.requiresApiProvider && !resolveOpenCodeApiBinding(
+      acpApiProviderId(selection, provider),
+      openCodeConnections.connections,
+    ).isEligible) {
+      throw new Error(t('所选 Agent 需要一个可用的 API 配置。'));
+    }
     const controller = new AbortController();
     acpTurns.current.set(task.id, controller);
     setActiveAcpTasks(current => [...current.filter(id => id !== task.id), task.id]);
     try {
-      return await requestAcpConversation({ selection, messages, signal: controller.signal, enableTools: !workspacePlanning,
+      return await requestAcpConversation({ selection, provider, messages, signal: controller.signal, enableTools: !workspacePlanning,
         onPermission: event => setAcpPermissions(current => [...current.filter(item => item.event.requestId !== event.requestId || item.event.sessionId !== event.sessionId), { taskId: task.id, event }]),
       });
     } finally {
@@ -1137,7 +1220,7 @@ function App() {
   const visibleSidebarWidth = Math.min(sidebarWidth, responsiveSidebarMaxWidth);
   const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth;
   const compactWorkspace = viewportWidth - visibleContentOffset < 760;
-  const editorVisible = isWorkspaceTaskView && workspacePanelOpen && Boolean(workspacePresentation?.hasArtifact);
+  const editorVisible = isWorkspaceTaskView && workspacePanelOpen;
   const editorFillsWorkspace = editorVisible && (compactWorkspace || workspacePanelFocused);
 
   const selectedPlugin =
@@ -1575,6 +1658,53 @@ function App() {
     window.addEventListener("blur", finish);
     handle.addEventListener("lostpointercapture", finish);
   };
+  const beginEditorResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const container = event.currentTarget.parentElement;
+    if (!container) return;
+    const bounds = container.getBoundingClientRect();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    let nextRatio = editorRatio;
+    let finished = false;
+    document.body.classList.add("editor-resizing");
+    handle.setPointerCapture(pointerId);
+
+    function resize(pointerEvent: PointerEvent) {
+      if (bounds.width <= 0) return;
+      nextRatio = Math.min(
+        MAX_EDITOR_RATIO,
+        Math.max(MIN_EDITOR_RATIO, (bounds.right - pointerEvent.clientX) / bounds.width),
+      );
+      setEditorRatio(nextRatio);
+    }
+
+    function finish() {
+      if (finished) return;
+      finished = true;
+      document.body.classList.remove("editor-resizing");
+      window.removeEventListener("pointermove", resize);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+      window.removeEventListener("blur", finish);
+      handle.removeEventListener("lostpointercapture", finish);
+      if (handle.hasPointerCapture(pointerId)) {
+        handle.releasePointerCapture(pointerId);
+      }
+      try {
+        window.localStorage.setItem(EDITOR_RATIO_KEY, String(nextRatio));
+      } catch {
+        // Keep the resized ratio for the current session.
+      }
+    }
+
+    window.addEventListener("pointermove", resize);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    window.addEventListener("blur", finish);
+    handle.addEventListener("lostpointercapture", finish);
+  };
   const changeView = (next: AppView) => {
     setView(next)
     setSidebarOpen(false)
@@ -1619,9 +1749,14 @@ function App() {
   const updateAgentChatModel = (chatModel: GeneralAgentTask['chatModel']) => {
     const task = materializeGeneralTask();
     const agentLocked = isWorkspaceTaskView || task.messages.length > 0 || task.submitting;
+    const current = getAgentSelection(task.chatModel);
+    const next = getAgentSelection(chatModel);
     if (
-      agentLocked &&
-      getAgentSelection(chatModel).providerId !== getAgentSelection(task.chatModel).providerId
+      agentLocked && (
+        next.providerId !== current.providerId ||
+        next.apiProviderId !== current.apiProviderId ||
+        next.modelId !== current.modelId
+      )
     ) {
       return;
     }
@@ -2770,10 +2905,8 @@ function App() {
         ? "custom"
         : "bailian",
     );
-    if (!providerDialogOpen && document.activeElement instanceof HTMLElement) {
-      settingsReturnFocusRef.current = document.activeElement;
-    }
-    setProviderDialogOpen(true);
+    setSettingsSection("api");
+    openShellPage("settings");
   };
 
   const clearAllHistory = async () => {
@@ -3052,6 +3185,11 @@ function App() {
       conversation.sourceTaskId === task.id)),
     ...agentConversations.filter(task => task.archived),
   ];
+  const handleProviderCatalogChanged = useCallback((nextCatalog: HarnessCatalog) => {
+    setCatalog(nextCatalog);
+    invalidateAcpModels();
+    void refreshOpenCodeConnections();
+  }, [invalidateAcpModels, refreshOpenCodeConnections]);
   const settingsRows: Record<SettingsSection, ReactNode> = {
     archived: (
       <div className="settings-archived-tasks">
@@ -3065,6 +3203,17 @@ function App() {
           </div>
         ))}
       </div>
+    ),
+    api: (
+      <ProviderSettings
+        provider={settingsProvider}
+        onProviderChange={setSettingsProvider}
+        runtime={runtime}
+        catalog={catalog}
+        onCatalogChanged={handleProviderCatalogChanged}
+        onAction={notify}
+        customProviderId={settingsCustomProviderId}
+      />
     ),
     general: (
       <>
@@ -3143,18 +3292,17 @@ function App() {
 	            <select
 	              className="settings-select-control"
 	              value={selectedChatModel.providerId}
-	              disabled={
-	                isWorkspaceTaskView ||
-	                Boolean(selectedGeneralTask && (selectedGeneralTask.messages.length > 0 || selectedGeneralTask.submitting))
-	              }
+	              disabled={agentSelectionLocked}
 	              aria-label={t("ACP Agent")}
-	              onChange={(event) =>
+	              onChange={(event) => {
+	                invalidateAcpModels();
 	                updateAgentChatModel({
 	                  transport: "acp",
 	                  providerId: event.target.value,
+	                  apiProviderId: "",
 	                  modelId: "",
-	                })
-	              }
+	                });
+	              }}
 	            >
 	              {!acpProviders.some(provider => provider.id === selectedChatModel.providerId) && (
 	                <option value={selectedChatModel.providerId} disabled>
@@ -3168,22 +3316,90 @@ function App() {
 	              ))}
 	            </select>
 	          </div>
+	          {selectedAcpRequiresApiProvider && (
+	            <div className="settings-row">
+	              <span>
+	                <strong>{t("API 配置")}</strong>
+	                <small>
+	                  {openCodeConnections.loading
+	                    ? t("正在读取 API 配置…")
+	                    : openCodeConnections.error
+	                      ? t("无法读取 API 配置：{0}", [openCodeConnections.error])
+	                      : openCodeApiBinding.eligible.length === 0
+	                        ? t("没有可用于此 Agent 的 API 配置")
+	                        : apiBindingUnavailable
+	                          ? openCodeApiBinding.selected?.reason ?? t("请选择一个可用的 API 配置")
+	                          : t("内置 Agent 将通过此 API 配置读取并调用模型。")}
+	                </small>
+	              </span>
+	              <div className="settings-control-stack">
+	                <select
+	                  className="settings-select-control"
+	                  value={savedAcpApiProviderId ?? ""}
+	                  disabled={agentSelectionLocked || openCodeConnections.loading}
+	                  aria-label={t("API 配置")}
+	                  onChange={(event) => {
+	                    invalidateAcpModels();
+	                    updateAgentChatModel({
+	                      ...selectedChatModel,
+	                      apiProviderId: event.target.value,
+	                      modelId: "",
+	                    });
+	                  }}
+	                >
+	                  <option value="">{t("请选择 API 配置")}</option>
+	                  {savedAcpApiProviderId && !openCodeApiBinding.selected && (
+	                    <option value={savedAcpApiProviderId} disabled>
+	                      {savedAcpApiProviderId} · {t("不可用")}
+	                    </option>
+	                  )}
+	                  {openCodeConnections.connections.map(connection => (
+	                    <option key={connection.id} value={connection.id} disabled={!connection.eligible}>
+	                      {connection.name}{connection.eligible ? "" : ` · ${connection.reason ?? t("不可用")}`}
+	                    </option>
+	                  ))}
+	                </select>
+	                <button
+	                  type="button"
+	                  className="settings-update-action compact"
+	                  disabled={agentSelectionLocked || openCodeConnections.loading}
+	                  onClick={() => void refreshOpenCodeConnections()}
+	                >
+	                  {openCodeConnections.loading ? <LoaderCircle className="model-spin" size={13} /> : <RefreshCw size={13} />}
+	                  {t("刷新 API 配置")}
+	                </button>
+	                {!openCodeConnections.loading && openCodeApiBinding.eligible.length === 0 && (
+	                  <button
+	                    type="button"
+	                    className="settings-update-action compact"
+	                    disabled={agentSelectionLocked}
+			                    onClick={() => setSettingsSection("api")}
+	                  >
+	                    {t("打开 API 配置")}
+	                  </button>
+	                )}
+	              </div>
+	            </div>
+	          )}
 	          <div className="settings-row">
 	            <span>
 	              <strong>{t("Agent 模型")}</strong>
 	              <small>
-	                {chatModelError ??
-	                  (isWorkspaceTaskView ||
-	                  Boolean(selectedGeneralTask && (selectedGeneralTask.messages.length > 0 || selectedGeneralTask.submitting))
-	                    ? t("任务进行中或已有对话后不可切换 Agent")
-	                    : t("模型列表由桌面端 ACP Agent 提供。"))}
+	                {apiBindingUnavailable
+	                  ? t("请先选择一个可用的 API 配置")
+	                  : chatModelError ??
+	                    (agentSelectionLocked
+	                      ? t("任务进行中或已有对话后不可切换 Agent")
+	                      : selectedAcpRequiresApiProvider
+	                        ? t("模型列表由所选 API 配置提供。")
+	                        : t("模型列表由桌面端 ACP Agent 提供。"))}
 	              </small>
 	            </span>
 	            <div className="settings-control-stack">
 	              <select
 	                className="settings-select-control"
 	                value={selectedChatModel.modelId}
-	                disabled={chatModelLoading || chosenAcpProviderModels.length === 0}
+	                disabled={agentSelectionLocked || apiBindingUnavailable || chatModelLoading || chosenAcpProviderModels.length === 0}
 	                aria-label={t("Agent 模型")}
 	                onChange={(event) =>
 	                  updateAgentChatModel({
@@ -3210,17 +3426,15 @@ function App() {
 	                    </option>
 	                  ))}
 	              </select>
-	              {chatModelError && (
-	                <button
-	                  type="button"
-	                  className="settings-update-action compact"
-	                  disabled={chatModelLoading}
-	                  onClick={() => void loadAcpModels(chosenAcpProvider)}
-	                >
-	                  {chatModelLoading ? <LoaderCircle className="model-spin" size={13} /> : <RefreshCw size={13} />}
-	                  {t("重试")}
-	                </button>
-	              )}
+	              <button
+	                type="button"
+	                className="settings-update-action compact"
+	                disabled={agentSelectionLocked || !selectedAcpProvider || apiBindingUnavailable || chatModelLoading}
+	                onClick={() => selectedAcpProvider && void loadAcpModels(selectedAcpProvider, chosenAcpApiProviderId, true)}
+	              >
+	                {chatModelLoading ? <LoaderCircle className="model-spin" size={13} /> : <RefreshCw size={13} />}
+	                {t("刷新模型")}
+	              </button>
 	            </div>
 	          </div>
 	        </div>
@@ -3484,7 +3698,7 @@ function App() {
       <aside
         id="app-navigation"
         className={`app-sidebar model-sidebar${sidebarOpen ? " open" : ""}`}
-        inert={providerDialogOpen || (viewportWidth <= 900 && !sidebarOpen)}
+        inert={viewportWidth <= 900 && !sidebarOpen}
       >
         <div className="activity-rail-title-spacer" data-tauri-drag-region />
 
@@ -3873,7 +4087,7 @@ function App() {
         />
       )}
 
-      <div className="app-frame model-app-frame" inert={providerDialogOpen || (viewportWidth <= 900 && sidebarOpen)}>
+      <div className="app-frame model-app-frame" inert={viewportWidth <= 900 && sidebarOpen}>
         <header className="topbar model-topbar" data-tauri-drag-region>
           <button
             ref={sidebarTriggerRef}
@@ -3906,27 +4120,35 @@ function App() {
             </span>
           </div>
           <div className="topbar-actions">
-            <WorkspaceSaveIndicator />
-            {shellPage === "workspace" && isWorkspaceTaskView && workspacePresentation?.hasArtifact && (
-              <div className="workspace-view-switch" role="group" aria-label={t('工作区视图')}>
-                <button type="button" aria-pressed={!workspacePanelOpen} onClick={() => {
-                  setWorkspacePanelOpen(false);
-                  setWorkspacePanelFocused(false);
-                }}>
-                  {t('对话')}
-                </button>
-                <button type="button" aria-pressed={workspacePanelOpen && !workspacePanelFocused} onClick={() => {
-                  setWorkspacePanelOpen(true);
-                  setWorkspacePanelFocused(false);
-                }}>
-                  <PanelRightOpen size={14} />{t('编辑器')}
-                </button>
-              </div>
+            {traceRecordingId && (
+              <button
+                type="button"
+                className="trace-record-stop"
+                onClick={() => {
+                  void saveRecording(traceRecordingId, ['smart-cut']).then(
+                    () => notify(t('录制已保存：{0}', [traceRecordingId])),
+                    error => notify(String(error)),
+                  )
+                }}
+              >
+                {t('保存录制')}
+              </button>
             )}
-            <span className="model-runtime-state">
-              <i />
-              {isTauriRuntime() ? t("本地运行") : t("界面预览")}
-            </span>
+            {shellPage === "workspace" && isWorkspaceTaskView && (
+              <button
+                type="button"
+                className="icon-button workspace-editor-toggle"
+                aria-pressed={workspacePanelOpen}
+                aria-label={workspacePanelOpen ? t('收起结果，继续对话') : t('打开编辑器')}
+                title={workspacePanelOpen ? t('收起结果，继续对话') : t('打开编辑器')}
+                onClick={() => {
+                  setWorkspacePanelOpen(open => !open);
+                  setWorkspacePanelFocused(false);
+                }}
+              >
+                <PanelRight size={16} />
+              </button>
+            )}
           </div>
         </header>
 
@@ -3986,7 +4208,7 @@ function App() {
             )}
             {shellPage === "settings" && (
               <section
-                className="settings-page"
+                className={`settings-page${settingsSection === "api" ? " settings-api-page" : ""}`}
                 aria-labelledby="settings-page-title"
               >
                 <header className="settings-page-heading">
@@ -4002,6 +4224,11 @@ function App() {
               className={`workspace-session${editorVisible ? ' editor-open' : ''}${editorFillsWorkspace ? ' editor-focused' : ''}`}
               hidden={shellPage !== "workspace"}
               inert={shellPage !== "workspace"}
+              style={editorVisible && !editorFillsWorkspace
+                ? ({
+                    gridTemplateColumns: `${(1 - editorRatio).toFixed(4)}fr 7px ${editorRatio.toFixed(4)}fr`,
+                  } as React.CSSProperties)
+                : undefined}
             >
               <div className="workspace-center" inert={editorFillsWorkspace}>
               <div
@@ -4012,6 +4239,15 @@ function App() {
                 <AgentHomeView
                   skills={appAgents}
                   chatModelUnavailable={chatModelUnavailable}
+                  chatModelOptions={chosenAcpProviderModels}
+                  chatModelId={selectedChatModel.modelId}
+                  chatModelDefaultName={chosenAcpDefaultModelName}
+                  chatModelLoading={chatModelLoading}
+                  chatModelLocked={agentSelectionLocked || apiBindingUnavailable}
+                  onChatModelChange={(modelId) => updateAgentChatModel({
+                    ...selectedChatModel,
+                    modelId,
+                  })}
                   acpPermissions={acpPermissions.filter(item => item.taskId === selectedGeneralTask?.id).map(item => item.event)}
                   onAcpPermission={(event, optionId) => {
                     if (!event.requestId) return;
@@ -4069,6 +4305,15 @@ function App() {
                   />
                 )}
               </div>
+              {editorVisible && !editorFillsWorkspace && (
+                <div
+                  className="workspace-editor-resizer"
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label={t("调整对话与编辑器宽度")}
+                  onPointerDown={beginEditorResize}
+                />
+              )}
               <aside
                 id="task-editor"
                 className="workspace-panel"
@@ -4076,28 +4321,6 @@ function App() {
                 inert={!editorVisible}
                 aria-label={view === 'meeting-notes' ? t('会议结果') : t('编辑器')}
               >
-                <div className="workspace-panel-header">
-                  <h3>{view === 'meeting-notes' ? t('会议结果') : t('编辑器')}</h3>
-                  {!compactWorkspace && (
-                    <button
-                      type="button"
-                      aria-label={workspacePanelFocused ? t('退出专注模式') : t('专注编辑')}
-                      title={workspacePanelFocused ? t('退出专注模式') : t('专注编辑')}
-                      aria-pressed={workspacePanelFocused}
-                      onClick={() => setWorkspacePanelFocused((focused) => !focused)}
-                    >
-                      {workspacePanelFocused ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    aria-label={t('收起结果，继续对话')}
-                    title={t('收起结果，继续对话')}
-                    onClick={() => setWorkspacePanelOpen(false)}
-                  >
-                    <PanelRightClose size={16} />
-                  </button>
-                </div>
                 <div className="workspace-panel-body">
                   {openedAgentConversations
                     .filter((conversation) => conversation.mode === "smart-cut")
@@ -4243,51 +4466,7 @@ function App() {
         </div>
       )}
 
-      {providerDialogOpen && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeProviderDialog();
-          }}
-        >
-          <section
-            className="settings-dialog application-settings-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="provider-dialog-title"
-          >
-            <div className="dialog-heading">
-              <div>
-                <span className="section-kicker">PROVIDER</span>
-                <h2 id="provider-dialog-title">{t("Provider 配置")}</h2>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                autoFocus
-                aria-label={t("关闭 Provider 配置")}
-                onClick={closeProviderDialog}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <div className="settings-layout single">
-              <div className="settings-content provider-settings-content">
-                <ProviderSettings
-                  provider={settingsProvider}
-                  onProviderChange={setSettingsProvider}
-                  runtime={runtime}
-                  catalog={catalog}
-                  onCatalogChanged={setCatalog}
-                  onAction={notify}
-                  customProviderId={settingsCustomProviderId}
-                />
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
+
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { AcpProviderInfo } from '../types'
+import type { AcpProviderInfo, OpenCodeConnection } from '../types'
 import type { AgentModelSelection } from './agents'
 import { t } from '../i18n'
 
@@ -9,10 +9,45 @@ export interface AgentModelOption {
   available: boolean
 }
 
+export interface OpenCodeApiBindingResolution {
+  selected: OpenCodeConnection | null
+  eligible: OpenCodeConnection[]
+  isEligible: boolean
+}
+
+/** Preserve a saved binding for display, but only allow eligible API Providers to power bundled Agents. */
+export function resolveOpenCodeApiBinding(
+  apiProviderId: string | undefined,
+  connections: OpenCodeConnection[],
+): OpenCodeApiBindingResolution {
+  const selectedId = apiProviderId?.trim() || ''
+  const selected = connections.find(connection => connection.id === selectedId) ?? null
+  return {
+    selected,
+    eligible: connections.filter(connection => connection.eligible),
+    isEligible: Boolean(selected?.eligible),
+  }
+}
+
 export const DEFAULT_AGENT_MODEL: AgentModelSelection = {
   transport: 'acp',
-  providerId: 'qoder',
+  providerId: 'opencode-bundled',
+  apiProviderId: '',
   modelId: '',
+}
+
+/** Only bundled ACP providers receive the separately configured API Provider binding. */
+export function acpApiProviderId(
+  selection: AgentModelSelection,
+  provider: AcpProviderInfo | undefined,
+): string | undefined {
+  if (!provider?.requiresApiProvider) return undefined
+  return selection.apiProviderId?.trim() || undefined
+}
+
+/** Keep discovered models scoped to both the ACP runtime and its selected API endpoint. */
+export function acpModelCacheKey(providerId: string, apiProviderId?: string): string {
+  return JSON.stringify([providerId, apiProviderId?.trim() || ''])
 }
 
 export function getAgentSelection(selection: AgentModelSelection | null | undefined): AgentModelSelection {

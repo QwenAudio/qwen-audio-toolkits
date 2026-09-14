@@ -8,11 +8,13 @@ import type { Plugin } from 'vite'
 import { parseAcpModelCatalog, type AcpModelCatalog } from '../../src/domain/acpModels.ts'
 
 const providers = [
-  { id: 'qoder', name: 'Qoder', command: ['qoder', '--acp'] },
-  { id: 'opencode', name: 'opencode', command: ['opencode', 'acp'] },
-  { id: 'kimi', name: 'Kimi Code', command: ['kimi', 'acp'] },
-  { id: 'codex', name: 'Codex', command: ['npx', '-y', '@agentclientprotocol/codex-acp'] },
-  { id: 'qwen-code', name: 'Qwen Code', command: ['npx', '-y', '@qwen-code/qwen-code', '--acp'] },
+  { id: 'qoder', name: 'Qoder', kind: 'external', requiresApiProvider: false, command: ['qoder', '--acp'] },
+  { id: 'opencode', name: 'opencode', kind: 'external', requiresApiProvider: false, command: ['opencode', 'acp'] },
+  // Sidecar discovery and API credentials are native-only, so browser preview lists this as unavailable.
+  { id: 'opencode-bundled', name: 'OpenCode（内置）', kind: 'bundled', requiresApiProvider: true, command: [] },
+  { id: 'kimi', name: 'Kimi Code', kind: 'external', requiresApiProvider: false, command: ['kimi', 'acp'] },
+  { id: 'codex', name: 'Codex', kind: 'external', requiresApiProvider: false, command: ['npx', '-y', '@agentclientprotocol/codex-acp'] },
+  { id: 'qwen-code', name: 'Qwen Code', kind: 'external', requiresApiProvider: false, command: ['npx', '-y', '@qwen-code/qwen-code', '--acp'] },
 ]
 const paths = [...new Set([
   ...['.local/bin', '.qoder/entry', '.cargo/bin', '.volta/bin', '.npm-global/bin', 'bin'].map(path => join(homedir(), path)),
@@ -25,6 +27,7 @@ const executable = (command: string) => paths.map(path => join(path, command)).f
 export async function inspectLocalAcpModels(providerId: string): Promise<AcpModelCatalog> {
   const provider = providers.find(item => item.id === providerId)
   if (!provider) throw new Error('未知的 ACP Agent')
+  if (provider.kind === 'bundled') throw new Error('内置 OpenCode 仅可在桌面端启动。')
   const command = executable(provider.command[0])
   if (!command) throw new Error(`未找到 ${provider.name}，请先安装并登录。`)
   const cwd = await mkdtemp(join(tmpdir(), 'qwenaudio-acp-models-'))
@@ -118,7 +121,13 @@ export function acpModelPreview(): Plugin {
         response.setHeader('Cache-Control', 'no-store')
         const url = new URL(request.url ?? '/', `http://${host}`)
         if (url.pathname === '/providers') {
-          response.end(JSON.stringify(providers.map(provider => ({ id: provider.id, name: provider.name, available: Boolean(executable(provider.command[0])) }))))
+          response.end(JSON.stringify(providers.map(provider => ({
+            id: provider.id,
+            name: provider.name,
+            kind: provider.kind,
+            requiresApiProvider: provider.requiresApiProvider,
+            available: provider.kind === 'external' && Boolean(executable(provider.command[0])),
+          }))))
           return
         }
         const id = url.searchParams.get('provider') ?? ''

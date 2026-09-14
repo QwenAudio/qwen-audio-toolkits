@@ -8,7 +8,6 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { createPortal } from 'react-dom'
 import { open } from '@tauri-apps/plugin-dialog'
 import { AgentProjectCard } from '../components/AgentProjectCard'
 import { isWorkspaceAgent } from '../appAgents'
@@ -17,7 +16,6 @@ import { listen } from '@tauri-apps/api/event'
 import {
   Boxes,
   BrainCircuit,
-  ChevronRight,
   CirclePlus,
   Cpu,
   Download,
@@ -103,8 +101,6 @@ interface PluginsViewProps {
   onCloudModelInstalled: (modelId: string, installed: boolean) => void
   onAppAgentInstalled: (agentId: string, installed: boolean) => void
   onAction: (message: string) => void
-  /** When set, the category tree renders into this element (the app sidebar). */
-  taxonomyHost?: HTMLElement | null
 }
 
 function isApiPlugin(plugin: ModelPlugin): boolean {
@@ -161,7 +157,6 @@ export function PluginsView({
   onCloudModelInstalled,
   onAppAgentInstalled,
   onAction,
-  taxonomyHost,
 }: PluginsViewProps) {
   const locale = useLocale()
   const skillsCatalog = catalogKind === 'skills'
@@ -345,28 +340,39 @@ export function PluginsView({
       }),
     [allModels, taxonomyByModelId],
   )
-  const activeCategory =
-    primaryFilter === 'all'
-      ? undefined
-      : categoryTree.find((category) => category.id === primaryFilter)
+  const availableSecondary = useMemo(
+    () => {
+      const counts = new Map<string, number>()
+      for (const model of allModels) {
+        const taxonomy = taxonomyByModelId.get(model.id)
+        if (!taxonomy || taxonomy.primaryCategory === 'agents') continue
+        if (primaryFilter !== 'all' && taxonomy.primaryCategory !== primaryFilter) continue
+        counts.set(
+          taxonomy.secondaryCategory,
+          (counts.get(taxonomy.secondaryCategory) ?? 0) + 1,
+        )
+      }
+      return [...counts.entries()]
+        .map(([id, count]) => ({ id, count }))
+        .sort((left, right) => left.id.localeCompare(right.id, 'en'))
+    },
+    [allModels, primaryFilter, taxonomyByModelId],
+  )
+
+  useEffect(() => {
+    if (
+      secondaryFilter !== 'all' &&
+      !availableSecondary.some((item) => item.id === secondaryFilter)
+    ) {
+      setSecondaryFilter('all')
+    }
+  }, [availableSecondary, secondaryFilter])
 
   useEffect(() => {
     if (!pendingDeleteId) return undefined
     const timer = window.setTimeout(() => setPendingDeleteId(null), 3200)
     return () => window.clearTimeout(timer)
   }, [pendingDeleteId])
-
-
-  useEffect(() => {
-    if (
-      secondaryFilter !== 'all' &&
-      !activeCategory?.secondary.some(
-        (category) => category.id === secondaryFilter,
-      )
-    ) {
-      setSecondaryFilter('all')
-    }
-  }, [activeCategory, secondaryFilter])
 
   useEffect(() => {
     if (!desktopRuntime) return undefined
@@ -420,16 +426,18 @@ export function PluginsView({
         const filterMatch =
           skillsCatalog ||
           primaryFilter === 'all' ||
-          (taxonomy?.primaryCategory === primaryFilter &&
-            (secondaryFilter === 'all' ||
-              taxonomy.secondaryCategory === secondaryFilter))
+          taxonomy?.primaryCategory === primaryFilter
+        const directionMatch =
+          skillsCatalog ||
+          secondaryFilter === 'all' ||
+          taxonomy?.secondaryCategory === secondaryFilter
         const apiPlugin = isApiPlugin(plugin)
         const runtimeMatch =
           skillsCatalog ||
           runtimeFilter === 'all' ||
           (runtimeFilter === 'api' && apiPlugin) ||
           (runtimeFilter === 'offline' && !apiPlugin)
-        return searchMatch && filterMatch && runtimeMatch && (!installedOnly || plugin.installed)
+        return searchMatch && filterMatch && directionMatch && runtimeMatch && (!installedOnly || plugin.installed)
       })
     },
     [
@@ -445,7 +453,7 @@ export function PluginsView({
     ],
   )
   const hasActiveFilters = Boolean(
-    search.trim() || installedOnly || primaryFilter !== 'all' || runtimeFilter !== 'all',
+    search.trim() || installedOnly || primaryFilter !== 'all' || secondaryFilter !== 'all' || runtimeFilter !== 'all',
   )
   const resetFilters = () => {
     setSearch('')
@@ -886,92 +894,118 @@ export function PluginsView({
     }
   }
 
-  const taxonomy = skillsCatalog ? null : (
-    <aside
-      className="catalog-taxonomy"
-      aria-label={t("模型分类")}
-    >
-      <div className="taxonomy-heading">
-        <span>{t("模型分类")}</span>
-        <small>{allModels.length}</small>
-      </div>
-      <nav className="taxonomy-tree">
+  const primaryLabels: Record<string, string> = {
+    multimodal: '多模态',
+    vision: '视觉',
+    text: '文本',
+    audio: '音频',
+  }
+  const modalityLabels: Record<string, string> = {
+    Audio: '语音',
+    Text: '文本',
+    Vision: '图像',
+  }
+  const secondaryLabel = (id: string): string => {
+    const [from, to] = id.split('-to-')
+    const side = (part?: string) =>
+      part
+        ?.split('-')
+        .map((modality) => t(modalityLabels[modality] ?? modality))
+        .join('+')
+    return `${side(from)} → ${side(to)}`
+  }
+
+  const categoryTags = !skillsCatalog && (
+    <div className="category-tags" role="group" aria-label={t('模型筛选')}>
+      <div className="category-tag-row">
+        <span className="category-tag-label">{t('类型')}</span>
+        <div className="category-tag-options">
           <button
-            className={`taxonomy-all${primaryFilter === 'all' ? ' active' : ''}`}
+            className={primaryFilter === 'all' ? 'active' : ''}
             type="button"
             aria-pressed={primaryFilter === 'all'}
-            onClick={() => {
-              setPrimaryFilter('all')
-              setSecondaryFilter('all')
-            }}
+            onClick={() => setPrimaryFilter('all')}
           >
-            <span>{t("全部模型")}</span>
-            <small>{allModels.length}</small>
+            {t('全部')}
           </button>
-          {categoryTree.filter((category) => category.id !== 'agents').map((category) => {
-            const expanded = primaryFilter === category.id
-            return (
-              <div
-                key={category.id}
-                className={`taxonomy-branch${expanded ? ' expanded' : ''}`}
+          {categoryTree.filter((category) => category.id !== 'agents').map((category) => (
+            <button
+              key={category.id}
+              className={primaryFilter === category.id ? 'active' : ''}
+              type="button"
+              aria-pressed={primaryFilter === category.id}
+              onClick={() => setPrimaryFilter(category.id)}
+            >
+              {t(primaryLabels[category.id] ?? category.label)}
+            </button>
+          ))}
+        </div>
+      </div>
+      {availableSecondary.length > 0 && (
+        <div className="category-tag-row">
+          <span className="category-tag-label">{t('方向')}</span>
+          <div className="category-tag-options">
+            <button
+              className={secondaryFilter === 'all' ? 'active' : ''}
+              type="button"
+              aria-pressed={secondaryFilter === 'all'}
+              onClick={() => setSecondaryFilter('all')}
+            >
+              {t('全部')}
+            </button>
+            {availableSecondary.map((secondary) => (
+              <button
+                key={secondary.id}
+                className={secondaryFilter === secondary.id ? 'active' : ''}
+                type="button"
+                title={secondary.id}
+                aria-pressed={secondaryFilter === secondary.id}
+                onClick={() => setSecondaryFilter(secondary.id)}
               >
-                <button
-                  className="taxonomy-primary"
-                  type="button"
-                  aria-expanded={expanded && category.secondary.length > 0}
-                  aria-pressed={expanded}
-                  onClick={() => {
-                    setPrimaryFilter(category.id)
-                    setSecondaryFilter('all')
-                  }}
-                >
-                  <ChevronRight size={13} />
-                  <span>{category.label}</span>
-                  <small>{category.count}</small>
-                </button>
-                {expanded && category.secondary.length > 0 && (
-                  <div className="taxonomy-secondary-group" role="group">
-                    <button
-                      className={secondaryFilter === 'all' ? 'active' : ''}
-                      type="button"
-                      aria-pressed={secondaryFilter === 'all'}
-                      onClick={() => setSecondaryFilter('all')}
-                    >
-                      <span>{t("全部")}</span>
-                      <small>{category.count}</small>
-                    </button>
-                    {category.secondary.map((secondary) => (
-                      <button
-                        key={secondary.id}
-                        className={
-                          secondaryFilter === secondary.id ? 'active' : ''
-                        }
-                        type="button"
-                        title={secondary.id}
-                        aria-pressed={secondaryFilter === secondary.id}
-                        onClick={() => setSecondaryFilter(secondary.id)}
-                      >
-                        <span>{secondary.id}</span>
-                        <small>{secondary.count}</small>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-      </nav>
-    </aside>
+                {secondaryLabel(secondary.id)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="category-tag-row">
+        <span className="category-tag-label">{t('运行方式')}</span>
+        <div className="category-tag-options">
+          <button
+            className={runtimeFilter === 'all' ? 'active' : ''}
+            type="button"
+            aria-pressed={runtimeFilter === 'all'}
+            onClick={() => setRuntimeFilter('all')}
+          >
+            {t('全部')}
+          </button>
+          <button
+            className={runtimeFilter === 'offline' ? 'active' : ''}
+            type="button"
+            aria-pressed={runtimeFilter === 'offline'}
+            onClick={() => setRuntimeFilter('offline')}
+          >
+            <HardDrive size={12} />
+            {t('离线')}
+          </button>
+          <button
+            className={runtimeFilter === 'api' ? 'active' : ''}
+            type="button"
+            aria-pressed={runtimeFilter === 'api'}
+            onClick={() => setRuntimeFilter('api')}
+          >
+            <Wifi size={12} />
+            {t('云端 API')}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 
   return (
     <div
-      className={`plugins-page${taxonomyHost ? ' embedded' : ''}${
-        skillsCatalog ? ' skills-catalog' : ''
-      }`}
+      className={`plugins-page${skillsCatalog ? ' skills-catalog' : ''}`}
     >
-      {taxonomy && (taxonomyHost ? createPortal(taxonomy, taxonomyHost) : taxonomy)}
-
       <div
         ref={workspaceRef}
         className="plugins-workspace"
@@ -1049,46 +1083,8 @@ export function PluginsView({
                     : t("等待安装")}{' '}
                   · {Object.values(installJobs).length} {t(" 个任务")}</span>
               )}
-            {!skillsCatalog && (
-              <div className="runtime-scope" role="group" aria-label={t("按运行方式筛选")}>
-                <button
-                  className={runtimeFilter === 'all' ? 'active' : ''}
-                  type="button"
-                  aria-pressed={runtimeFilter === 'all'}
-                  onClick={() => setRuntimeFilter('all')}
-                >
-                  {t("全部")}
-                </button>
-                <button
-                  className={runtimeFilter === 'offline' ? 'active' : ''}
-                  type="button"
-                  aria-pressed={runtimeFilter === 'offline'}
-                  title={t("仅显示离线模型；再次点击恢复全部")}
-                  onClick={() =>
-                    setRuntimeFilter((current) =>
-                      current === 'offline' ? 'all' : 'offline',
-                    )
-                  }
-                >
-                  <HardDrive size={13} />
-                  {t("离线")}</button>
-                <i />
-                <button
-                  className={runtimeFilter === 'api' ? 'active' : ''}
-                  type="button"
-                  aria-pressed={runtimeFilter === 'api'}
-                  title={t("仅显示云端 API；再次点击恢复全部")}
-                  onClick={() =>
-                    setRuntimeFilter((current) =>
-                      current === 'api' ? 'all' : 'api',
-                    )
-                  }
-                >
-                  <Wifi size={13} />
-                  {t("云端 API")}</button>
-              </div>
-            )}
           </div>
+          {categoryTags}
           <div className="plugin-results-toolbar">
             <span className="plugin-results-count" role="status" aria-live="polite" aria-atomic="true">
               {skillsCatalog

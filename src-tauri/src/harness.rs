@@ -29,7 +29,7 @@ use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     env, fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -67,6 +67,8 @@ pub const CAPABILITY_SOURCE_SEPARATION: &str = "audio.separate";
 
 const API_PROVIDER_ID: &str = "api.openai-compatible";
 const BAILIAN_PROVIDER_ID: &str = "api.bailian";
+const OPENCODE_MODEL_RESPONSE_MAX_BYTES: usize = 1024 * 1024;
+const OPENCODE_MODEL_LIMIT: usize = 500;
 const SENSEVOICE_GGUF_PROVIDER_ID: &str = "plugin.funaudiollm.sensevoice-small-gguf";
 const BAILIAN_TTS_MODEL: &str = "qwen-audio-3.0-tts-flash";
 const BAILIAN_TTS_PLUS_MODEL: &str = "qwen-audio-3.0-tts-plus";
@@ -385,6 +387,12 @@ struct ApiProviderConfig {
     #[serde(default)]
     extra_headers: HashMap<String, String>,
     llm_path: String,
+    #[serde(default = "default_llm_profile")]
+    llm_profile: String,
+    #[serde(default)]
+    llm_body_template: String,
+    #[serde(default = "default_llm_text_pointer")]
+    llm_text_pointer: String,
     asr_mode: String,
     asr_path: String,
     #[serde(default)]
@@ -407,6 +415,14 @@ fn default_llm_model() -> String {
     "qwen-plus".to_string()
 }
 
+fn default_llm_profile() -> String {
+    "openai-chat".to_string()
+}
+
+fn default_llm_text_pointer() -> String {
+    "/choices/0/message/content".to_string()
+}
+
 impl Default for ApiProviderConfig {
     fn default() -> Self {
         Self {
@@ -426,6 +442,9 @@ impl Default for ApiProviderConfig {
             auth_header: "x-api-key".to_string(),
             extra_headers: HashMap::new(),
             llm_path: "/chat/completions".to_string(),
+            llm_profile: default_llm_profile(),
+            llm_body_template: String::new(),
+            llm_text_pointer: default_llm_text_pointer(),
             asr_mode: "multipart".to_string(),
             asr_path: "/audio/transcriptions".to_string(),
             asr_body_template: String::new(),
@@ -451,6 +470,144 @@ impl ApiProviderConfig {
             && api_provider_endpoint_is_valid(&self.base_url)
             && (local || self.auth_type == "none" || !self.api_key.trim().is_empty())
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CustomApiAdapter {
+    OpenAiChat,
+    TemplateJson,
+    GenericAsr,
+    GenericTts,
+}
+
+impl CustomApiAdapter {
+    fn id(self) -> &'static str {
+        match self {
+            Self::OpenAiChat => "custom-openai-chat",
+            Self::TemplateJson => "custom-template-json",
+            Self::GenericAsr => "custom-asr",
+            Self::GenericTts => "custom-tts",
+        }
+    }
+}
+
+fn custom_api_adapter(
+    capability: &str,
+    config: &ApiProviderConfig,
+) -> Result<CustomApiAdapter, String> {
+    match capability {
+        CAPABILITY_TEXT => match config.llm_profile.as_str() {
+            "openai-chat" => Ok(CustomApiAdapter::OpenAiChat),
+            "template-json" => Ok(CustomApiAdapter::TemplateJson),
+            _ => Err("LLM request profile is unsupported".to_string()),
+        },
+        CAPABILITY_ASR => Ok(CustomApiAdapter::GenericAsr),
+        CAPABILITY_TTS => Ok(CustomApiAdapter::GenericTts),
+        _ => Err("该 API Provider 不支持所选能力".to_string()),
+    }
+}
+
+impl OpenCodeLaunchConfig {
+    fn api_provider_request_config(&self) -> ApiProviderConfig {
+        ApiProviderConfig {
+            id: self.id.clone(),
+            base_url: self.base_url.clone(),
+            api_key: self.api_key.clone(),
+            auth_type: self.auth_type.clone(),
+            ..Default::default()
+        }
+    }
+}
+
+fn is_saved_custom_api_provider(config: &ApiProviderConfig) -> bool {
+    config.id.starts_with("api.custom.")
+}
+
+fn opencode_provider_slug(provider_id: &str) -> String {
+    let mut sanitized = String::new();
+    let mut previous_was_separator = false;
+    for character in provider_id.chars() {
+        if character.is_ascii_alphanumeric() {
+            sanitized.push(character.to_ascii_lowercase());
+            previous_was_separator = false;
+        } else if !sanitized.is_empty() && !previous_was_separator {
+            sanitized.push('-');
+            previous_was_separator = true;
+        }
+    }
+    let sanitized = sanitized.trim_matches('-');
+    if sanitized.is_empty() {
+        "qwenaudio-provider".to_string()
+    } else {
+        format!("qwenaudio-{sanitized}")
+    }
+}
+
+fn opencode_connection_reason(config: &ApiProviderConfig) -> Option<&'static str> {
+    if !is_saved_custom_api_provider(config) {
+        return Some("Only saved custom providers are supported");
+    }
+    if !config.enabled {
+        return Some("Provider is disabled");
+    }
+    if !config.llm_enabled {
+        return Some("LLM is disabled");
+    }
+    if config.llm_profile != "openai-chat" {
+        return Some("LLM request profile is unsupported");
+    }
+    if !matches!(config.auth_type.as_str(), "bearer" | "none") {
+        return Some("Custom authentication is unsupported");
+    }
+    if !config.extra_headers.is_empty() {
+        return Some("Extra headers are unsupported");
+    }
+    if !api_provider_endpoint_is_valid(&config.base_url) {
+        return Some("Provider base URL is invalid");
+    }
+    if opencode_base_url_has_query_or_fragment(&config.base_url) {
+        return Some("Provider base URL must not contain a query or fragment");
+    }
+    if !config.configured() {
+        return Some("Provider is not configured");
+    }
+    None
+}
+
+fn opencode_base_url_has_query_or_fragment(value: &str) -> bool {
+    reqwest::Url::parse(value)
+        .ok()
+        .is_some_and(|url| url.query().is_some() || url.fragment().is_some())
+}
+
+fn opencode_connection(config: &ApiProviderConfig) -> OpenCodeConnection {
+    let reason = opencode_connection_reason(config).map(str::to_string);
+    OpenCodeConnection {
+        id: config.id.clone(),
+        name: config.name.clone(),
+        provider_slug: opencode_provider_slug(&config.id),
+        eligible: reason.is_none(),
+        reason,
+    }
+}
+
+/// Resolve an eligible custom-provider connection for native OpenCode launch code.
+pub(crate) fn opencode_launch_config(
+    app: &AppHandle,
+    provider_id: &str,
+) -> Result<OpenCodeLaunchConfig, String> {
+    let config = read_api_provider_config(app, provider_id)
+        .map_err(|_| "OpenCode connection is unavailable".to_string())?;
+    if let Some(reason) = opencode_connection_reason(&config) {
+        return Err(format!("OpenCode connection is not eligible: {reason}"));
+    }
+    Ok(OpenCodeLaunchConfig {
+        id: config.id.clone(),
+        base_url: config.base_url.clone(),
+        api_key: config.api_key.clone(),
+        provider_slug: opencode_provider_slug(&config.id),
+        auth_type: config.auth_type.clone(),
+    })
 }
 
 fn api_provider_endpoint_is_local(value: &str) -> bool {
@@ -487,6 +644,12 @@ pub struct ApiProviderUpdate {
     #[serde(default)]
     extra_headers: HashMap<String, String>,
     llm_path: String,
+    #[serde(default = "default_llm_profile")]
+    llm_profile: String,
+    #[serde(default)]
+    llm_body_template: String,
+    #[serde(default = "default_llm_text_pointer")]
+    llm_text_pointer: String,
     asr_mode: String,
     asr_path: String,
     #[serde(default)]
@@ -525,6 +688,9 @@ pub struct ApiProviderSettings {
     auth_header: String,
     extra_headers: HashMap<String, String>,
     llm_path: String,
+    llm_profile: String,
+    llm_body_template: String,
+    llm_text_pointer: String,
     asr_mode: String,
     asr_path: String,
     asr_body_template: String,
@@ -539,6 +705,27 @@ pub struct ApiProviderSettings {
     tts_audio_pointer: String,
     tts_audio_format: String,
     tts_sample_rate: u32,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenCodeConnection {
+    pub id: String,
+    pub name: String,
+    pub provider_slug: String,
+    pub eligible: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Native-only credentials for configuring a future bundled OpenCode process.
+/// This type deliberately does not implement `Serialize`.
+pub(crate) struct OpenCodeLaunchConfig {
+    pub(crate) id: String,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+    pub(crate) provider_slug: String,
+    pub(crate) auth_type: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -1743,6 +1930,9 @@ fn api_provider_settings(config: ApiProviderConfig) -> ApiProviderSettings {
         auth_header: config.auth_header,
         extra_headers: config.extra_headers,
         llm_path: config.llm_path,
+        llm_profile: config.llm_profile,
+        llm_body_template: config.llm_body_template,
+        llm_text_pointer: config.llm_text_pointer,
         asr_mode: config.asr_mode,
         asr_path: config.asr_path,
         asr_body_template: config.asr_body_template,
@@ -1763,6 +1953,24 @@ fn api_provider_settings(config: ApiProviderConfig) -> ApiProviderSettings {
 pub(crate) fn provider_settings(app: &AppHandle) -> Result<Vec<ApiProviderSettings>, String> {
     read_api_provider_configs(app)
         .map(|configs| configs.into_iter().map(api_provider_settings).collect())
+}
+
+#[tauri::command]
+pub fn harness_list_opencode_connections(
+    app: AppHandle,
+) -> Result<Vec<OpenCodeConnection>, String> {
+    read_api_provider_configs(&app)
+        .map(|configs| configs.iter().map(opencode_connection).collect())
+        .map_err(|_| "Unable to load OpenCode connections".to_string())
+}
+
+#[tauri::command]
+pub async fn harness_list_opencode_models(
+    app: AppHandle,
+    provider_id: String,
+) -> Result<Vec<String>, String> {
+    let launch = opencode_launch_config(&app, &provider_id)?;
+    discover_opencode_models(&launch).await
 }
 
 #[tauri::command]
@@ -1811,6 +2019,9 @@ pub fn harness_save_api_provider(
     current.auth_header = update.auth_header.trim().to_string();
     current.extra_headers = update.extra_headers;
     current.llm_path = normalize_api_path(&update.llm_path)?;
+    current.llm_profile = update.llm_profile;
+    current.llm_body_template = update.llm_body_template.trim().to_string();
+    current.llm_text_pointer = normalize_json_pointer(&update.llm_text_pointer)?;
     current.asr_mode = update.asr_mode;
     current.asr_path = normalize_api_path(&update.asr_path)?;
     current.asr_body_template = update.asr_body_template.trim().to_string();
@@ -6691,7 +6902,12 @@ async fn execute_api_text(
     provider: &ResolvedProvider,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
-    let (base_url, api_key) = if provider.id == BAILIAN_PROVIDER_ID {
+    let api_config = (provider.id != BAILIAN_PROVIDER_ID)
+        .then(|| configured_api_provider(app, &provider.id))
+        .transpose()?;
+    let (base_url, api_key) = if let Some(config) = api_config.as_ref() {
+        (config.base_url.clone(), config.api_key.clone())
+    } else {
         let config = configured_bailian_provider(app)?;
         (
             format!(
@@ -6700,9 +6916,6 @@ async fn execute_api_text(
             ),
             config.api_key,
         )
-    } else {
-        let config = configured_api_provider(app, &provider.id)?;
-        (config.base_url, config.api_key)
     };
     let messages = request
         .input
@@ -6722,33 +6935,53 @@ async fn execute_api_text(
         .unwrap_or(512.0)
         .clamp(1.0, 8192.0) as u64;
     let started = Instant::now();
-    let api_config = (provider.id != BAILIAN_PROVIDER_ID)
-        .then(|| configured_api_provider(app, &provider.id))
-        .transpose()?;
     let path = api_config
         .as_ref()
         .map(|config| config.llm_path.as_str())
         .unwrap_or("/chat/completions");
+    let request_id = Uuid::new_v4().to_string();
     let builder = api_client()?
         .post(api_endpoint(&base_url, path))
         .timeout(Duration::from_secs(120));
     let builder = if let Some(config) = api_config.as_ref() {
-        apply_api_request_headers(
-            builder,
-            config,
-            &provider.model_id,
-            "",
-            &Uuid::new_v4().to_string(),
-        )?
+        apply_api_request_headers(builder, config, &provider.model_id, "", &request_id)?
     } else {
         with_api_auth(builder, &api_key)
     };
-    let mut payload = json!({
-        "model": provider.model_id,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens
-    });
+    let text_pointer = api_config
+        .as_ref()
+        .map(|config| config.llm_text_pointer.as_str())
+        .unwrap_or("/choices/0/message/content");
+    let mut payload = if let Some(config) = api_config.as_ref() {
+        match custom_api_adapter(CAPABILITY_TEXT, config)? {
+            CustomApiAdapter::OpenAiChat => json!({
+                "model": provider.model_id,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }),
+            CustomApiAdapter::TemplateJson => expand_api_json_template(
+                &config.llm_body_template,
+                &llm_template_values(
+                    &provider.model_id,
+                    &messages,
+                    temperature,
+                    max_tokens,
+                    &request_id,
+                ),
+            )?,
+            CustomApiAdapter::GenericAsr | CustomApiAdapter::GenericTts => {
+                return Err("LLM request profile is unsupported".to_string());
+            }
+        }
+    } else {
+        json!({
+            "model": provider.model_id,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        })
+    };
     if provider.id == BAILIAN_PROVIDER_ID {
         if let Some(enable_thinking) = request
             .parameters
@@ -6772,7 +7005,7 @@ async fn execute_api_text(
         .await
         .map_err(|error| format!("文本生成 API 没有返回有效 JSON: {error}"))?;
     let text = raw
-        .pointer("/choices/0/message/content")
+        .pointer(text_pointer)
         .and_then(Value::as_str)
         .unwrap_or_default()
         .trim()
@@ -6814,6 +7047,15 @@ fn api_client() -> Result<reqwest::Client, String> {
         .map_err(|error| format!("无法创建 API 客户端: {error}"))
 }
 
+fn opencode_model_discovery_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(180))
+        .connect_timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|_| "Unable to create the OpenCode model discovery client".to_string())
+}
+
 fn reqwest_error_details(error: &reqwest::Error) -> String {
     use std::error::Error as _;
 
@@ -6838,6 +7080,103 @@ fn reqwest_error_details(error: &reqwest::Error) -> String {
 
 fn api_endpoint(base_url: &str, path: &str) -> String {
     format!("{}{}", base_url.trim_end_matches('/'), path)
+}
+
+fn opencode_model_endpoint(base_url: &str) -> Result<reqwest::Url, String> {
+    let mut endpoint = reqwest::Url::parse(base_url)
+        .map_err(|_| "Unable to construct the OpenCode model discovery URL".to_string())?;
+    if endpoint.query().is_some() || endpoint.fragment().is_some() {
+        return Err("Unable to construct the OpenCode model discovery URL".to_string());
+    }
+    let mut segments = endpoint
+        .path_segments_mut()
+        .map_err(|_| "Unable to construct the OpenCode model discovery URL".to_string())?;
+    segments.pop_if_empty();
+    segments.push("models");
+    drop(segments);
+    Ok(endpoint)
+}
+
+async fn discover_opencode_models(launch: &OpenCodeLaunchConfig) -> Result<Vec<String>, String> {
+    discover_opencode_models_with_timeout(launch, Duration::from_secs(15)).await
+}
+
+async fn discover_opencode_models_with_timeout(
+    launch: &OpenCodeLaunchConfig,
+    timeout: Duration,
+) -> Result<Vec<String>, String> {
+    let request_config = launch.api_provider_request_config();
+    let endpoint = opencode_model_endpoint(&launch.base_url)?;
+    let client = opencode_model_discovery_client()?;
+    let request = client.get(endpoint).timeout(timeout);
+    let response = apply_api_request_headers(
+        request,
+        &request_config,
+        "",
+        "",
+        &Uuid::new_v4().to_string(),
+    )
+    .map_err(|_| "Unable to prepare the OpenCode model discovery request".to_string())?
+    .send()
+    .await
+    .map_err(|error| {
+        if error.is_timeout() {
+            "OpenCode model discovery timed out".to_string()
+        } else {
+            "OpenCode model discovery request failed".to_string()
+        }
+    })?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "OpenCode model discovery returned HTTP {}",
+            response.status().as_u16()
+        ));
+    }
+    let body = read_opencode_model_response(response).await?;
+    parse_opencode_models(&body)
+}
+
+async fn read_opencode_model_response(mut response: reqwest::Response) -> Result<Vec<u8>, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > OPENCODE_MODEL_RESPONSE_MAX_BYTES as u64)
+    {
+        return Err("OpenCode model discovery response is too large".to_string());
+    }
+
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "OpenCode model discovery response failed".to_string())?
+    {
+        if body.len().saturating_add(chunk.len()) > OPENCODE_MODEL_RESPONSE_MAX_BYTES {
+            return Err("OpenCode model discovery response is too large".to_string());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+fn parse_opencode_models(body: &[u8]) -> Result<Vec<String>, String> {
+    let response = serde_json::from_slice::<Value>(body)
+        .map_err(|_| "OpenCode model discovery response was not valid JSON".to_string())?;
+    let models = response
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            "OpenCode model discovery response did not contain a model list".to_string()
+        })?;
+    Ok(models
+        .iter()
+        .filter_map(|model| model.get("id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|model_id| !model_id.is_empty())
+        .map(str::to_string)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .take(OPENCODE_MODEL_LIMIT)
+        .collect())
 }
 
 fn normalize_api_path(value: &str) -> Result<String, String> {
@@ -6873,6 +7212,64 @@ fn validate_api_field(value: &str, label: &str) -> Result<(), String> {
     Ok(())
 }
 
+const LLM_TEMPLATE_PLACEHOLDERS: &[&str] = &[
+    "{model}",
+    "{messages}",
+    "{temperature}",
+    "{maxTokens}",
+    "{uuid}",
+];
+
+fn validate_llm_body_template(template: &str) -> Result<(), String> {
+    validate_api_json_template(template, "LLM")?;
+    let value = serde_json::from_str::<Value>(template)
+        .map_err(|error| format!("LLM JSON 模板无效: {error}"))?;
+    validate_template_placeholders(&value, LLM_TEMPLATE_PLACEHOLDERS, "LLM")
+}
+
+fn validate_template_placeholders(
+    value: &Value,
+    allowed: &[&str],
+    label: &str,
+) -> Result<(), String> {
+    match value {
+        Value::String(text) => {
+            let mut remaining = text.as_str();
+            while let Some(start) = remaining.find('{') {
+                if remaining[..start].contains('}') {
+                    return Err(format!("{label} JSON 模板变量无效"));
+                }
+                let candidate = &remaining[start..];
+                let end = candidate
+                    .find('}')
+                    .ok_or_else(|| format!("{label} JSON 模板变量无效"))?;
+                let placeholder = &candidate[..=end];
+                if !allowed.iter().any(|allowed| *allowed == placeholder) {
+                    return Err(format!("{label} JSON 模板变量不受支持: {placeholder}"));
+                }
+                remaining = &candidate[end + 1..];
+            }
+            if remaining.contains('}') {
+                return Err(format!("{label} JSON 模板变量无效"));
+            }
+            Ok(())
+        }
+        Value::Array(items) => items
+            .iter()
+            .try_for_each(|item| validate_template_placeholders(item, allowed, label)),
+        Value::Object(object) => {
+            for (key, item) in object {
+                if key.contains(['{', '}']) {
+                    return Err(format!("{label} JSON 模板不支持变量作为对象键"));
+                }
+                validate_template_placeholders(item, allowed, label)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 fn validate_api_provider_update(update: &ApiProviderUpdate) -> Result<(), String> {
     if !update.llm_enabled && !update.asr_enabled && !update.tts_enabled {
         return Err("请至少启用一种 Provider 能力".to_string());
@@ -6886,6 +7283,13 @@ fn validate_api_provider_update(update: &ApiProviderUpdate) -> Result<(), String
     if update.auth_type == "custom-header" {
         validate_api_field(&update.auth_header, "鉴权 Header")?;
     }
+    if !matches!(update.llm_profile.as_str(), "openai-chat" | "template-json") {
+        return Err("LLM 请求格式无效".to_string());
+    }
+    if update.llm_profile == "template-json" {
+        validate_llm_body_template(&update.llm_body_template)?;
+    }
+    normalize_json_pointer(&update.llm_text_pointer)?;
     if !matches!(
         update.asr_mode.as_str(),
         "multipart" | "binary" | "template-json-base64"
@@ -6995,6 +7399,22 @@ fn api_template_values(context: &ApiTemplateContext<'_>) -> HashMap<String, Valu
             json!(api_audio_format(context.audio_format)),
         ),
         ("{uuid}".to_string(), json!(context.request_id)),
+    ])
+}
+
+fn llm_template_values(
+    model_id: &str,
+    messages: &Value,
+    temperature: f64,
+    max_tokens: u64,
+    request_id: &str,
+) -> HashMap<String, Value> {
+    HashMap::from([
+        ("{model}".to_string(), json!(model_id)),
+        ("{messages}".to_string(), messages.clone()),
+        ("{temperature}".to_string(), json!(temperature)),
+        ("{maxTokens}".to_string(), json!(max_tokens)),
+        ("{uuid}".to_string(), json!(request_id)),
     ])
 }
 
@@ -7528,6 +7948,7 @@ fn resolve_provider(
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty());
+        let adapter = custom_api_adapter(&request.capability, &api_config)?;
         let model_id = match request.capability.as_str() {
             CAPABILITY_TTS if api_config.tts_enabled => requested_model
                 .map(str::to_string)
@@ -7545,7 +7966,7 @@ fn resolve_provider(
             name: api_config.name,
             model_id,
             is_api: true,
-            adapter: "openai-compatible".to_string(),
+            adapter: adapter.id().to_string(),
             model_path: None,
         });
     }
@@ -7828,6 +8249,94 @@ mod tests {
         }
     }
 
+    fn opencode_mock_response(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn start_opencode_model_server(
+        responses: Vec<(Duration, String)>,
+    ) -> (
+        String,
+        std::sync::mpsc::Receiver<String>,
+        std::thread::JoinHandle<()>,
+    ) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind model server");
+        let address = listener.local_addr().expect("read model server address");
+        let (request_tx, request_rx) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            for (delay, response) in responses {
+                let (mut stream, _) = listener.accept().expect("accept model request");
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .expect("set model request timeout");
+                let mut reader = BufReader::new(stream.try_clone().expect("clone model stream"));
+                let mut request = String::new();
+                loop {
+                    let mut line = String::new();
+                    let read = reader.read_line(&mut line).expect("read model request");
+                    assert!(read > 0, "model request ended before headers");
+                    request.push_str(&line);
+                    if line == "\r\n" {
+                        break;
+                    }
+                }
+                request_tx.send(request).expect("record model request");
+                thread::sleep(delay);
+                match stream.write_all(response.as_bytes()) {
+                    Ok(()) => {}
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::BrokenPipe
+                                | std::io::ErrorKind::ConnectionAborted
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::NotConnected
+                        ) => {}
+                    Err(error) => panic!("write model response: {error}"),
+                }
+            }
+        });
+        (format!("http://{address}/v1"), request_rx, server)
+    }
+
+    fn request_header<'a>(request: &'a str, header: &str) -> Option<&'a str> {
+        request.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case(header).then(|| value.trim())
+        })
+    }
+
+    #[test]
+    fn opencode_model_server_tolerates_intentional_client_disconnects() {
+        let (base_url, requests, server) = start_opencode_model_server(vec![(
+            Duration::from_millis(50),
+            opencode_mock_response("200 OK", &"x".repeat(8 * 1024 * 1024)),
+        )]);
+        let address = base_url
+            .strip_prefix("http://")
+            .and_then(|value| value.strip_suffix("/v1"))
+            .expect("extract model server address");
+        let mut client = std::net::TcpStream::connect(address).expect("connect model server");
+        client
+            .write_all(b"GET /v1/models HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .expect("send model request");
+        assert!(requests
+            .recv_timeout(Duration::from_secs(1))
+            .expect("capture model request")
+            .starts_with("GET /v1/models HTTP/1.1\r\n"));
+        client
+            .shutdown(std::net::Shutdown::Both)
+            .expect("disconnect model client");
+        drop(client);
+
+        server
+            .join()
+            .expect("ignore intentional client disconnect while writing response");
+    }
+
     fn test_run(id: &str) -> HarnessRun {
         HarnessRun {
             id: id.to_string(),
@@ -8019,6 +8528,366 @@ mod tests {
     }
 
     #[test]
+    fn opencode_connections_only_allow_supported_custom_llm_providers() {
+        let mut config = provider("https://example.com/v1", "secret");
+        config.id = "api.custom.Test Provider".to_string();
+        config.name = "Test Provider".to_string();
+
+        let connection = opencode_connection(&config);
+        assert!(connection.eligible);
+        assert_eq!(
+            connection.provider_slug,
+            "qwenaudio-api-custom-test-provider"
+        );
+        let serialized = serde_json::to_value(&connection).expect("serialize connection");
+        assert_eq!(serialized["id"], "api.custom.Test Provider");
+        assert_eq!(serialized["name"], "Test Provider");
+        assert!(serialized.get("baseUrl").is_none());
+        assert!(serialized.get("apiKey").is_none());
+
+        config.enabled = false;
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("Provider is disabled")
+        );
+        config.enabled = true;
+
+        config.llm_enabled = false;
+        assert_eq!(opencode_connection_reason(&config), Some("LLM is disabled"));
+        config.llm_enabled = true;
+
+        config.llm_profile = "template-json".to_string();
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("LLM request profile is unsupported")
+        );
+        config.llm_profile = default_llm_profile();
+
+        config.auth_type = "token".to_string();
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("Custom authentication is unsupported")
+        );
+        config.auth_type = "bearer".to_string();
+
+        config
+            .extra_headers
+            .insert("x-test".to_string(), "value".to_string());
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("Extra headers are unsupported")
+        );
+        config.extra_headers.clear();
+
+        config.base_url = "not a usable URL".to_string();
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("Provider base URL is invalid")
+        );
+        config.base_url = "https://example.com/v1".to_string();
+
+        config.api_key.clear();
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("Provider is not configured")
+        );
+        config.auth_type = "none".to_string();
+        assert_eq!(opencode_connection_reason(&config), None);
+
+        config.base_url = "https://example.com/v1?scope=models".to_string();
+        assert!(api_provider_endpoint_is_valid(&config.base_url));
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("Provider base URL must not contain a query or fragment")
+        );
+        config.base_url = "https://example.com/v1#models".to_string();
+        assert!(api_provider_endpoint_is_valid(&config.base_url));
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("Provider base URL must not contain a query or fragment")
+        );
+        config.base_url = "https://example.com/v1".to_string();
+        assert_eq!(opencode_connection_reason(&config), None);
+
+        config.id = API_PROVIDER_ID.to_string();
+        assert_eq!(
+            opencode_connection_reason(&config),
+            Some("Only saved custom providers are supported")
+        );
+    }
+
+    #[test]
+    fn custom_api_adapter_registry_uses_only_reviewed_profiles() {
+        let mut config = provider("https://example.com/v1", "secret");
+        assert_eq!(
+            custom_api_adapter(CAPABILITY_TEXT, &config).expect("default LLM profile"),
+            CustomApiAdapter::OpenAiChat,
+        );
+        config.llm_profile = "template-json".to_string();
+        assert_eq!(
+            custom_api_adapter(CAPABILITY_TEXT, &config).expect("template LLM profile"),
+            CustomApiAdapter::TemplateJson,
+        );
+        config.llm_profile = "unsupported-profile".to_string();
+        let error = custom_api_adapter(CAPABILITY_TEXT, &config)
+            .expect_err("reject an unknown LLM profile before requesting a provider");
+        assert_eq!(error, "LLM request profile is unsupported");
+        assert!(!error.contains(&config.api_key));
+        assert_eq!(
+            custom_api_adapter(CAPABILITY_ASR, &config).expect("generic ASR adapter"),
+            CustomApiAdapter::GenericAsr,
+        );
+        assert_eq!(
+            custom_api_adapter(CAPABILITY_TTS, &config).expect("generic TTS adapter"),
+            CustomApiAdapter::GenericTts,
+        );
+    }
+
+    #[test]
+    fn opencode_model_parser_normalizes_deduplicates_sorts_and_caps_ids() {
+        let response = json!({
+            "data": [
+                { "id": " beta " },
+                { "id": "alpha" },
+                { "id": "beta" },
+                { "id": "  " },
+                { "id": "gamma" },
+                { "id": 42 },
+                {}
+            ]
+        });
+        let body = serde_json::to_vec(&response).expect("serialize model response");
+        assert_eq!(
+            parse_opencode_models(&body).expect("parse model response"),
+            vec!["alpha", "beta", "gamma"]
+        );
+
+        let response = json!({
+            "data": (0..510)
+                .map(|index| json!({ "id": format!("model-{index:03}") }))
+                .collect::<Vec<_>>()
+        });
+        let body = serde_json::to_vec(&response).expect("serialize capped response");
+        let models = parse_opencode_models(&body).expect("parse capped response");
+        assert_eq!(models.len(), OPENCODE_MODEL_LIMIT);
+        assert_eq!(models.first().map(String::as_str), Some("model-000"));
+        assert_eq!(models.last().map(String::as_str), Some("model-499"));
+    }
+
+    #[test]
+    fn opencode_model_discovery_uses_get_auth_and_safe_failures() {
+        let mut model_data = vec![
+            json!({ "id": " beta " }),
+            json!({ "id": "alpha" }),
+            json!({ "id": "beta" }),
+            json!({ "id": " " }),
+            json!({ "id": 42 }),
+        ];
+        model_data.extend((0..505).map(|index| json!({ "id": format!("model-{index:03}") })));
+        let (base_url, requests, server) = start_opencode_model_server(vec![
+            (
+                Duration::from_secs(0),
+                opencode_mock_response("200 OK", &json!({ "data": model_data }).to_string()),
+            ),
+            (
+                Duration::from_secs(0),
+                opencode_mock_response("200 OK", r#"{"data":[{"id":" anonymous "}]}"#),
+            ),
+            (
+                Duration::from_secs(0),
+                opencode_mock_response("503 Service Unavailable", r#"{"error":"unavailable"}"#),
+            ),
+        ]);
+        let bearer = OpenCodeLaunchConfig {
+            id: "api.custom.bearer".to_string(),
+            base_url: base_url.clone(),
+            api_key: "test-bearer-credential".to_string(),
+            provider_slug: "qwenaudio-bearer".to_string(),
+            auth_type: "bearer".to_string(),
+        };
+        let anonymous = OpenCodeLaunchConfig {
+            id: "api.custom.anonymous".to_string(),
+            base_url: base_url.clone(),
+            api_key: String::new(),
+            provider_slug: "qwenaudio-anonymous".to_string(),
+            auth_type: "none".to_string(),
+        };
+        let unavailable = OpenCodeLaunchConfig {
+            id: "api.custom.unavailable".to_string(),
+            base_url,
+            api_key: "test-failure-credential".to_string(),
+            provider_slug: "qwenaudio-unavailable".to_string(),
+            auth_type: "bearer".to_string(),
+        };
+
+        let models = tauri::async_runtime::block_on(discover_opencode_models(&bearer))
+            .expect("discover bearer models");
+        assert_eq!(models.len(), OPENCODE_MODEL_LIMIT);
+        assert_eq!(models.first().map(String::as_str), Some("alpha"));
+        assert_eq!(models.get(1).map(String::as_str), Some("beta"));
+        assert_eq!(models.last().map(String::as_str), Some("model-497"));
+        assert_eq!(
+            tauri::async_runtime::block_on(discover_opencode_models(&anonymous))
+                .expect("discover anonymous models"),
+            vec!["anonymous"]
+        );
+        let error = tauri::async_runtime::block_on(discover_opencode_models(&unavailable))
+            .expect_err("reject unavailable discovery");
+        assert_eq!(error, "OpenCode model discovery returned HTTP 503");
+        assert!(!error.contains(&unavailable.api_key));
+
+        let requests = (0..3)
+            .map(|_| {
+                requests
+                    .recv_timeout(Duration::from_secs(1))
+                    .expect("capture model request")
+            })
+            .collect::<Vec<_>>();
+        server.join().expect("join model server");
+        assert!(requests
+            .iter()
+            .all(|request| request.starts_with("GET /v1/models HTTP/1.1\r\n")));
+        assert_eq!(
+            request_header(&requests[0], "authorization"),
+            Some("Bearer test-bearer-credential")
+        );
+        assert_eq!(request_header(&requests[1], "authorization"), None);
+    }
+
+    #[test]
+    fn opencode_model_discovery_returns_redirect_status_without_following_location() {
+        let redirect_listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("bind redirect target");
+        redirect_listener
+            .set_nonblocking(true)
+            .expect("make redirect target nonblocking");
+        let redirect_address = redirect_listener
+            .local_addr()
+            .expect("read redirect target address");
+
+        let source_listener =
+            std::net::TcpListener::bind("127.0.0.1:0").expect("bind redirect source");
+        let source_address = source_listener
+            .local_addr()
+            .expect("read redirect source address");
+        let (request_tx, request_rx) = std::sync::mpsc::channel();
+        let source_server = std::thread::spawn(move || {
+            let (mut stream, _) = source_listener.accept().expect("accept model request");
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .expect("set model request timeout");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone model stream"));
+            let mut request = String::new();
+            loop {
+                let mut line = String::new();
+                let read = reader.read_line(&mut line).expect("read model request");
+                assert!(read > 0, "model request ended before headers");
+                request.push_str(&line);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            request_tx.send(request).expect("record model request");
+            let response = format!(
+                "HTTP/1.1 302 Found\r\nLocation: http://{redirect_address}/redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream
+                .write_all(response.as_bytes())
+                .expect("write redirect response");
+        });
+        let launch = OpenCodeLaunchConfig {
+            id: "api.custom.redirect".to_string(),
+            base_url: format!("http://{source_address}/v1"),
+            api_key: "test-redirect-credential".to_string(),
+            provider_slug: "qwenaudio-redirect".to_string(),
+            auth_type: "bearer".to_string(),
+        };
+
+        let error = tauri::async_runtime::block_on(discover_opencode_models_with_timeout(
+            &launch,
+            Duration::from_millis(100),
+        ))
+        .expect_err("return redirect status without following it");
+        assert_eq!(error, "OpenCode model discovery returned HTTP 302");
+        assert!(!error.contains(&launch.api_key));
+        assert_eq!(
+            request_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("capture source model request")
+                .lines()
+                .next(),
+            Some("GET /v1/models HTTP/1.1")
+        );
+        source_server.join().expect("join redirect source");
+        match redirect_listener.accept() {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+            Ok(_) => panic!("model discovery followed redirect target"),
+            Err(error) => panic!("accept redirect target: {error}"),
+        }
+    }
+
+    #[test]
+    fn opencode_model_discovery_rejects_oversized_responses_and_times_out_safely() {
+        let oversized_body = "x".repeat(OPENCODE_MODEL_RESPONSE_MAX_BYTES + 1);
+        let chunked_response = |content_length: Option<usize>| {
+            let content_length = content_length
+                .map(|length| format!("Content-Length: {length}\r\n"))
+                .unwrap_or_default();
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n{content_length}Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:X}\r\n{oversized_body}\r\n0\r\n\r\n",
+                oversized_body.len()
+            )
+        };
+        let (base_url, requests, server) = start_opencode_model_server(vec![
+            (
+                Duration::from_secs(0),
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    OPENCODE_MODEL_RESPONSE_MAX_BYTES + 1
+                ),
+            ),
+            (Duration::from_secs(0), chunked_response(None)),
+            (Duration::from_secs(0), chunked_response(Some(1))),
+            (Duration::from_millis(100), String::new()),
+        ]);
+        let launch = OpenCodeLaunchConfig {
+            id: "api.custom.model-discovery".to_string(),
+            base_url,
+            api_key: "test-model-discovery-credential".to_string(),
+            provider_slug: "qwenaudio-model-discovery".to_string(),
+            auth_type: "bearer".to_string(),
+        };
+
+        for _ in 0..3 {
+            let error = tauri::async_runtime::block_on(discover_opencode_models(&launch))
+                .expect_err("reject oversized model response");
+            assert_eq!(error, "OpenCode model discovery response is too large");
+            assert!(!error.contains(&launch.api_key));
+        }
+
+        let error = tauri::async_runtime::block_on(discover_opencode_models_with_timeout(
+            &launch,
+            Duration::from_millis(25),
+        ))
+        .expect_err("time out model discovery");
+        assert_eq!(error, "OpenCode model discovery timed out");
+        assert!(!error.contains(&launch.api_key));
+
+        for _ in 0..4 {
+            requests
+                .recv_timeout(Duration::from_secs(1))
+                .expect("capture model request");
+        }
+        server.join().expect("join model server");
+    }
+
+    #[test]
+    fn opencode_model_parser_rejects_malformed_model_lists() {
+        assert!(parse_opencode_models(b"not JSON").is_err());
+        assert!(parse_opencode_models(br#"{"data":{}}"#).is_err());
+    }
+
+    #[test]
     fn api_paths_are_relative_and_expand_encoded_variables() {
         assert_eq!(
             expand_api_path(
@@ -8077,6 +8946,20 @@ mod tests {
         assert_eq!(payload.pointer("/audio/data"), Some(&json!("UklGRg==")));
         assert_eq!(payload.pointer("/request/rate"), Some(&json!(50)));
         assert_eq!(payload.pointer("/id"), Some(&json!("prefix-request-id")));
+
+        let messages = json!([{ "role": "user", "content": "hello" }]);
+        let llm_payload = expand_api_json_template(
+            r#"{"model":"{model}","messages":"{messages}","temperature":"{temperature}","maxTokens":"{maxTokens}","requestId":"{uuid}"}"#,
+            &llm_template_values("service-model", &messages, 0.25, 99, "request-id"),
+        )
+        .expect("expand LLM template");
+        assert_eq!(llm_payload.pointer("/messages"), Some(&messages));
+        assert_eq!(llm_payload.pointer("/temperature"), Some(&json!(0.25)));
+        assert_eq!(llm_payload.pointer("/maxTokens"), Some(&json!(99)));
+        assert_eq!(
+            llm_payload.pointer("/requestId"),
+            Some(&json!("request-id"))
+        );
     }
 
     #[test]
@@ -8105,7 +8988,7 @@ mod tests {
 
     #[test]
     fn provider_protocol_update_rejects_unsafe_fields() {
-        let update = ApiProviderUpdate {
+        let mut update = ApiProviderUpdate {
             id: None,
             name: "Test".to_string(),
             base_url: "https://example.com/v1".to_string(),
@@ -8118,6 +9001,9 @@ mod tests {
             auth_header: "bad header".to_string(),
             extra_headers: HashMap::new(),
             llm_path: "/chat/completions".to_string(),
+            llm_profile: "openai-chat".to_string(),
+            llm_body_template: String::new(),
+            llm_text_pointer: "/choices/0/message/content".to_string(),
             asr_mode: "multipart".to_string(),
             asr_path: "/audio/transcriptions".to_string(),
             asr_body_template: String::new(),
@@ -8134,6 +9020,30 @@ mod tests {
             tts_sample_rate: 24_000,
         };
         assert!(validate_api_provider_update(&update).is_err());
+
+        update.auth_header = "x-api-key".to_string();
+        assert!(validate_api_provider_update(&update).is_ok());
+
+        update.llm_profile = "unsupported".to_string();
+        assert_eq!(
+            validate_api_provider_update(&update).expect_err("reject unsupported LLM profile"),
+            "LLM 请求格式无效",
+        );
+
+        update.llm_profile = "template-json".to_string();
+        update.llm_body_template = r#"{"reply":"{unsupported}"}"#.to_string();
+        assert_eq!(
+            validate_api_provider_update(&update)
+                .expect_err("reject unsupported template variable"),
+            "LLM JSON 模板变量不受支持: {unsupported}",
+        );
+
+        update.llm_body_template = r#"{"request":{"model":"{model}","turns":"{messages}","temperature":"{temperature}","limit":"{maxTokens}","id":"{uuid}"}}"#.to_string();
+        update.llm_text_pointer = "not-a-pointer".to_string();
+        assert!(validate_api_provider_update(&update).is_err());
+
+        update.llm_text_pointer = "/result/text".to_string();
+        assert!(validate_api_provider_update(&update).is_ok());
     }
 
     #[test]

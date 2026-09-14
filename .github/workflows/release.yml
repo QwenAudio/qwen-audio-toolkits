@@ -50,6 +50,14 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Fetch verified OpenCode sidecar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/fetch-opencode-sidecar.mjs \
+            --target aarch64-apple-darwin \
+            --out src-tauri/binaries
+
       - name: Verify release tag matches package version
         run: |
           expected_tag="v$(node -p "require('./package.json').version")"

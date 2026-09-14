@@ -1,7 +1,9 @@
 use std::{
     collections::HashMap,
     env,
-    path::PathBuf,
+    ffi::OsString,
+    fmt,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex as StdMutex,
@@ -108,7 +110,11 @@ fn model_selection_request(
     value: &Value,
     session_id: &str,
     model_id: &str,
+    provider_kind: AcpProviderKind,
 ) -> Result<Option<(&'static str, Value)>, String> {
+    if provider_kind == AcpProviderKind::Bundled {
+        return Ok(None);
+    }
     let (models, current) = session_models(value);
     if !models.iter().any(|model| model.id == model_id) {
         return Err("Agent 未提供所选模型，请重新选择".to_string());
@@ -133,9 +139,26 @@ fn model_selection_request(
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AcpProviderKind {
+    External,
+    Bundled,
+}
+
+impl AcpProviderKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::External => "external",
+            Self::Bundled => "bundled",
+        }
+    }
+}
+
 struct AcpProviderSpec {
     id: &'static str,
     name: &'static str,
+    kind: AcpProviderKind,
+    requires_api_provider: bool,
     command: &'static [&'static str],
     env: &'static [(&'static str, &'static str)],
     cwd_flag: Option<&'static str>,
@@ -145,6 +168,8 @@ const ACP_PROVIDERS: &[AcpProviderSpec] = &[
     AcpProviderSpec {
         id: "qoder",
         name: "Qoder",
+        kind: AcpProviderKind::External,
+        requires_api_provider: false,
         command: &["qoder", "--acp"],
         env: &[],
         cwd_flag: None,
@@ -152,13 +177,26 @@ const ACP_PROVIDERS: &[AcpProviderSpec] = &[
     AcpProviderSpec {
         id: "opencode",
         name: "opencode",
+        kind: AcpProviderKind::External,
+        requires_api_provider: false,
         command: &["opencode", "acp"],
         env: &[("OPENCODE_DISABLE_AUTOUPDATE", "1")],
         cwd_flag: Some("--cwd"),
     },
     AcpProviderSpec {
+        id: "opencode-bundled",
+        name: "OpenCode（内置）",
+        kind: AcpProviderKind::Bundled,
+        requires_api_provider: true,
+        command: &[],
+        env: &[],
+        cwd_flag: Some("--cwd"),
+    },
+    AcpProviderSpec {
         id: "kimi",
         name: "Kimi Code",
+        kind: AcpProviderKind::External,
+        requires_api_provider: false,
         command: &["kimi", "acp"],
         env: &[],
         cwd_flag: None,
@@ -166,6 +204,8 @@ const ACP_PROVIDERS: &[AcpProviderSpec] = &[
     AcpProviderSpec {
         id: "codex",
         name: "Codex",
+        kind: AcpProviderKind::External,
+        requires_api_provider: false,
         command: &["npx", "-y", "@agentclientprotocol/codex-acp"],
         env: &[],
         cwd_flag: None,
@@ -173,6 +213,8 @@ const ACP_PROVIDERS: &[AcpProviderSpec] = &[
     AcpProviderSpec {
         id: "qwen-code",
         name: "Qwen Code",
+        kind: AcpProviderKind::External,
+        requires_api_provider: false,
         command: &["npx", "-y", "@qwen-code/qwen-code", "--acp"],
         env: &[],
         cwd_flag: None,
@@ -185,6 +227,8 @@ pub struct AcpProviderInfo {
     id: String,
     name: String,
     available: bool,
+    kind: &'static str,
+    requires_api_provider: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -193,6 +237,7 @@ pub struct AcpSessionStartRequest {
     provider_id: String,
     cwd: Option<String>,
     model_id: Option<String>,
+    api_provider_id: Option<String>,
     enable_tools: Option<bool>,
 }
 
@@ -359,32 +404,221 @@ fn acp_process_env(extra: &[(&str, &str)]) -> HashMap<String, String> {
     env_map
 }
 
+fn executable_file(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match std::fs::metadata(path) {
+            Ok(metadata) => metadata.is_file() && metadata.permissions().mode() & 0o111 != 0,
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        path.is_file()
+    }
+}
+
 fn command_available(command: &str) -> bool {
-    augmented_path_entries().iter().any(|dir| {
-        let candidate = dir.join(command);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            match std::fs::metadata(&candidate) {
-                Ok(metadata) => metadata.is_file() && metadata.permissions().mode() & 0o111 != 0,
-                Err(_) => false,
+    augmented_path_entries()
+        .iter()
+        .map(|dir| dir.join(command))
+        .any(|candidate| executable_file(&candidate))
+}
+
+fn bundled_sidecar_path_from_resource_dir(resource_dir: &Path) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        resource_dir
+            .parent()
+            .unwrap_or(resource_dir)
+            .join("MacOS")
+            .join("opencode")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        resource_dir.join("opencode")
+    }
+}
+
+fn resolve_bundled_sidecar_from_paths(
+    resource_dir: Option<&Path>,
+    executable_dir: Option<&Path>,
+) -> Result<PathBuf, String> {
+    let resource_candidate = resource_dir.map(bundled_sidecar_path_from_resource_dir);
+    let executable_candidate = executable_dir.map(|dir| dir.join("opencode"));
+    resource_candidate
+        .into_iter()
+        .chain(executable_candidate)
+        .find(|candidate| executable_file(candidate))
+        .ok_or_else(|| "未找到内置 OpenCode，请重新安装应用".to_string())
+}
+
+fn resolve_bundled_sidecar(app: &AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app.path().resource_dir().ok();
+    let executable_dir = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(Path::to_path_buf));
+    resolve_bundled_sidecar_from_paths(resource_dir.as_deref(), executable_dir.as_deref())
+}
+
+struct AcpCommandPlan {
+    executable: PathBuf,
+    args: Vec<OsString>,
+    env: HashMap<String, String>,
+    augment_path: bool,
+}
+
+impl fmt::Debug for AcpCommandPlan {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AcpCommandPlan")
+            .field("executable", &self.executable)
+            .field("args", &self.args)
+            .field("augment_path", &self.augment_path)
+            .finish_non_exhaustive()
+    }
+}
+
+fn external_command_plan(spec: &AcpProviderSpec, cwd: &Path) -> AcpCommandPlan {
+    debug_assert_eq!(spec.kind, AcpProviderKind::External);
+    let mut args = spec.command[1..]
+        .iter()
+        .map(OsString::from)
+        .collect::<Vec<_>>();
+    if let Some(cwd_flag) = spec.cwd_flag {
+        args.push(OsString::from(cwd_flag));
+        args.push(cwd.as_os_str().to_owned());
+    }
+    AcpCommandPlan {
+        executable: PathBuf::from(spec.command[0]),
+        args,
+        env: spec
+            .env
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect(),
+        augment_path: true,
+    }
+}
+
+fn opencode_config_content(
+    launch: &crate::harness::OpenCodeLaunchConfig,
+    model_id: &str,
+) -> Result<String, String> {
+    let model_id = model_id.trim();
+    if model_id.is_empty() {
+        return Err("内置 OpenCode 需要选择 API 模型".to_string());
+    }
+    let provider_slug = &launch.provider_slug;
+    let fully_qualified_model = format!("{provider_slug}/{model_id}");
+    serde_json::to_string(&json!({
+        "$schema": "https://opencode.ai/config.json",
+        "model": fully_qualified_model,
+        "provider": {
+            (provider_slug): {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "QwenAudio OpenAI-compatible",
+                "options": {
+                    "baseURL": launch.base_url,
+                    "apiKey": launch.api_key,
+                },
+                "models": {
+                    (model_id): { "name": model_id }
+                }
             }
         }
-        #[cfg(not(unix))]
-        {
-            candidate.is_file()
-        }
+    }))
+    .map_err(|_| "无法配置内置 OpenCode".to_string())
+}
+
+fn bundled_opencode_command_plan<F>(
+    executable: PathBuf,
+    cwd: &Path,
+    api_provider_id: Option<&str>,
+    model_id: Option<&str>,
+    resolve_launch_config: F,
+) -> Result<AcpCommandPlan, String>
+where
+    F: FnOnce(&str) -> Result<crate::harness::OpenCodeLaunchConfig, String>,
+{
+    let api_provider_id = api_provider_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| "内置 OpenCode 需要选择 API Provider".to_string())?;
+    let launch = resolve_launch_config(api_provider_id)
+        .map_err(|_| "内置 OpenCode 的 API Provider 不可用或不兼容".to_string())?;
+    let config_content = opencode_config_content(&launch, model_id.unwrap_or_default())?;
+    Ok(AcpCommandPlan {
+        executable,
+        args: vec![
+            OsString::from("acp"),
+            OsString::from("--cwd"),
+            cwd.as_os_str().to_owned(),
+        ],
+        env: HashMap::from([
+            ("OPENCODE_DISABLE_AUTOUPDATE".to_string(), "1".to_string()),
+            ("OPENCODE_CONFIG_CONTENT".to_string(), config_content),
+        ]),
+        augment_path: false,
     })
 }
 
+const BUNDLED_SIDECAR_RUNTIME_ENV_KEYS: &[&str] = &[
+    "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE", "USER", "USERNAME",
+];
+#[cfg(windows)]
+const BUNDLED_SIDECAR_SYSTEM_PATH: &str = r"C:\Windows\System32;C:\Windows";
+#[cfg(not(windows))]
+const BUNDLED_SIDECAR_SYSTEM_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
+
+fn bundled_sidecar_runtime_env() -> Vec<(&'static str, OsString)> {
+    let mut variables = BUNDLED_SIDECAR_RUNTIME_ENV_KEYS
+        .iter()
+        .filter_map(|key| env::var_os(key).map(|value| (*key, value)))
+        .collect::<Vec<_>>();
+    variables.push(("PATH", OsString::from(BUNDLED_SIDECAR_SYSTEM_PATH)));
+    variables
+}
+
+fn configure_command_environment(
+    command: &mut Command,
+    provider_kind: AcpProviderKind,
+    plan: &AcpCommandPlan,
+) {
+    match provider_kind {
+        AcpProviderKind::Bundled => {
+            command.env_clear();
+            command.envs(bundled_sidecar_runtime_env());
+        }
+        AcpProviderKind::External if plan.augment_path => {
+            command.envs(acp_process_env(&[]));
+        }
+        AcpProviderKind::External => {}
+    }
+    command.envs(&plan.env);
+}
+
+fn provider_info(spec: &AcpProviderSpec, available: bool) -> AcpProviderInfo {
+    AcpProviderInfo {
+        id: spec.id.to_string(),
+        name: spec.name.to_string(),
+        available,
+        kind: spec.kind.as_str(),
+        requires_api_provider: spec.requires_api_provider,
+    }
+}
+
 #[tauri::command]
-pub fn acp_list_providers() -> Vec<AcpProviderInfo> {
+pub fn acp_list_providers(app: AppHandle) -> Vec<AcpProviderInfo> {
     ACP_PROVIDERS
         .iter()
-        .map(|spec| AcpProviderInfo {
-            id: spec.id.to_string(),
-            name: spec.name.to_string(),
-            available: command_available(spec.command[0]),
+        .map(|spec| {
+            let available = match spec.kind {
+                AcpProviderKind::External => command_available(spec.command[0]),
+                AcpProviderKind::Bundled => resolve_bundled_sidecar(&app).is_ok(),
+            };
+            provider_info(spec, available)
         })
         .collect()
 }
@@ -727,7 +961,7 @@ fn cleanup_bridge(app: &AppHandle, session_id: &str) {
     }
 }
 
-fn spawn_stderr_task(stderr: tokio::process::ChildStderr, provider: &str) {
+fn spawn_stderr_task(stderr: tokio::process::ChildStderr, provider: &str, suppress_content: bool) {
     let provider = provider.to_string();
     tauri::async_runtime::spawn(async move {
         let mut reader = BufReader::new(stderr);
@@ -739,7 +973,7 @@ fn spawn_stderr_task(stderr: tokio::process::ChildStderr, provider: &str) {
                 Ok(_) => {}
             }
             let trimmed = line.trim();
-            if !trimmed.is_empty() {
+            if !suppress_content && !trimmed.is_empty() {
                 log::info!("[{provider}] {trimmed}");
             }
         }
@@ -840,12 +1074,6 @@ pub async fn acp_start_session(
         .iter()
         .find(|spec| spec.id == request.provider_id)
         .ok_or_else(|| "未知的 Agent 提供方".to_string())?;
-    if !command_available(spec.command[0]) {
-        return Err(format!(
-            "未找到 {} 命令，请先安装 {}",
-            spec.command[0], spec.name
-        ));
-    }
     let cwd = request
         .cwd
         .as_deref()
@@ -854,19 +1082,34 @@ pub async fn acp_start_session(
         .map(PathBuf::from)
         .or_else(|| env::var("HOME").ok().map(PathBuf::from))
         .ok_or_else(|| "无法确定 Agent 工作目录".to_string())?;
+    let plan = match spec.kind {
+        AcpProviderKind::External => {
+            if !command_available(spec.command[0]) {
+                return Err(format!(
+                    "未找到 {} 命令，请先安装 {}",
+                    spec.command[0], spec.name
+                ));
+            }
+            external_command_plan(spec, &cwd)
+        }
+        AcpProviderKind::Bundled => bundled_opencode_command_plan(
+            resolve_bundled_sidecar(&app)?,
+            &cwd,
+            request.api_provider_id.as_deref(),
+            request.model_id.as_deref(),
+            |provider_id| crate::harness::opencode_launch_config(&app, provider_id),
+        )?,
+    };
 
-    let mut command = Command::new(spec.command[0]);
+    let mut command = Command::new(&plan.executable);
     command
-        .args(&spec.command[1..])
+        .args(&plan.args)
         .current_dir(&cwd)
-        .envs(acp_process_env(spec.env))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    if let Some(cwd_flag) = spec.cwd_flag {
-        command.arg(cwd_flag).arg(&cwd);
-    }
+    configure_command_environment(&mut command, spec.kind, &plan);
     let mut child = command
         .spawn()
         .map_err(|error| format!("无法启动 {}: {error}", spec.name))?;
@@ -883,7 +1126,7 @@ pub async fn acp_start_session(
         .stderr
         .take()
         .ok_or_else(|| "无法连接 Agent 进程错误输出".to_string())?;
-    spawn_stderr_task(stderr, spec.id);
+    spawn_stderr_task(stderr, spec.id, spec.kind == AcpProviderKind::Bundled);
 
     let (writer_tx, mut writer_rx) = mpsc::channel::<Value>(256);
     tauri::async_runtime::spawn(async move {
@@ -969,7 +1212,7 @@ pub async fn acp_start_session(
     let (model_options, mut current_model_id) = session_models(&session_new);
     if let Some(model_id) = request.model_id.as_deref().filter(|id| !id.is_empty()) {
         if let Some((method, params)) =
-            model_selection_request(&session_new, &agent_session_id, model_id)?
+            model_selection_request(&session_new, &agent_session_id, model_id, spec.kind)?
         {
             let receiver = state.send_request(method, params)?;
             let result = tokio::time::timeout(Duration::from_secs(30), receiver)
@@ -1165,31 +1408,43 @@ mod tests {
             vec!["fast", "deep"]
         );
         assert_eq!(current.as_deref(), Some("fast"));
-        let (method, params) = model_selection_request(&value, "session", "deep")
-            .unwrap()
-            .unwrap();
+        let (method, params) =
+            model_selection_request(&value, "session", "deep", AcpProviderKind::External)
+                .unwrap()
+                .unwrap();
         assert_eq!(method, "session/set_config_option");
         assert_eq!(
             params,
             json!({ "sessionId": "session", "configId": "model-selector", "value": "deep" })
         );
-        assert!(model_selection_request(&value, "session", "old").is_err());
-        assert!(model_selection_request(&value, "session", "fast")
-            .unwrap()
-            .is_none());
+        assert!(
+            model_selection_request(&value, "session", "old", AcpProviderKind::External).is_err()
+        );
+        assert!(
+            model_selection_request(&value, "session", "fast", AcpProviderKind::External)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
     fn legacy_model_state_uses_set_model_without_inventing_choices() {
         let value = json!({ "models": { "currentModelId": "a", "availableModels": [{ "modelId": "a", "name": "A" }, { "modelId": "b", "name": "B" }] } });
         assert_eq!(session_models(&value).0[1].name, "B");
-        let (method, params) = model_selection_request(&value, "session", "b")
-            .unwrap()
-            .unwrap();
+        let (method, params) =
+            model_selection_request(&value, "session", "b", AcpProviderKind::External)
+                .unwrap()
+                .unwrap();
         assert_eq!(method, "session/set_model");
         assert_eq!(params["modelId"], "b");
         assert!(session_models(&json!({})).0.is_empty());
-        assert!(model_selection_request(&json!({}), "session", "guessed").is_err());
+        assert!(model_selection_request(
+            &json!({}),
+            "session",
+            "guessed",
+            AcpProviderKind::External,
+        )
+        .is_err());
     }
 
     #[test]
@@ -1213,5 +1468,232 @@ mod tests {
         assert_eq!(provider.command, &["opencode", "acp"]);
         assert_eq!(provider.cwd_flag, Some("--cwd"));
         assert_eq!(provider.env, &[("OPENCODE_DISABLE_AUTOUPDATE", "1")]);
+    }
+
+    fn test_opencode_launch_config() -> crate::harness::OpenCodeLaunchConfig {
+        crate::harness::OpenCodeLaunchConfig {
+            id: "api.custom.example".to_string(),
+            base_url: "https://api.example.test/v1".to_string(),
+            api_key: "test-opencode-secret".to_string(),
+            provider_slug: "qwenaudio-api-custom-example".to_string(),
+            auth_type: "bearer".to_string(),
+        }
+    }
+
+    #[test]
+    fn bundled_opencode_registration_has_distinct_api_binding_metadata() {
+        let bundled = ACP_PROVIDERS
+            .iter()
+            .find(|provider| provider.id == "opencode-bundled")
+            .expect("register bundled OpenCode");
+        assert_eq!(bundled.name, "OpenCode（内置）");
+        assert_eq!(bundled.kind, AcpProviderKind::Bundled);
+        assert!(bundled.requires_api_provider);
+
+        let info = provider_info(bundled, true);
+        assert_eq!(info.kind, "bundled");
+        assert!(info.requires_api_provider);
+
+        let external = ACP_PROVIDERS
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .expect("retain external OpenCode");
+        assert_eq!(external.kind, AcpProviderKind::External);
+        assert!(!external.requires_api_provider);
+        assert_eq!(external.command, &["opencode", "acp"]);
+    }
+
+    #[test]
+    fn bundled_opencode_resolves_tauri_sidecar_without_augmented_path() {
+        let root = std::env::temp_dir().join(format!("acp-sidecar-{}", Uuid::new_v4()));
+        let resources = root.join("QwenAudio.app/Contents/Resources");
+        let sidecar = root.join("QwenAudio.app/Contents/MacOS/opencode");
+        std::fs::create_dir_all(&resources).expect("create resource fixture");
+        std::fs::create_dir_all(sidecar.parent().expect("sidecar parent"))
+            .expect("create sidecar fixture");
+        std::fs::write(&sidecar, b"#!/bin/sh\nexit 0\n").expect("write sidecar fixture");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&sidecar)
+                .expect("read sidecar permissions")
+                .permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(&sidecar, permissions).expect("make sidecar executable");
+        }
+
+        let resolved = resolve_bundled_sidecar_from_paths(Some(&resources), None)
+            .expect("resolve Tauri sidecar");
+        assert_eq!(resolved, sidecar);
+        let plan = bundled_opencode_command_plan(
+            resolved,
+            std::path::Path::new("/tmp/acp-workspace"),
+            Some("api.custom.example"),
+            Some("remote-model"),
+            |_| Ok(test_opencode_launch_config()),
+        )
+        .expect("build bundled launch plan");
+        assert!(!plan.augment_path);
+        assert_eq!(
+            plan.args
+                .iter()
+                .map(|argument| argument.to_string_lossy())
+                .collect::<Vec<_>>(),
+            vec!["acp", "--cwd", "/tmp/acp-workspace"]
+        );
+        assert_eq!(plan.executable, sidecar);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn bundled_opencode_rejects_missing_or_ineligible_api_binding_without_leaking_credentials() {
+        let executable = std::path::PathBuf::from("/trusted/sidecar/opencode");
+        let missing = bundled_opencode_command_plan(
+            executable.clone(),
+            std::path::Path::new("/tmp/acp-workspace"),
+            None,
+            Some("remote-model"),
+            |_| Ok(test_opencode_launch_config()),
+        )
+        .expect_err("require an API Provider binding");
+        assert_eq!(missing, "内置 OpenCode 需要选择 API Provider");
+
+        let ineligible = bundled_opencode_command_plan(
+            executable,
+            std::path::Path::new("/tmp/acp-workspace"),
+            Some("deleted-provider"),
+            Some("remote-model"),
+            |_| Err("connection failed: test-opencode-secret".to_string()),
+        )
+        .expect_err("reject deleted or disabled API Provider bindings");
+        assert_eq!(ineligible, "内置 OpenCode 的 API Provider 不可用或不兼容");
+        assert!(!ineligible.contains("test-opencode-secret"));
+    }
+
+    #[test]
+    fn bundled_opencode_config_uses_selected_model_and_redacts_credentials() {
+        let plan = bundled_opencode_command_plan(
+            std::path::PathBuf::from("/trusted/sidecar/opencode"),
+            std::path::Path::new("/tmp/acp-workspace"),
+            Some("api.custom.example"),
+            Some("remote-model"),
+            |_| Ok(test_opencode_launch_config()),
+        )
+        .expect("build bundled launch plan");
+        let config: Value = serde_json::from_str(
+            plan.env
+                .get("OPENCODE_CONFIG_CONTENT")
+                .expect("pass native config only through the child environment"),
+        )
+        .expect("serialize OpenCode configuration");
+        assert_eq!(config["model"], "qwenaudio-api-custom-example/remote-model");
+        assert_eq!(
+            config["provider"]["qwenaudio-api-custom-example"]["options"]["baseURL"],
+            "https://api.example.test/v1"
+        );
+        assert_eq!(
+            config["provider"]["qwenaudio-api-custom-example"]["options"]["apiKey"],
+            "test-opencode-secret"
+        );
+        assert_eq!(plan.env["OPENCODE_DISABLE_AUTOUPDATE"], "1");
+        assert!(!format!("{plan:?}").contains("test-opencode-secret"));
+    }
+
+    #[test]
+    fn bundled_selected_model_does_not_require_session_new_advertisement() {
+        let session_new = json!({ "sessionId": "agent-session" });
+        assert!(model_selection_request(
+            &session_new,
+            "agent-session",
+            "remote-model",
+            AcpProviderKind::External,
+        )
+        .is_err());
+        assert_eq!(
+            model_selection_request(
+                &session_new,
+                "agent-session",
+                "remote-model",
+                AcpProviderKind::Bundled,
+            )
+            .expect("allow the model configured before bundled OpenCode starts"),
+            None
+        );
+    }
+
+    #[test]
+    fn external_opencode_argv_stays_unchanged() {
+        let external = ACP_PROVIDERS
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .expect("external OpenCode provider");
+        let plan = external_command_plan(external, std::path::Path::new("/tmp/acp-workspace"));
+        assert!(plan.augment_path);
+        assert_eq!(plan.executable, std::path::PathBuf::from("opencode"));
+        assert_eq!(
+            plan.args
+                .iter()
+                .map(|argument| argument.to_string_lossy())
+                .collect::<Vec<_>>(),
+            vec!["acp", "--cwd", "/tmp/acp-workspace"]
+        );
+        assert_eq!(plan.env["OPENCODE_DISABLE_AUTOUPDATE"], "1");
+    }
+
+    #[test]
+    fn bundled_launch_command_clears_injected_parent_environment() {
+        let plan = bundled_opencode_command_plan(
+            std::path::PathBuf::from("/trusted/sidecar/opencode"),
+            std::path::Path::new("/tmp/acp-workspace"),
+            Some("api.custom.example"),
+            Some("remote-model"),
+            |_| Ok(test_opencode_launch_config()),
+        )
+        .expect("build bundled launch plan");
+        let mut command = Command::new(&plan.executable);
+        command
+            .env("UNRELATED_PARENT_SECRET", "must-not-reach-sidecar")
+            .env("AWS_ACCESS_KEY_ID", "must-not-reach-sidecar");
+        configure_command_environment(&mut command, AcpProviderKind::Bundled, &plan);
+
+        let environment = command.as_std().get_envs().collect::<Vec<_>>();
+        assert!(
+            !environment
+                .iter()
+                .any(|(key, _)| *key == "UNRELATED_PARENT_SECRET" || *key == "AWS_ACCESS_KEY_ID"),
+            "bundled sidecars must not inherit arbitrary parent environment variables"
+        );
+        assert!(environment.iter().all(|(key, _)| {
+            BUNDLED_SIDECAR_RUNTIME_ENV_KEYS.contains(&key.to_str().unwrap_or_default())
+                || *key == "PATH"
+                || *key == "OPENCODE_CONFIG_CONTENT"
+                || *key == "OPENCODE_DISABLE_AUTOUPDATE"
+        }));
+        assert!(environment.iter().any(|(key, value)| {
+            *key == "PATH" && *value == Some(std::ffi::OsStr::new(BUNDLED_SIDECAR_SYSTEM_PATH))
+        }));
+        assert!(environment
+            .iter()
+            .any(|(key, _)| *key == "OPENCODE_CONFIG_CONTENT"));
+        assert!(environment
+            .iter()
+            .any(|(key, _)| *key == "OPENCODE_DISABLE_AUTOUPDATE"));
+    }
+
+    #[test]
+    fn external_launch_command_keeps_injected_parent_environment() {
+        let external = ACP_PROVIDERS
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .expect("external OpenCode provider");
+        let plan = external_command_plan(external, std::path::Path::new("/tmp/acp-workspace"));
+        let mut command = Command::new(&plan.executable);
+        command.env("UNRELATED_PARENT_SECRET", "external-provider-keeps-it");
+        configure_command_environment(&mut command, AcpProviderKind::External, &plan);
+
+        assert!(command.as_std().get_envs().any(|(key, value)| {
+            key == "UNRELATED_PARENT_SECRET"
+                && value == Some(std::ffi::OsStr::new("external-provider-keeps-it"))
+        }));
     }
 }
