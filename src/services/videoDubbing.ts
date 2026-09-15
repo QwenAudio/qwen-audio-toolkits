@@ -1,5 +1,5 @@
-import { invoke } from '@tauri-apps/api/core'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { invoke } from './trace/ipcBridge'
+import { listen, type UnlistenFn } from './trace/ipcBridge'
 import type { VideoDubbingLanguages, VideoDubbingMode, VideoDubbingStyle } from '../domain/agents'
 
 export type VideoDubbingStatus = 'running' | 'completed' | 'failed' | 'canceled'
