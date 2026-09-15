@@ -36,6 +36,52 @@ export const DEFAULT_AGENT_MODEL: AgentModelSelection = {
   modelId: '',
 }
 
+export const AGENT_MODEL_PREFERENCE_STORAGE_KEY = 'qwen-audio-toolkits.agent-model-selection-v1'
+
+type AgentModelPreferenceReader = Pick<Storage, 'getItem'>
+type AgentModelPreferenceWriter = Pick<Storage, 'setItem'>
+
+export function initialAgentModelSelection(
+  selection: AgentModelSelection = DEFAULT_AGENT_MODEL,
+): AgentModelSelection {
+  return { ...selection, transport: 'acp' }
+}
+
+export function loadAgentModelPreference(
+  storage?: AgentModelPreferenceReader,
+): AgentModelSelection {
+  try {
+    const source = storage ?? (typeof window === 'undefined' ? undefined : window.localStorage)
+    const value = JSON.parse(source?.getItem(AGENT_MODEL_PREFERENCE_STORAGE_KEY) ?? 'null')
+    if (
+      value?.transport === 'acp' &&
+      typeof value.providerId === 'string' &&
+      typeof value.modelId === 'string' &&
+      (value.apiProviderId === undefined || typeof value.apiProviderId === 'string')
+    ) {
+      return initialAgentModelSelection(value)
+    }
+  } catch {
+    return initialAgentModelSelection()
+  }
+  return initialAgentModelSelection()
+}
+
+export function saveAgentModelPreference(
+  selection: AgentModelSelection,
+  storage?: AgentModelPreferenceWriter,
+): void {
+  try {
+    const target = storage ?? (typeof window === 'undefined' ? undefined : window.localStorage)
+    target?.setItem(
+      AGENT_MODEL_PREFERENCE_STORAGE_KEY,
+      JSON.stringify(initialAgentModelSelection(selection)),
+    )
+  } catch {
+    return
+  }
+}
+
 /** Only bundled ACP providers receive the separately configured API Provider binding. */
 export function acpApiProviderId(
   selection: AgentModelSelection,

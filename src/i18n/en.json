@@ -1813,7 +1813,7 @@
   "Agent 会话已中断": "The Agent session was interrupted.",
   "模型列表由桌面端 ACP Agent 提供。": "Model choices are provided by the ACP Agent in the desktop app.",
   "选择用于对话和任务规划的本地 ACP Agent": "Choose the local ACP Agent used for chat and task planning.",
-  "任务进行中或已有对话后不可切换 Agent": "The Agent cannot be changed after a task is running or has messages.",
+  "任务进行中不可切换 Agent": "The Agent cannot be changed while a reply is in progress.",
   "按需开源模型": "On-demand open source models",
   "缺少开源模型时，先询问确认或自动安装后继续任务": "When an open source model is missing, ask for confirmation or install automatically before continuing.",
   "ACP Agent 对话需要在桌面端运行。": "ACP Agent chat requires the desktop app.",

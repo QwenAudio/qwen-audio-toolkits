@@ -48,7 +48,7 @@ import {
   type ProviderSettingsKind,
 } from "./components/ProviderSettings";
 import { runWorkspaceAgentRequest } from "./services/workspaceAgent";
-import { acpApiProviderId, acpModelCacheKey, getAgentSelection, resolveAcpSelection, resolveOpenCodeApiBinding, type AgentModelOption } from "./domain/agentModelSelection";
+import { acpApiProviderId, acpModelCacheKey, getAgentSelection, loadAgentModelPreference, resolveAcpSelection, resolveOpenCodeApiBinding, saveAgentModelPreference, type AgentModelOption } from "./domain/agentModelSelection";
 import { requestAcpConversation } from "./services/acpConversation";
 import {
   appAgentsWithInstallState,
@@ -626,6 +626,7 @@ function App() {
   const [agentHomeMode, setAgentHomeMode] = useState<AgentCreationMode | null>(
     null,
   );
+  const [preferredAgentModel, setPreferredAgentModel] = useState(loadAgentModelPreference);
   const pendingGeneralTaskRef = useRef<GeneralAgentTask | null>(null);
   const pendingOnDemandModelRef = useRef(
     new Map<string, PendingOnDemandInstall>(),
@@ -1068,7 +1069,7 @@ function App() {
   const orderedRunnablePlugins = useMemo(() => {
     return runnablePlugins;
   }, [runnablePlugins]);
-  const selectedChatModel = getAgentSelection(selectedGeneralTask?.chatModel);
+  const selectedChatModel = getAgentSelection(selectedGeneralTask?.chatModel ?? preferredAgentModel);
   const chosenAcpProvider = selectedChatModel.providerId;
   const selectedAcpProvider = acpProviders.find(provider => provider.id === chosenAcpProvider);
   const selectedAcpRequiresApiProvider = Boolean(selectedAcpProvider?.requiresApiProvider);
@@ -1086,9 +1087,7 @@ function App() {
     chosenAcpDefaultModelId;
   const chosenAcpSelectedModel = chosenAcpProviderModels.find(model => model.id === selectedChatModel.modelId);
   const chosenAcpProviderAvailable = Boolean(selectedAcpProvider?.available);
-  const agentSelectionLocked = isWorkspaceTaskView || Boolean(
-    selectedGeneralTask && (selectedGeneralTask.messages.length > 0 || selectedGeneralTask.submitting),
-  );
+  const agentSelectionLocked = Boolean(selectedGeneralTask?.submitting);
   const apiBindingUnavailable = selectedAcpRequiresApiProvider && !openCodeApiBinding.isEligible;
   const chatModelLoading = Boolean(chosenAcpProvider && chosenAcpModelCatalog?.loading);
   const chatModelError = selectedAcpRequiresApiProvider
@@ -1723,6 +1722,7 @@ function App() {
     const task = ensureGeneralTask({
       selectedModeId: draft.selectedModeId ?? agentHomeMode,
       attachment: draft.attachment ?? null,
+      chatModel: preferredAgentModel,
     })
     pendingGeneralTaskRef.current = task
     return task
@@ -1747,21 +1747,12 @@ function App() {
     updateGeneralTask(task.id, { attachment })
   }
   const updateAgentChatModel = (chatModel: GeneralAgentTask['chatModel']) => {
+    const selection = getAgentSelection(chatModel);
+    saveAgentModelPreference(selection);
+    setPreferredAgentModel(selection);
     const task = materializeGeneralTask();
-    const agentLocked = isWorkspaceTaskView || task.messages.length > 0 || task.submitting;
-    const current = getAgentSelection(task.chatModel);
-    const next = getAgentSelection(chatModel);
-    if (
-      agentLocked && (
-        next.providerId !== current.providerId ||
-        next.apiProviderId !== current.apiProviderId ||
-        next.modelId !== current.modelId
-      )
-    ) {
-      return;
-    }
-    pendingGeneralTaskRef.current = { ...task, chatModel };
-    updateGeneralTask(task.id, { chatModel });
+    pendingGeneralTaskRef.current = { ...task, chatModel: selection };
+    updateGeneralTask(task.id, { chatModel: selection });
   }
   const refreshModelStoreState = async () => {
     const [nextPlugins, nextCatalog] = await Promise.all([
@@ -2484,6 +2475,7 @@ function App() {
     const task = selectedGeneralTask ?? pendingGeneralTaskRef.current ?? createGeneralTask({
       selectedModeId: agentHomeMode,
       attachment: null,
+      chatModel: preferredAgentModel,
     })
     pendingGeneralTaskRef.current = task
     if (isWorkspaceTaskView && selectedAgentConversation && request.attachment?.path && request.attachment.path !== selectedAgentConversation.sourcePath) {
@@ -3389,7 +3381,7 @@ function App() {
 	                  ? t("请先选择一个可用的 API 配置")
 	                  : chatModelError ??
 	                    (agentSelectionLocked
-	                      ? t("任务进行中或已有对话后不可切换 Agent")
+	                      ? t("任务进行中不可切换 Agent")
 	                      : selectedAcpRequiresApiProvider
 	                        ? t("模型列表由所选 API 配置提供。")
 	                        : t("模型列表由桌面端 ACP Agent 提供。"))}

@@ -6,6 +6,34 @@ import type { AcpSessionEvent } from '../src/types'
 import { parseAcpModelCatalog } from '../src/domain/acpModels'
 
 const { DEFAULT_AGENT_MODEL, resolveAcpSelection } = agentModelSelection
+const preferenceApi = agentModelSelection as typeof agentModelSelection & {
+  loadAgentModelPreference?: (storage: Pick<Storage, 'getItem'>) => typeof DEFAULT_AGENT_MODEL
+  saveAgentModelPreference?: (selection: typeof DEFAULT_AGENT_MODEL, storage: Pick<Storage, 'setItem'>) => void
+  initialAgentModelSelection?: (selection: typeof DEFAULT_AGENT_MODEL) => typeof DEFAULT_AGENT_MODEL
+}
+assert.equal(typeof preferenceApi.loadAgentModelPreference, 'function', 'Agent settings must load the preferred selection')
+assert.equal(typeof preferenceApi.saveAgentModelPreference, 'function', 'Agent settings must persist the preferred selection')
+assert.equal(typeof preferenceApi.initialAgentModelSelection, 'function', 'new conversations must inherit the preferred selection')
+if (!preferenceApi.loadAgentModelPreference || !preferenceApi.saveAgentModelPreference || !preferenceApi.initialAgentModelSelection) {
+  throw new Error('missing Agent model preference persistence')
+}
+const preferenceStorage = new Map<string, string>()
+const storage = {
+  getItem: (key: string) => preferenceStorage.get(key) ?? null,
+  setItem: (key: string, value: string) => { preferenceStorage.set(key, value) },
+}
+const preferredSelection = {
+  transport: 'acp' as const,
+  providerId: 'opencode-bundled',
+  apiProviderId: 'api.bailian',
+  modelId: 'qwen-plus',
+}
+preferenceApi.saveAgentModelPreference(preferredSelection, storage)
+const restoredPreference = preferenceApi.loadAgentModelPreference(storage)
+assert.deepEqual(restoredPreference, preferredSelection)
+const newConversationSelection = preferenceApi.initialAgentModelSelection(restoredPreference)
+assert.deepEqual(newConversationSelection, preferredSelection)
+assert.notEqual(newConversationSelection, restoredPreference, 'each new conversation must own its selection object')
 
 assert.deepEqual(parseAcpModelCatalog({ configOptions: [{ id: 'choice', category: 'model', type: 'select', currentValue: 'a', options: [
   { value: 'a', name: 'Model A' }, { group: 'Other', options: [{ value: 'b', name: 'Model B' }] },
