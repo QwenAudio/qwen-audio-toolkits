@@ -67,6 +67,7 @@ pub const CAPABILITY_SOURCE_SEPARATION: &str = "audio.separate";
 
 const API_PROVIDER_ID: &str = "api.openai-compatible";
 const BAILIAN_PROVIDER_ID: &str = "api.bailian";
+const BAILIAN_OPENCODE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const OPENCODE_MODEL_RESPONSE_MAX_BYTES: usize = 1024 * 1024;
 const OPENCODE_MODEL_LIMIT: usize = 500;
 const SENSEVOICE_GGUF_PROVIDER_ID: &str = "plugin.funaudiollm.sensevoice-small-gguf";
@@ -591,14 +592,10 @@ fn opencode_connection(config: &ApiProviderConfig) -> OpenCodeConnection {
     }
 }
 
-/// Resolve an eligible custom-provider connection for native OpenCode launch code.
-pub(crate) fn opencode_launch_config(
-    app: &AppHandle,
-    provider_id: &str,
+fn custom_opencode_launch_config(
+    config: &ApiProviderConfig,
 ) -> Result<OpenCodeLaunchConfig, String> {
-    let config = read_api_provider_config(app, provider_id)
-        .map_err(|_| "OpenCode connection is unavailable".to_string())?;
-    if let Some(reason) = opencode_connection_reason(&config) {
+    if let Some(reason) = opencode_connection_reason(config) {
         return Err(format!("OpenCode connection is not eligible: {reason}"));
     }
     Ok(OpenCodeLaunchConfig {
@@ -608,6 +605,22 @@ pub(crate) fn opencode_launch_config(
         provider_slug: opencode_provider_slug(&config.id),
         auth_type: config.auth_type.clone(),
     })
+}
+
+/// Resolve an eligible provider connection for native OpenCode launch code.
+pub(crate) fn opencode_launch_config(
+    app: &AppHandle,
+    provider_id: &str,
+) -> Result<OpenCodeLaunchConfig, String> {
+    if provider_id == BAILIAN_PROVIDER_ID {
+        let bailian = read_bailian_provider_config(app)
+            .map_err(|_| "OpenCode connection is unavailable".to_string())?;
+        resolve_opencode_launch_config(provider_id, Some(&bailian), &[])
+    } else {
+        let custom = read_api_provider_configs(app)
+            .map_err(|_| "OpenCode connection is unavailable".to_string())?;
+        resolve_opencode_launch_config(provider_id, None, &custom)
+    }
 }
 
 fn api_provider_endpoint_is_local(value: &str) -> bool {
@@ -758,6 +771,83 @@ impl BailianProviderConfig {
     fn configured(&self) -> bool {
         self.enabled && !self.api_key.trim().is_empty()
     }
+}
+
+fn bailian_opencode_connection_reason(config: &BailianProviderConfig) -> Option<&'static str> {
+    if !config.enabled {
+        return Some("Provider is disabled");
+    }
+    if !config.configured() {
+        return Some("Provider is not configured");
+    }
+    None
+}
+
+fn bailian_opencode_connection(config: &BailianProviderConfig) -> OpenCodeConnection {
+    let reason = bailian_opencode_connection_reason(config).map(str::to_string);
+    OpenCodeConnection {
+        id: BAILIAN_PROVIDER_ID.to_string(),
+        name: config.name.clone(),
+        provider_slug: opencode_provider_slug(BAILIAN_PROVIDER_ID),
+        eligible: reason.is_none(),
+        reason,
+    }
+}
+
+fn bailian_opencode_launch_config(
+    config: &BailianProviderConfig,
+) -> Result<OpenCodeLaunchConfig, String> {
+    if let Some(reason) = bailian_opencode_connection_reason(config) {
+        return Err(format!("OpenCode connection is not eligible: {reason}"));
+    }
+    Ok(OpenCodeLaunchConfig {
+        id: BAILIAN_PROVIDER_ID.to_string(),
+        base_url: BAILIAN_OPENCODE_BASE_URL.to_string(),
+        api_key: config.api_key.clone(),
+        provider_slug: opencode_provider_slug(BAILIAN_PROVIDER_ID),
+        auth_type: "bearer".to_string(),
+    })
+}
+
+fn collect_opencode_connections(
+    bailian: Option<&BailianProviderConfig>,
+    custom: &[ApiProviderConfig],
+) -> Vec<OpenCodeConnection> {
+    let mut connections = Vec::with_capacity(custom.len() + usize::from(bailian.is_some()));
+    if let Some(bailian) = bailian {
+        connections.push(bailian_opencode_connection(bailian));
+    }
+    connections.extend(custom.iter().map(opencode_connection));
+    connections
+}
+
+fn collect_available_opencode_connections(
+    bailian: Result<BailianProviderConfig, String>,
+    custom: Result<Vec<ApiProviderConfig>, String>,
+) -> Result<Vec<OpenCodeConnection>, String> {
+    if bailian.is_err() && custom.is_err() {
+        return Err("Unable to load OpenCode connections".to_string());
+    }
+    let bailian = bailian.ok();
+    let custom = custom.unwrap_or_default();
+    Ok(collect_opencode_connections(bailian.as_ref(), &custom))
+}
+
+fn resolve_opencode_launch_config(
+    provider_id: &str,
+    bailian: Option<&BailianProviderConfig>,
+    custom: &[ApiProviderConfig],
+) -> Result<OpenCodeLaunchConfig, String> {
+    if provider_id == BAILIAN_PROVIDER_ID {
+        return bailian
+            .ok_or_else(|| "OpenCode connection is unavailable".to_string())
+            .and_then(bailian_opencode_launch_config);
+    }
+    custom
+        .iter()
+        .find(|config| config.id == provider_id)
+        .ok_or_else(|| "OpenCode connection is unavailable".to_string())
+        .and_then(custom_opencode_launch_config)
 }
 
 #[derive(Clone, Deserialize)]
@@ -1959,9 +2049,9 @@ pub(crate) fn provider_settings(app: &AppHandle) -> Result<Vec<ApiProviderSettin
 pub fn harness_list_opencode_connections(
     app: AppHandle,
 ) -> Result<Vec<OpenCodeConnection>, String> {
-    read_api_provider_configs(&app)
-        .map(|configs| configs.iter().map(opencode_connection).collect())
-        .map_err(|_| "Unable to load OpenCode connections".to_string())
+    let bailian = read_bailian_provider_config(&app);
+    let custom = read_api_provider_configs(&app);
+    collect_available_opencode_connections(bailian, custom)
 }
 
 #[tauri::command]
@@ -8614,6 +8704,215 @@ mod tests {
             opencode_connection_reason(&config),
             Some("Only saved custom providers are supported")
         );
+    }
+
+    #[test]
+    fn configured_bailian_opencode_connection_is_eligible() {
+        let config = BailianProviderConfig {
+            api_key: "bailian-secret".to_string(),
+            enabled: true,
+            ..Default::default()
+        };
+
+        let connection = bailian_opencode_connection(&config);
+        assert_eq!(connection.id, BAILIAN_PROVIDER_ID);
+        assert_eq!(connection.name, config.name);
+        assert_eq!(connection.provider_slug, "qwenaudio-api-bailian");
+        assert!(connection.eligible);
+        assert_eq!(connection.reason, None);
+
+        let serialized = serde_json::to_value(&connection).expect("serialize connection");
+        assert!(serialized.get("secret").is_none());
+        assert!(serialized.get("baseUrl").is_none());
+        assert!(serialized.get("apiKey").is_none());
+        assert!(!serialized.to_string().contains(&config.api_key));
+
+        let launch = bailian_opencode_launch_config(&config).expect("eligible launch config");
+        assert_eq!(launch.id, BAILIAN_PROVIDER_ID);
+        assert_eq!(launch.base_url, BAILIAN_OPENCODE_BASE_URL);
+        assert_eq!(launch.api_key, config.api_key);
+        assert_eq!(launch.provider_slug, "qwenaudio-api-bailian");
+        assert_eq!(launch.auth_type, "bearer");
+    }
+
+    #[test]
+    fn ineligible_bailian_opencode_connections_return_safe_errors() {
+        let disabled = BailianProviderConfig {
+            api_key: "disabled-secret".to_string(),
+            enabled: false,
+            ..Default::default()
+        };
+        let disabled_connection = bailian_opencode_connection(&disabled);
+        assert!(!disabled_connection.eligible);
+        assert_eq!(
+            disabled_connection.reason.as_deref(),
+            Some("Provider is disabled")
+        );
+        let disabled_error = bailian_opencode_launch_config(&disabled)
+            .err()
+            .expect("disabled provider must be rejected");
+        assert_eq!(
+            disabled_error,
+            "OpenCode connection is not eligible: Provider is disabled"
+        );
+        assert!(!disabled_error.contains(&disabled.api_key));
+
+        let unconfigured = BailianProviderConfig {
+            api_key: "   ".to_string(),
+            enabled: true,
+            ..Default::default()
+        };
+        let unconfigured_connection = bailian_opencode_connection(&unconfigured);
+        assert!(!unconfigured_connection.eligible);
+        assert_eq!(
+            unconfigured_connection.reason.as_deref(),
+            Some("Provider is not configured")
+        );
+        let unconfigured_error = bailian_opencode_launch_config(&unconfigured)
+            .err()
+            .expect("unconfigured provider must be rejected");
+        assert_eq!(
+            unconfigured_error,
+            "OpenCode connection is not eligible: Provider is not configured"
+        );
+    }
+
+    #[test]
+    fn opencode_connections_merge_bailian_before_custom_without_secrets() {
+        let bailian = BailianProviderConfig {
+            api_key: "bailian-list-secret".to_string(),
+            enabled: true,
+            ..Default::default()
+        };
+        let mut custom = provider("https://example.com/v1", "custom-list-secret");
+        custom.id = "api.custom.merged".to_string();
+        custom.name = "Merged Custom".to_string();
+
+        let connections = collect_opencode_connections(Some(&bailian), &[custom]);
+
+        assert_eq!(connections.len(), 2);
+        assert_eq!(connections[0].id, BAILIAN_PROVIDER_ID);
+        assert_eq!(connections[1].id, "api.custom.merged");
+        let serialized = serde_json::to_string(&connections).expect("serialize connections");
+        assert!(!serialized.contains(&bailian.api_key));
+        assert!(!serialized.contains("custom-list-secret"));
+    }
+
+    #[test]
+    fn opencode_connections_collect_custom_without_bailian() {
+        let mut custom = provider("https://example.com/v1", "custom-only-secret");
+        custom.id = "api.custom.only".to_string();
+
+        let connections = collect_opencode_connections(None, &[custom]);
+
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].id, "api.custom.only");
+        assert!(!serde_json::to_string(&connections)
+            .expect("serialize connections")
+            .contains("custom-only-secret"));
+    }
+
+    #[test]
+    fn opencode_connections_collect_bailian_without_custom() {
+        let bailian = BailianProviderConfig {
+            api_key: "bailian-only-secret".to_string(),
+            enabled: true,
+            ..Default::default()
+        };
+
+        let connections = collect_opencode_connections(Some(&bailian), &[]);
+
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].id, BAILIAN_PROVIDER_ID);
+        assert!(!serde_json::to_string(&connections)
+            .expect("serialize connections")
+            .contains(&bailian.api_key));
+    }
+
+    #[test]
+    fn opencode_connections_collect_empty_when_both_sources_are_missing() {
+        assert!(collect_opencode_connections(None, &[]).is_empty());
+    }
+
+    #[test]
+    fn opencode_connection_sources_fail_only_when_both_sources_fail() {
+        let bailian = BailianProviderConfig {
+            api_key: "bailian-source-secret".to_string(),
+            enabled: true,
+            ..Default::default()
+        };
+        let mut custom = provider("https://example.com/v1", "custom-source-secret");
+        custom.id = "api.custom.source".to_string();
+
+        let custom_only = collect_available_opencode_connections(
+            Err("malformed Bailian: bailian-file-secret".to_string()),
+            Ok(vec![custom.clone()]),
+        )
+        .expect("use valid custom source");
+        assert_eq!(custom_only.len(), 1);
+        assert_eq!(custom_only[0].id, custom.id);
+
+        let bailian_only = collect_available_opencode_connections(
+            Ok(bailian),
+            Err("malformed custom: custom-file-secret".to_string()),
+        )
+        .expect("use valid Bailian source");
+        assert_eq!(bailian_only.len(), 1);
+        assert_eq!(bailian_only[0].id, BAILIAN_PROVIDER_ID);
+
+        let error = collect_available_opencode_connections(
+            Err("malformed Bailian: bailian-file-secret".to_string()),
+            Err("malformed custom: custom-file-secret".to_string()),
+        )
+        .expect_err("reject when both sources fail");
+        assert_eq!(error, "Unable to load OpenCode connections");
+        assert!(!error.contains("bailian-file-secret"));
+        assert!(!error.contains("custom-file-secret"));
+    }
+
+    #[test]
+    fn opencode_launch_resolver_dispatches_bailian_custom_and_unknown_safely() {
+        let bailian = BailianProviderConfig {
+            api_key: "bailian-launch-secret".to_string(),
+            enabled: true,
+            ..Default::default()
+        };
+        let mut custom = provider("https://example.com/custom/v1", "custom-launch-secret");
+        custom.id = "api.custom.resolved".to_string();
+
+        let bailian_launch =
+            resolve_opencode_launch_config(BAILIAN_PROVIDER_ID, Some(&bailian), &[])
+                .expect("resolve Bailian without custom providers");
+        assert_eq!(bailian_launch.base_url, BAILIAN_OPENCODE_BASE_URL);
+        assert_eq!(bailian_launch.api_key, bailian.api_key);
+
+        let custom_launch = resolve_opencode_launch_config(&custom.id, None, &[custom.clone()])
+            .expect("resolve custom provider without Bailian");
+        assert_eq!(custom_launch.base_url, custom.base_url);
+        assert_eq!(custom_launch.api_key, custom.api_key);
+
+        custom.enabled = false;
+        let ineligible_error = resolve_opencode_launch_config(&custom.id, None, &[custom.clone()])
+            .err()
+            .expect("reject ineligible custom provider");
+        assert_eq!(
+            ineligible_error,
+            "OpenCode connection is not eligible: Provider is disabled"
+        );
+        assert!(!ineligible_error.contains(&custom.api_key));
+
+        let unknown_error =
+            resolve_opencode_launch_config("api.custom.unknown", Some(&bailian), &[custom])
+                .err()
+                .expect("reject unknown provider");
+        assert_eq!(unknown_error, "OpenCode connection is unavailable");
+        assert!(!unknown_error.contains(&bailian.api_key));
+        assert!(!unknown_error.contains("custom-launch-secret"));
+
+        let missing_bailian_error = resolve_opencode_launch_config(BAILIAN_PROVIDER_ID, None, &[])
+            .err()
+            .expect("reject missing Bailian provider");
+        assert_eq!(missing_bailian_error, "OpenCode connection is unavailable");
     }
 
     #[test]
