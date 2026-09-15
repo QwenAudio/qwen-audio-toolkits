@@ -1,4 +1,5 @@
-import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { convertFileSrc } from '@tauri-apps/api/core'
+import { invoke } from './trace/ipcBridge'
 import { t } from '../i18n'
 
 export interface VideoEditorStatus {

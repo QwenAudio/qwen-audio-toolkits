@@ -455,16 +455,31 @@ export interface RealtimeStreamEvent {
   error?: string;
 }
 
+export type AcpProviderKind = "external" | "bundled";
+
 export interface AcpProviderInfo {
   id: string;
   name: string;
   available: boolean;
+  /** Present for native providers; omitted by older preview or persisted records. */
+  kind?: AcpProviderKind;
+  /** Bundled providers may require a separately configured API Provider binding. */
+  requiresApiProvider?: boolean;
+}
+
+export interface OpenCodeConnection {
+  id: string;
+  name: string;
+  providerSlug: string;
+  eligible: boolean;
+  reason?: string;
 }
 
 export interface AcpSessionStartRequest {
   providerId: string;
   cwd?: string;
   modelId?: string;
+  apiProviderId?: string;
   enableTools?: boolean;
 }
 
@@ -572,6 +587,9 @@ export interface ApiProviderSettings {
   authHeader: string;
   extraHeaders: Record<string, string>;
   llmPath: string;
+  llmProfile: ApiLlmProfile;
+  llmBodyTemplate: string;
+  llmTextPointer: string;
   asrMode: ApiAsrMode;
   asrPath: string;
   asrBodyTemplate: string;
@@ -589,6 +607,7 @@ export interface ApiProviderSettings {
 }
 
 type ApiAuthType = "bearer" | "token" | "custom-header" | "none";
+type ApiLlmProfile = "openai-chat" | "template-json";
 type ApiAsrMode = "multipart" | "binary" | "template-json-base64";
 type ApiTtsMode =
   | "standard-json"
@@ -612,6 +631,9 @@ export interface ApiProviderUpdate {
   authHeader: string;
   extraHeaders: Record<string, string>;
   llmPath: string;
+  llmProfile: ApiLlmProfile;
+  llmBodyTemplate: string;
+  llmTextPointer: string;
   asrMode: ApiAsrMode;
   asrPath: string;
   asrBodyTemplate: string;

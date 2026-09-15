@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from './trace/ipcBridge'
 import type { AgentConversation, GeneralAgentMessage, GeneralAgentTask } from '../domain/agents'
 import { t } from '../i18n'
 
@@ -88,6 +88,7 @@ function validGeneralTask(value: unknown): boolean {
     validCreationOptions(value.creationOptions) &&
     (value.chatModel == null || (isRecord(value.chatModel) &&
       typeof value.chatModel.providerId === 'string' && value.chatModel.providerId.length > 0 &&
+      (value.chatModel.apiProviderId === undefined || typeof value.chatModel.apiProviderId === 'string') &&
       typeof value.chatModel.modelId === 'string' &&
       (value.chatModel.transport === undefined || value.chatModel.transport === 'acp'))) &&
     Array.isArray(value.messages) && value.messages.length <= 10_000 && value.messages.every(validMessage)

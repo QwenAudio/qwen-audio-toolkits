@@ -1,5 +1,6 @@
 import { startAcpSession, finishAcpSession, sendAcpPrompt, subscribeAcpSession } from './acp'
-import type { AcpSessionEvent } from '../types'
+import type { AcpProviderInfo, AcpSessionEvent } from '../types'
+import { acpApiProviderId } from '../domain/agentModelSelection'
 import type { AgentModelSelection, GeneralAgentMessage } from '../domain/agents'
 import { t } from '../i18n'
 
@@ -9,6 +10,7 @@ export const acpConversationTransport = {
 
 export async function requestAcpConversation(options: {
   selection: AgentModelSelection
+  provider: AcpProviderInfo
   messages: GeneralAgentMessage[]
   signal?: AbortSignal
   enableTools?: boolean
@@ -47,6 +49,7 @@ export async function requestAcpConversation(options: {
     const startup = transport.start({
       providerId: options.selection.providerId,
       modelId: options.selection.modelId || undefined,
+      apiProviderId: acpApiProviderId(options.selection, options.provider),
       enableTools: options.enableTools,
     })
     void startup.then(session => {

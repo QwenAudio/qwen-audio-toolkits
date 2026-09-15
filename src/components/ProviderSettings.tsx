@@ -67,6 +67,9 @@ const fallbackApiSettings: ApiProviderSettings = {
   authHeader: 'x-api-key',
   extraHeaders: {},
   llmPath: '/chat/completions',
+  llmProfile: 'openai-chat',
+  llmBodyTemplate: '',
+  llmTextPointer: '/choices/0/message/content',
   asrMode: 'multipart',
   asrPath: '/audio/transcriptions',
   asrBodyTemplate: '{\n  "audio": { "data": "{audioBase64}" },\n  "request": { "model_name": "{model}" }\n}',
@@ -507,7 +510,11 @@ function CustomProviderPanel({
 
         <div className="provider-protocol-sections">
           {settings.llmEnabled && (
-            <details open><summary>{t("LLM 接口")}</summary><div className="provider-form-grid"><label><span>{t("Chat Completions 路径")}</span><input value={settings.llmPath} onChange={(event) => update('llmPath', event.target.value)} /></label></div></details>
+            <details open><summary>{t("LLM 接口")}</summary><div className="provider-form-grid">
+              <label><span>{t("LLM 请求格式")}</span><select value={settings.llmProfile} onChange={(event) => update('llmProfile', event.target.value as ApiProviderSettings['llmProfile'])}><option value="openai-chat">{t("OpenAI Chat Completions")}</option><option value="template-json">{t("自定义 JSON 模板")}</option></select></label>
+              <label><span>{settings.llmProfile === 'openai-chat' ? t("Chat Completions 路径") : t("接口路径")}</span><input value={settings.llmPath} onChange={(event) => update('llmPath', event.target.value)} /></label>
+              {settings.llmProfile === 'template-json' && <><label className="provider-key-field"><span>{t("请求 JSON 模板")}</span><textarea value={settings.llmBodyTemplate} onChange={(event) => update('llmBodyTemplate', event.target.value)} /><small>{t("支持 ")}{'{model}'}、{'{messages}'}、{'{temperature}'}、{'{maxTokens}'}、{'{uuid}'}</small></label><label><span>{t("文本响应路径")}</span><input value={settings.llmTextPointer} placeholder="/result/text" onChange={(event) => update('llmTextPointer', event.target.value)} /><small>{t("使用 JSON Pointer，例如 /channel/alternatives/0/transcript")}</small></label></>}
+            </div></details>
           )}
           {settings.asrEnabled && (
             <details><summary>{t("ASR 接口")}</summary><div className="provider-form-grid">
@@ -633,7 +640,6 @@ export function ProviderSettings({
           catalog={catalog}
           onCatalogChanged={onCatalogChanged}
           onAction={onAction}
-          customProviderId={customProviderId}
         />
       ) : (
         <CustomProviderPanel
@@ -641,6 +647,7 @@ export function ProviderSettings({
           catalog={catalog}
           onCatalogChanged={onCatalogChanged}
           onAction={onAction}
+          customProviderId={customProviderId}
         />
       )}
     </div>

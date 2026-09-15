@@ -116,6 +116,8 @@ export interface AgentConversation {
 export interface AgentModelSelection {
   transport?: 'acp'
   providerId: string
+  /** API Provider bound to bundled ACP Agents; omitted by legacy and external selections. */
+  apiProviderId?: string
   /** ACP model ID advertised by the Agent; empty means its default. */
   modelId: string
 }

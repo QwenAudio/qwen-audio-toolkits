@@ -1,5 +1,5 @@
 import { t } from "../i18n"
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from './trace/ipcBridge'
 import { save } from '@tauri-apps/plugin-dialog'
 
 interface ExportableAudioFile {

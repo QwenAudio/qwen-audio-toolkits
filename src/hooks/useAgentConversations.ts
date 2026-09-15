@@ -10,7 +10,7 @@ import type {
   GeneralAgentStructuredPlanAction,
   GeneralAgentTask,
 } from '../domain/agents'
-import { DEFAULT_AGENT_MODEL } from '../domain/agentModelSelection'
+import { initialAgentModelSelection } from '../domain/agentModelSelection'
 import { inferAgentMessageAction } from '../domain/agentMessageActions'
 import { appendWorkspaceBrief, ensureWorkspaceTaskLink, findWorkspaceGeneralTask } from '../domain/workspaceTaskLink'
 import type { WorkspaceTaskLinkSeed } from '../domain/workspaceTaskLink'
@@ -21,6 +21,7 @@ import { useWorkspaceCloseFlush } from './useProjectAutosave'
 type GeneralAgentTaskDraft = {
   selectedModeId?: AgentCreationMode | null
   attachment?: GeneralAgentTask['attachment']
+  chatModel?: GeneralAgentTask['chatModel']
 }
 
 type GeneralAgentLocalResponse =
@@ -184,7 +185,7 @@ export function useAgentConversations(
       draftPrompt: '',
       messages: [],
       selectedModeId: draft.selectedModeId ?? null,
-      chatModel: { ...DEFAULT_AGENT_MODEL },
+      chatModel: initialAgentModelSelection(draft.chatModel ?? undefined),
       attachment: draft.attachment ?? null,
       createdAt: now,
       updatedAt: now,

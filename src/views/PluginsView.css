@@ -1,4 +1,8 @@
 .plugins-page .plugin-catalog {
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+}
+
+.plugins-page.skills-catalog .plugin-catalog {
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 

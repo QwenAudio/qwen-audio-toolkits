@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { invoke } from './trace/ipcBridge'
 import { t } from '../i18n'
 import type { GeneralAgentMessage } from '../domain/agents'
 import { isTauriRuntime } from './harness'

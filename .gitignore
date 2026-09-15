@@ -28,3 +28,6 @@ artifacts/
 # Release staging (uploaded to ModelScope, not committed)
 .release/
 RELEASE.md
+
+# CI-fetched Tauri OpenCode sidecar binaries (the directory placeholder is tracked)
+/src-tauri/binaries/opencode-*
