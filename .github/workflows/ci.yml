@@ -27,6 +27,13 @@ jobs:
           components: rustfmt, clippy
       - name: Install frontend dependencies
         run: npm ci --no-audit --no-fund
+      - name: Fetch verified OpenCode sidecar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/fetch-opencode-sidecar.mjs \
+            --target aarch64-apple-darwin \
+            --out src-tauri/binaries
       - name: Lint frontend
         run: npm run lint
       - name: Check open-source package
