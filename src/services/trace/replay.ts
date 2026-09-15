@@ -9,7 +9,7 @@ let schedulerStarted = false
 let readyResolvers: Array<() => void> = []
 let ready = false
 
-function fingerprint(args: Record<string, unknown> | undefined): string {
+function fingerprint(args: unknown): string {
   return JSON.stringify(args ?? {})
 }
 
@@ -34,7 +34,7 @@ export function traceDocument(): TraceDocument | null {
 
 export async function replayInvoke<T>(
   command: string,
-  args: Record<string, unknown> | undefined,
+  args: unknown,
 ): Promise<T> {
   await waitReady()
   const trace = document

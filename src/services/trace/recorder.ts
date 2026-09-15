@@ -1,3 +1,4 @@
+import type { InvokeArgs } from '@tauri-apps/api/core'
 import type { TraceEntry } from './types'
 
 const entries: TraceEntry[] = []
@@ -14,7 +15,7 @@ export function startRecording(id: string): void {
 
 export async function recordInvoke<T>(
   command: string,
-  args: Record<string, unknown> | undefined,
+  args: InvokeArgs | undefined,
   execute: () => Promise<T>,
 ): Promise<T> {
   const t = Math.round(performance.now() - startMs)

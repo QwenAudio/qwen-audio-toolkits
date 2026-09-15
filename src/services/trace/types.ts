@@ -6,7 +6,7 @@ export type TraceEntry =
       t: number
       seq: number
       command: string
-      args: Record<string, unknown> | undefined
+      args: unknown
       result: unknown
       resultT: number
     }
@@ -15,7 +15,7 @@ export type TraceEntry =
       t: number
       seq: number
       command: string
-      args: Record<string, unknown> | undefined
+      args: unknown
       error: string
       resultT: number
     }

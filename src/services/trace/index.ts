@@ -1,9 +1,10 @@
 import { TRACE_SCHEMA_VERSION, isTraceEntry, type TraceDocument, type TraceEntry, type TraceManifest } from './types'
-import { activateTrace, invoke, isRecording, isReplaying } from './ipcBridge'
+import { activateTrace, invoke, isRecording } from './ipcBridge'
 
 export { isRecording, isReplaying, traceMode } from './ipcBridge'
 
 const TRACE_URL_PREFIX = 'trace://'
+let currentAppVersion = ''
 
 export function recordScenarioId(): string | null {
   return urlParam('record')
@@ -24,6 +25,7 @@ function urlParam(name: string): string | null {
  * fetched over HTTP; recording requires the desktop runtime.
  */
 export function initTraceSystem(appVersion: string): void {
+  currentAppVersion = appVersion
   const recordId = recordScenarioId()
   if (recordId) {
     activateTrace('record', recordId)
@@ -31,11 +33,11 @@ export function initTraceSystem(appVersion: string): void {
   }
   const replayId = replayScenarioId()
   if (replayId) {
-    void loadAndActivateReplay(replayId, appVersion)
+    void loadAndActivateReplay(replayId)
   }
 }
 
-async function loadAndActivateReplay(scenarioId: string, appVersion: string): Promise<void> {
+async function loadAndActivateReplay(scenarioId: string): Promise<void> {
   const doc = await fetchTrace(scenarioId)
   if (doc.manifest.schemaVersion !== TRACE_SCHEMA_VERSION) {
     throw new Error(`Trace schema v${doc.manifest.schemaVersion} unsupported (expected v${TRACE_SCHEMA_VERSION})`)
@@ -83,7 +85,7 @@ export async function saveRecording(label: string, modes: string[]): Promise<voi
     schemaVersion: TRACE_SCHEMA_VERSION,
     scenarioId,
     scenarioLabel: label || scenarioId,
-    appVersion,
+    appVersion: currentAppVersion,
     recordedAt: new Date().toISOString(),
     contractHash: computeContractHash(),
     modes,

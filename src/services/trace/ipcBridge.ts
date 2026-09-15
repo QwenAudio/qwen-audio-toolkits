@@ -3,6 +3,8 @@ import { listen as tauriListen, type UnlistenFn } from '@tauri-apps/api/event'
 import { startRecording, recordInvoke, recordEvent } from './recorder'
 import { replayInvoke } from './replay'
 
+export type { UnlistenFn } from '@tauri-apps/api/event'
+
 export type TraceMode = 'live' | 'record' | 'replay'
 
 let mode: TraceMode = 'live'

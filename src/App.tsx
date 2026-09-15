@@ -1084,7 +1084,8 @@ function App() {
   const chosenAcpDefaultModelId = chosenAcpModelCatalog?.currentModelId;
   const chosenAcpDefaultModelName =
     chosenAcpProviderModels.find(model => model.id === chosenAcpDefaultModelId)?.name ??
-    chosenAcpDefaultModelId;
+    chosenAcpDefaultModelId ??
+    undefined;
   const chosenAcpSelectedModel = chosenAcpProviderModels.find(model => model.id === selectedChatModel.modelId);
   const chosenAcpProviderAvailable = Boolean(selectedAcpProvider?.available);
   const agentSelectionLocked = Boolean(selectedGeneralTask?.submitting);
