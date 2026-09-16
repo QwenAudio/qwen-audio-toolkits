@@ -499,9 +499,33 @@ export interface AcpPermissionOption {
   kind: string;
 }
 
+export interface AcpQuestionOption {
+  id: string;
+  label: string;
+}
+
+export interface AcpQuestion {
+  id: string;
+  prompt: string;
+  options: AcpQuestionOption[];
+  allowMultiple?: boolean;
+}
+
+export interface AcpQuestionAnswer {
+  questionId: string;
+  selectedOptionIds: string[];
+}
+
 export interface AcpPlanEntry {
+  id?: string;
   content?: string;
   status?: string;
+}
+
+export interface AcpPlanPhase {
+  id?: string;
+  name?: string;
+  todos?: AcpPlanEntry[];
 }
 
 export interface AcpSessionEvent {
@@ -516,6 +540,10 @@ export interface AcpSessionEvent {
     | "turn_failed"
     | "permission_requested"
     | "permission_resolved"
+    | "question_requested"
+    | "question_resolved"
+    | "plan_approval_requested"
+    | "plan_approval_resolved"
     | "panel_requested"
     | "closed"
     | "error";
@@ -532,6 +560,8 @@ export interface AcpSessionEvent {
   requestId?: string;
   title?: string;
   options?: AcpPermissionOption[];
+  questions?: AcpQuestion[];
+  phases?: AcpPlanPhase[];
   panel?: "meeting-notes";
 }
 

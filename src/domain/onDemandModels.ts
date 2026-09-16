@@ -1,5 +1,6 @@
 import type { GeneralAgentAttachment, GeneralAgentInstallModelAction } from './agents'
 import type { ModelPlugin } from '../types'
+import { agentFileKind } from './agentFiles'
 
 export type OnDemandModelInstallMode = 'ask' | 'auto'
 
@@ -320,6 +321,7 @@ export function createOnDemandModelExecutionPlan(
   const needId = resolution.need.id
   const isTextInput = TEXT_INPUT_CAPABILITIES.has(resolution.need.capability)
   if (AUDIO_INPUT_NEEDS.has(needId) && !attachment) return null
+  if (AUDIO_INPUT_NEEDS.has(needId) && attachment && agentFileKind(attachment) !== 'audio') return null
   if (isTextInput && !promptText?.trim()) return null
 
   if (needId === 'audio-denoise') {
@@ -447,6 +449,16 @@ function sortCandidatesForNeed(models: ModelPlugin[], need: OnDemandModelNeed): 
     .sort((left, right) => scoreModelForNeed(right, need) - scoreModelForNeed(left, need))
 }
 
+export function resolveOnDemandModelInstallCandidates(
+  resolution: OnDemandModelResolution,
+  models: ModelPlugin[],
+): ModelPlugin[] {
+  return sortCandidatesForNeed(models, resolution.need)
+    .filter((model) =>
+      model.installed || (model.catalogManaged && model.installable !== false),
+    )
+}
+
 export function detectOnDemandModelNeed(content: string): OnDemandModelNeed | null {
   return detectOnDemandModelNeeds(content)[0] ?? null
 }
@@ -547,8 +559,19 @@ export function createInstallModelAction(
     selectedModeName: string | null
     attachmentHint: string
     attachment?: GeneralAgentAttachment | null
+    modelCandidates?: ModelPlugin[]
   },
 ): GeneralAgentInstallModelAction {
+  const questionOptions = request.modelCandidates
+    ?.filter((candidate, index, candidates) =>
+      candidates.findIndex((item) => item.id === candidate.id) === index,
+    )
+    .map((candidate) => ({
+      id: candidate.id,
+      label: candidate.name,
+      description: candidate.description,
+      installed: candidate.installed,
+    }))
   return {
     id: resolution.need.id,
     kind: 'install-on-demand-model',
@@ -562,6 +585,15 @@ export function createInstallModelAction(
     selectedModeName: request.selectedModeName,
     attachmentHint: request.attachmentHint,
     attachment: request.attachment ?? null,
+    ...(questionOptions && questionOptions.length > 1
+      ? {
+          question: {
+            id: `model:${resolution.need.id}`,
+            prompt: `选择用于${resolution.need.label}的模型`,
+            options: questionOptions,
+          },
+        }
+      : {}),
   }
 }
 

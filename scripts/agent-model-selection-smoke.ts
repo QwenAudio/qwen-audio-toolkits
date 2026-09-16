@@ -112,6 +112,9 @@ let emit!: (event: AcpSessionEvent) => void
 let finished = 0
 let removed = 0
 let permissions = 0
+let questions = 0
+let planApprovals = 0
+let progressEvents: AcpSessionEvent[] = []
 const transport: typeof acpConversationTransport = {
   subscribe: async callback => { emit = callback; return () => { removed += 1 } },
   start: async request => {
@@ -123,7 +126,16 @@ const transport: typeof acpConversationTransport = {
     assert.equal(id, 'session')
     assert.ok(prompt.includes('Previous answer') && prompt.includes('New request'))
     emit({ sessionId: 'other', kind: 'agent_message_chunk', text: 'wrong task' })
+    emit({ sessionId: 'other', kind: 'tool_call', toolCallId: 'wrong-tool', toolTitle: 'Wrong tool' })
     emit({ sessionId: id, kind: 'permission_requested', requestId: 'permission', options: [] })
+    emit({ sessionId: id, kind: 'question_requested', requestId: 'question', questions: [{
+      id: 'q1',
+      prompt: 'Use which style?',
+      options: [{ id: 'simple', label: 'Simple' }, { id: 'detailed', label: 'Detailed' }],
+    }] })
+    emit({ sessionId: id, kind: 'plan_approval_requested', requestId: 'plan', title: 'Execution plan', plan: [{ content: 'Render video', status: 'pending' }] })
+    emit({ sessionId: id, kind: 'tool_call', toolCallId: 'shell', toolTitle: 'Run shell command', status: 'running' })
+    emit({ sessionId: id, kind: 'tool_call_update', toolCallId: 'shell', toolTitle: 'Run shell command', status: 'completed' })
     emit({ sessionId: id, kind: 'agent_message_chunk', text: 'ACP ' })
     emit({ sessionId: id, kind: 'agent_message_chunk', text: 'reply' })
     emit({ sessionId: id, kind: 'turn_completed' })
@@ -133,11 +145,25 @@ const transport: typeof acpConversationTransport = {
 const options = { selection, provider: providers[1], messages: [
   { id: 'first', role: 'assistant' as const, content: 'Previous answer', createdAt: 1 },
   { id: 'second', role: 'user' as const, content: 'New request', createdAt: 2 },
-], onPermission: () => { permissions += 1 } }
+], onPermission: () => { permissions += 1 }, onQuestion: () => { questions += 1 }, onPlanApproval: () => { planApprovals += 1 }, onProgress: (event: AcpSessionEvent) => { progressEvents.push(event) } }
 assert.equal(await requestAcpConversation(options, transport), 'ACP reply')
 assert.equal(finished, 1)
 assert.equal(removed, 1)
 assert.equal(permissions, 1)
+assert.equal(questions, 1)
+assert.equal(planApprovals, 1)
+assert.deepEqual(progressEvents.map(event => event.kind), [
+  'permission_requested',
+  'question_requested',
+  'plan_approval_requested',
+  'tool_call',
+  'tool_call_update',
+  'agent_message_chunk',
+  'agent_message_chunk',
+  'turn_completed',
+])
+assert.deepEqual(progressEvents.filter(event => event.kind === 'tool_call' || event.kind === 'tool_call_update').map(event => event.toolCallId), ['shell', 'shell'])
+progressEvents = []
 await assert.rejects(requestAcpConversation(options, { ...transport, send: async id => {
   emit({ sessionId: id, kind: 'turn_failed', error: 'actual provider failure' })
 } }), /actual provider failure/)

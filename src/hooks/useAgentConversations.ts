@@ -11,6 +11,7 @@ import type {
   GeneralAgentTask,
 } from '../domain/agents'
 import { initialAgentModelSelection } from '../domain/agentModelSelection'
+import { uniqueAgentFiles } from '../domain/agentFiles'
 import { inferAgentMessageAction } from '../domain/agentMessageActions'
 import { appendWorkspaceBrief, ensureWorkspaceTaskLink, findWorkspaceGeneralTask } from '../domain/workspaceTaskLink'
 import type { WorkspaceTaskLinkSeed } from '../domain/workspaceTaskLink'
@@ -21,6 +22,7 @@ import { useWorkspaceCloseFlush } from './useProjectAutosave'
 type GeneralAgentTaskDraft = {
   selectedModeId?: AgentCreationMode | null
   attachment?: GeneralAgentTask['attachment']
+  attachments?: GeneralAgentAttachment[]
   chatModel?: GeneralAgentTask['chatModel']
 }
 
@@ -187,6 +189,7 @@ export function useAgentConversations(
       selectedModeId: draft.selectedModeId ?? null,
       chatModel: initialAgentModelSelection(draft.chatModel ?? undefined),
       attachment: draft.attachment ?? null,
+      attachments: draft.attachments ?? [],
       createdAt: now,
       updatedAt: now,
       submitting: false,
@@ -203,7 +206,7 @@ export function useAgentConversations(
   }, [createGeneralTask, ensureSelectedWorkspaceTask])
   const updateGeneralTask = useCallback((
     taskId: string,
-    update: Partial<Pick<GeneralAgentTask, 'selectedModeId' | 'attachment' | 'draftPrompt' | 'creationOptions' | 'chatModel'>>,
+    update: Partial<Pick<GeneralAgentTask, 'selectedModeId' | 'attachment' | 'attachments' | 'draftPrompt' | 'creationOptions' | 'chatModel'>>,
   ) => {
     setGeneralTasks((current) =>
       current.map((task) => {
@@ -219,14 +222,20 @@ export function useAgentConversations(
     taskId: string,
     prompt: string,
     attachment?: GeneralAgentAttachment | null,
+    attachments?: GeneralAgentAttachment[],
   ) => {
     const content = prompt.trim()
     if (!content) return
-    const message = newMessage('user', content, undefined, attachment)
+    const messageAttachments = uniqueAgentFiles([
+      attachment,
+      ...(attachments ?? []),
+    ])
+    const message = newMessage('user', content, undefined, attachment, messageAttachments)
     setGeneralTasks((current) => current.map((task) => task.id === taskId
       ? appendWorkspaceBrief(task, {
           ...message,
           attachment: attachment === undefined ? task.attachment : attachment,
+          attachments: messageAttachments.length ? messageAttachments : undefined,
         })
       : task))
   }, [])
@@ -287,6 +296,7 @@ export function useAgentConversations(
     selectedModeName?: string | null
     attachmentHint?: string
     attachment?: GeneralAgentAttachment | null
+    attachments?: GeneralAgentAttachment[]
     appendUserMessage?: boolean
     localResponse?: () => Promise<GeneralAgentLocalResponse> | GeneralAgentLocalResponse
     agentResponse?: (messages: GeneralAgentMessage[]) => Promise<string>
@@ -298,7 +308,17 @@ export function useAgentConversations(
     activeGeneralPromptIdsRef.current.add(request.task.id)
 
     const appendUserMessage = request.appendUserMessage !== false
-    const userMessage = newMessage('user', trimmed, undefined, request.attachment ?? null)
+    const requestAttachments = uniqueAgentFiles([
+      request.attachment,
+      ...(request.attachments ?? []),
+    ])
+    const userMessage = newMessage(
+      'user',
+      trimmed,
+      undefined,
+      request.attachment ?? null,
+      requestAttachments,
+    )
     const agentMessage: GeneralAgentMessage = {
       ...userMessage,
       content: buildGeneralAgentPromptContent(

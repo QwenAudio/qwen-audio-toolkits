@@ -2,10 +2,29 @@ import { startAcpSession, finishAcpSession, sendAcpPrompt, subscribeAcpSession }
 import type { AcpProviderInfo, AcpSessionEvent } from '../types'
 import { acpApiProviderId } from '../domain/agentModelSelection'
 import type { AgentModelSelection, GeneralAgentMessage } from '../domain/agents'
+import { uniqueAgentFiles } from '../domain/agentFiles'
 import { t } from '../i18n'
 
 export const acpConversationTransport = {
   start: startAcpSession, finish: finishAcpSession, send: sendAcpPrompt, subscribe: subscribeAcpSession,
+}
+
+function acpConversationMessageContext(messages: GeneralAgentMessage[]) {
+  return messages.map(({ role, content, attachment, attachments }) => {
+    const files = uniqueAgentFiles([attachment, ...(attachments ?? [])])
+    return {
+      role,
+      content,
+      ...(files.length
+        ? {
+            attachments: files.map((file) => ({
+              name: file.name,
+              path: file.path,
+            })),
+          }
+        : {}),
+    }
+  })
 }
 
 export async function requestAcpConversation(options: {
@@ -15,6 +34,9 @@ export async function requestAcpConversation(options: {
   signal?: AbortSignal
   enableTools?: boolean
   onPermission: (event: AcpSessionEvent) => void
+  onQuestion?: (event: AcpSessionEvent) => void
+  onPlanApproval?: (event: AcpSessionEvent) => void
+  onProgress?: (event: AcpSessionEvent) => void
 }, transport = acpConversationTransport): Promise<string> {
   let sessionId: string | null = null
   let initializedSessionId: string | null = null
@@ -30,8 +52,11 @@ export async function requestAcpConversation(options: {
   const abort = () => fail(t('已停止 Agent 回复。'))
   const handle = (event: AcpSessionEvent) => {
     if (event.sessionId !== sessionId || settled) return
+    options.onProgress?.(event)
     if (event.kind === 'agent_message_chunk') text += event.text ?? ''
     if (event.kind === 'permission_requested') options.onPermission(event)
+    if (event.kind === 'question_requested') options.onQuestion?.(event)
+    if (event.kind === 'plan_approval_requested') options.onPlanApproval?.(event)
     if (event.kind === 'turn_completed') {
       if (!text.trim()) fail(t('Agent 没有返回文本结果，请稍后重试。'))
       else { settled = true; resolve(text) }
@@ -61,7 +86,7 @@ export async function requestAcpConversation(options: {
     if (options.signal?.aborted || settled) return await completion
     for (const event of buffered) handle(event)
     if (settled) return await completion
-    const prompt = `Continue this audio/video task conversation. Reply to the latest user message in the requested format. Previous messages are reference context; do not repeat earlier operations.\n${JSON.stringify(options.messages.map(({ role, content }) => ({ role, content })))}`
+    const prompt = `Continue this audio/video task conversation. Reply to the latest user message in the requested format. Previous messages are reference context; do not repeat earlier operations. When a message includes attachments, use their absolute file paths as the source material. If you need the user to choose among concrete options, prefer the ACP cursor/ask_question request when available. If you need approval before executing a multi-step plan, prefer cursor/create_plan when available; otherwise ask concise confirmation questions in the message.\n${JSON.stringify(acpConversationMessageContext(options.messages))}`
     await transport.send(sessionId, prompt)
     return await completion
   } finally {

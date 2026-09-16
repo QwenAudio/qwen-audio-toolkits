@@ -4,6 +4,7 @@ import type { AcpModelCatalog } from '../domain/acpModels';
 import { listen, type UnlistenFn } from "./trace/ipcBridge";
 import type {
   AcpProviderInfo,
+  AcpQuestionAnswer,
   AcpSessionEvent,
   AcpSessionStartRequest,
   AcpSessionStartResponse,
@@ -89,6 +90,35 @@ export function respondAcpPermission(
     sessionId,
     requestId,
     optionId,
+  });
+}
+
+export function respondAcpQuestion(
+  sessionId: string,
+  requestId: string,
+  answers?: AcpQuestionAnswer[],
+): Promise<void> {
+  return invoke<void>("acp_respond_question", {
+    sessionId,
+    requestId,
+    outcome: answers
+      ? { outcome: "answered", answers }
+      : { outcome: "cancelled" },
+  });
+}
+
+export function respondAcpPlanApproval(
+  sessionId: string,
+  requestId: string,
+  accepted: boolean,
+  reason?: string,
+): Promise<void> {
+  return invoke<void>("acp_respond_plan_approval", {
+    sessionId,
+    requestId,
+    outcome: accepted
+      ? { outcome: "accepted" }
+      : { outcome: "rejected", reason },
   });
 }
 

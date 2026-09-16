@@ -22,6 +22,13 @@ const metadata: WorkspaceMetadata = {
         { id: 'step-1', status: 'done', capability: 'speech.transcribe', description: '识别', result: '已识别' },
         { id: 'step-2', status: 'running', capability: 'speech.synthesize', description: '生成' },
       ] },
+    }, { id: 'message-2', role: 'assistant', content: '需要确认两点后我再执行', createdAt: 2,
+      action: { id: 'confirm-1', kind: 'confirm-agent-plan', status: 'pending', label: '确认选择', confirmationText: '确认', questions: [
+        { id: 'q1', prompt: '注解怎么显示', options: [
+          { id: 'a', label: '整段持续显示', confirmationText: '选择：整段持续显示' },
+          { id: 'b', label: '每段开头展示几秒', confirmationText: '选择：每段开头展示几秒' },
+        ] },
+      ] },
     }],
   }],
   selectedId: 'project-1',
@@ -51,6 +58,11 @@ assert.equal(parsed.projects['project-1:podcast'].version, 1)
 assert.deepEqual(Object.keys(parsed.projects['project-1:podcast'].state).sort(), ['path', 'script', 'source'])
 assert.equal(parsed.projects['project-1:podcast'].state.source, '')
 assert.equal(parsed.metadata.generalTasks[0].creationOptions?.videoDubbingMode, 'rewrite')
+const confirmAction = parsed.metadata.generalTasks[0].messages[1].action
+assert.equal(confirmAction?.kind, 'confirm-agent-plan')
+if (confirmAction?.kind === 'confirm-agent-plan') {
+  assert.equal(confirmAction.questions?.[0]?.options.length, 2)
+}
 assert.deepEqual({ ...parsed.metadata.generalTasks[0].chatModel }, {
   transport: 'acp', providerId: 'opencode-bundled', apiProviderId: 'api.custom.persisted', modelId: '',
 }, 'persist the API Provider bound to bundled OpenCode')
@@ -70,11 +82,11 @@ if (action?.kind === 'structured-agent-plan') {
   assert.equal(action.steps[0].status, 'done')
   assert.equal(action.steps[1].status, 'failed')
 }
-assert.equal(restored.generalTasks[0].messages.length, 2, 'explain the interrupted task without replaying it')
+assert.equal(restored.generalTasks[0].messages.length, 3, 'explain the interrupted task without replaying it')
 assert.equal(reopened.readProject<{ script: string }>('project-1', 'podcast')?.script, '编辑后的台词')
 await reopened.flush()
 const reopenedAgain = new WorkspaceStore(adapter)
-assert.equal((await reopenedAgain.initialize()).generalTasks[0].messages.length, 2, 'interruption notice does not duplicate on the next restart')
+assert.equal((await reopenedAgain.initialize()).generalTasks[0].messages.length, 3, 'interruption notice does not duplicate on the next restart')
 assert.equal(restoreWorkspaceMetadata({ ...metadata, selectedId: 'missing-id' }).selectedId, null)
 
 const legacyExternalOpenCode = parseWorkspaceDocument(JSON.stringify({

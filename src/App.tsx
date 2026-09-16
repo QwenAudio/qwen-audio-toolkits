@@ -93,7 +93,7 @@ import {
   installAppUpdate,
   type AppUpdateInfo,
 } from "./services/updater";
-import { listAcpProviders, inspectAcpModels, listOpenCodeConnections, listOpenCodeModels, respondAcpPermission } from "./services/acp";
+import { listAcpProviders, inspectAcpModels, listOpenCodeConnections, listOpenCodeModels, respondAcpPermission, respondAcpPlanApproval, respondAcpQuestion } from "./services/acp";
 import type { AcpProviderInfo, AcpSessionEvent, OpenCodeConnection } from "./types";
 import type {
   ApiModelCatalogEntry,
@@ -116,6 +116,7 @@ import type {
   GeneralAgentAttachment,
   GeneralAgentMessage,
   GeneralAgentMessageModelOptions,
+  GeneralAgentProgressEntry,
   GeneralAgentStructuredPlanAction,
   GeneralAgentTask,
   VideoDubbingLanguages,
@@ -130,13 +131,15 @@ import {
   planOnDemandModelAction,
   resolveOnDemandModelNeeds,
   resolveOnDemandModelExecutions,
+  resolveOnDemandModelInstallCandidates,
   TEXT_INPUT_CAPABILITIES,
   type OnDemandModelExecutionCandidate,
   type OnDemandModelInstallMode,
   type OnDemandModelResolution,
 } from "./domain/onDemandModels";
-import { agentFileKind } from "./domain/agentFiles";
+import { agentFileKind, uniqueAgentFiles } from "./domain/agentFiles";
 import { useAgentConversations } from "./hooks/useAgentConversations";
+import { buildConfirmAgentResponse } from "./domain/agentMessageActions";
 import { matchingSkillConversation, skillAcceptsFile } from "./domain/skillLaunch";
 import { audioFileToClip } from "./utils/audio";
 import appIconUrl from "../src-tauri/icons/128x128.png";
@@ -218,6 +221,117 @@ const DRAG_REGION_INTERACTIVE_SELECTOR =
 const SHOW_INSTALLED_MODELS_SIDEBAR = false;
 const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000;
 const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000;
+const MAX_AGENT_PROGRESS_ENTRIES = 8;
+
+function compactProgressDetail(value?: string) {
+  const text = value?.replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+}
+
+function normalizeAcpProgressStatus(event: AcpSessionEvent): GeneralAgentProgressEntry["status"] {
+  if (event.kind === "permission_requested" || event.kind === "question_requested" || event.kind === "plan_approval_requested") return "waiting";
+  if (event.kind === "turn_completed" || event.kind === "permission_resolved" || event.kind === "question_resolved" || event.kind === "plan_approval_resolved") return "done";
+  if (event.kind === "turn_failed" || event.kind === "closed" || event.kind === "error") return "failed";
+  const status = event.status?.toLowerCase() ?? "";
+  if (/(fail|error|cancel|reject|denied)/.test(status)) return "failed";
+  if (/(complete|completed|done|success|succeeded)/.test(status)) return "done";
+  if (/(pending|wait|queued)/.test(status)) return "waiting";
+  return "running";
+}
+
+function describeAcpProgressEvent(event: AcpSessionEvent): Omit<GeneralAgentProgressEntry, "createdAt" | "updatedAt"> | null {
+  if (event.kind === "agent_thought_chunk") {
+    return { id: "agent-thinking", label: t("Agent 正在分析任务"), status: "running" };
+  }
+  if (event.kind === "agent_message_chunk") {
+    return { id: "agent-reply", label: t("正在生成回复"), status: "running" };
+  }
+  if (event.kind === "plan" && event.plan?.length) {
+    const running = event.plan.find(item => item.status === "in_progress" || item.status === "running");
+    const pending = event.plan.filter(item => item.status !== "completed" && item.status !== "done").length;
+    return {
+      id: "agent-plan",
+      label: t("已收到执行计划"),
+      detail: compactProgressDetail(running?.content ?? (pending ? t("还有 {0} 个步骤待处理", [String(pending)]) : undefined)),
+      status: pending ? "running" : "done",
+    };
+  }
+  if (event.kind === "tool_call" || event.kind === "tool_call_update") {
+    const title = event.toolTitle || event.toolKind || t("工具调用");
+    return {
+      id: event.toolCallId ? `tool:${event.toolCallId}` : `tool:${title}`,
+      label: event.kind === "tool_call" ? t("开始执行：{0}", [title]) : t("工具进度：{0}", [title]),
+      detail: compactProgressDetail(event.status || event.content),
+      status: normalizeAcpProgressStatus(event),
+    };
+  }
+  if (event.kind === "permission_requested") {
+    return {
+      id: event.requestId ? `permission:${event.requestId}` : "permission",
+      label: t("等待权限确认"),
+      detail: compactProgressDetail(event.title),
+      status: "waiting",
+    };
+  }
+  if (event.kind === "permission_resolved") {
+    return {
+      id: event.requestId ? `permission:${event.requestId}` : "permission",
+      label: t("权限已确认"),
+      status: "done",
+    };
+  }
+  if (event.kind === "question_requested") {
+    return {
+      id: event.requestId ? `question:${event.requestId}` : "question",
+      label: t("等待用户选择"),
+      detail: compactProgressDetail(event.title ?? event.questions?.[0]?.prompt),
+      status: "waiting",
+    };
+  }
+  if (event.kind === "question_resolved") {
+    return {
+      id: event.requestId ? `question:${event.requestId}` : "question",
+      label: t("用户选择已提交"),
+      status: "done",
+    };
+  }
+  if (event.kind === "plan_approval_requested") {
+    return {
+      id: event.requestId ? `plan-approval:${event.requestId}` : "plan-approval",
+      label: t("等待计划确认"),
+      detail: compactProgressDetail(event.title ?? event.content),
+      status: "waiting",
+    };
+  }
+  if (event.kind === "plan_approval_resolved") {
+    return {
+      id: event.requestId ? `plan-approval:${event.requestId}` : "plan-approval",
+      label: t("计划确认已提交"),
+      status: "done",
+    };
+  }
+  if (event.kind === "panel_requested") {
+    return {
+      id: "panel-requested",
+      label: t("正在打开任务面板"),
+      detail: compactProgressDetail(event.panel),
+      status: "running",
+    };
+  }
+  if (event.kind === "turn_completed") {
+    return { id: "turn-completed", label: t("Agent 已完成"), status: "done" };
+  }
+  if (event.kind === "turn_failed" || event.kind === "closed" || event.kind === "error") {
+    return {
+      id: "turn-failed",
+      label: t("Agent 执行中断"),
+      detail: compactProgressDetail(event.error),
+      status: "failed",
+    };
+  }
+  return null;
+}
 const DEFAULT_SIDEBAR_WIDTH = 260;
 const MIN_SIDEBAR_WIDTH = 200;
 const MAX_SIDEBAR_WIDTH = 520;
@@ -633,8 +747,6 @@ function App() {
   );
   const [agentModelInstallMode, setAgentModelInstallMode] =
     useState<OnDemandModelInstallMode>("ask");
-  const [agentMessageModelSelections, setAgentMessageModelSelections] =
-    useState<Record<string, string>>({});
   const [agentChatAvailable, setAgentChatAvailable] = useState(false);
   const [acpProviders, setAcpProviders] = useState<AcpProviderInfo[]>(demoMode ? [
     { id: 'qoder', name: 'Qoder', available: true }, { id: 'opencode', name: 'opencode', available: true }, { id: 'kimi', name: 'Kimi Code', available: true },
@@ -651,6 +763,25 @@ function App() {
   const acpTurns = useRef(new Map<string, AbortController>());
   const [activeAcpTasks, setActiveAcpTasks] = useState<string[]>([]);
   const [acpPermissions, setAcpPermissions] = useState<Array<{ taskId: string; event: AcpSessionEvent }>>([]);
+  const [acpQuestions, setAcpQuestions] = useState<Array<{ taskId: string; event: AcpSessionEvent }>>([]);
+  const [acpPlanApprovals, setAcpPlanApprovals] = useState<Array<{ taskId: string; event: AcpSessionEvent }>>([]);
+  const [agentProgressByTask, setAgentProgressByTask] = useState<Record<string, GeneralAgentProgressEntry[]>>({});
+  const recordAgentProgress = useCallback((taskId: string, event: AcpSessionEvent) => {
+    const progress = describeAcpProgressEvent(event);
+    if (!progress) return;
+    const now = Date.now();
+    setAgentProgressByTask(current => {
+      const existing = current[taskId] ?? [];
+      const index = existing.findIndex(item => item.id === progress.id);
+      const nextEntry: GeneralAgentProgressEntry = index >= 0
+        ? { ...existing[index], ...progress, updatedAt: now }
+        : { ...progress, createdAt: now, updatedAt: now };
+      const next = index >= 0
+        ? existing.map((item, itemIndex) => itemIndex === index ? nextEntry : item)
+        : [...existing, nextEntry];
+      return { ...current, [taskId]: next.slice(-MAX_AGENT_PROGRESS_ENTRIES) };
+    });
+  }, []);
   useEffect(() => () => { for (const controller of acpTurns.current.values()) controller.abort(); }, []);
   const [shellPage, setShellPage] = useState<ShellPage>("workspace");
   const [plugins, setPlugins] = useState<ModelPlugin[]>(
@@ -1180,15 +1311,31 @@ function App() {
     }
     const controller = new AbortController();
     acpTurns.current.set(task.id, controller);
+    const startedAt = Date.now();
+    setAgentProgressByTask(current => ({
+      ...current,
+      [task.id]: [{
+        id: "agent-starting",
+        label: t("正在连接 Agent"),
+        status: "running",
+        createdAt: startedAt,
+        updatedAt: startedAt,
+      }],
+    }));
     setActiveAcpTasks(current => [...current.filter(id => id !== task.id), task.id]);
     try {
       return await requestAcpConversation({ selection, provider, messages, signal: controller.signal, enableTools: !workspacePlanning,
         onPermission: event => setAcpPermissions(current => [...current.filter(item => item.event.requestId !== event.requestId || item.event.sessionId !== event.sessionId), { taskId: task.id, event }]),
+        onQuestion: event => setAcpQuestions(current => [...current.filter(item => item.event.requestId !== event.requestId || item.event.sessionId !== event.sessionId), { taskId: task.id, event }]),
+        onPlanApproval: event => setAcpPlanApprovals(current => [...current.filter(item => item.event.requestId !== event.requestId || item.event.sessionId !== event.sessionId), { taskId: task.id, event }]),
+        onProgress: event => recordAgentProgress(task.id, event),
       });
     } finally {
       acpTurns.current.delete(task.id);
       setActiveAcpTasks(current => current.filter(id => id !== task.id));
       setAcpPermissions(current => current.filter(item => item.taskId !== task.id));
+      setAcpQuestions(current => current.filter(item => item.taskId !== task.id));
+      setAcpPlanApprovals(current => current.filter(item => item.taskId !== task.id));
     }
   };
   const reportEditorMessage = (projectId: string, message: string) => {
@@ -1713,6 +1860,7 @@ function App() {
     draft: {
       selectedModeId?: AgentCreationMode | null
       attachment?: GeneralAgentTask['attachment']
+      attachments?: GeneralAgentAttachment[]
     } = {},
   ) => {
     if (selectedGeneralTask) {
@@ -1723,6 +1871,7 @@ function App() {
     const task = ensureGeneralTask({
       selectedModeId: draft.selectedModeId ?? agentHomeMode,
       attachment: draft.attachment ?? null,
+      attachments: draft.attachments ?? [],
       chatModel: preferredAgentModel,
     })
     pendingGeneralTaskRef.current = task
@@ -1740,12 +1889,15 @@ function App() {
     const task = materializeGeneralTask()
     updateGeneralTask(task.id, { draftPrompt: prompt })
   }
-  const updateAgentHomeAttachment = (
-    attachment: GeneralAgentTask['attachment'],
+  const updateAgentHomeAttachments = (
+    attachments: GeneralAgentAttachment[],
   ) => {
-    if (!selectedGeneralTask && !attachment) return
-    const task = materializeGeneralTask({ attachment })
-    updateGeneralTask(task.id, { attachment })
+    const files = uniqueAgentFiles(attachments)
+    if (!selectedGeneralTask && files.length === 0) return
+    const attachment = files[0] ?? null
+    const task = materializeGeneralTask({ attachment, attachments: files })
+    pendingGeneralTaskRef.current = { ...task, attachment, attachments: files }
+    updateGeneralTask(task.id, { attachment, attachments: files })
   }
   const updateAgentChatModel = (chatModel: GeneralAgentTask['chatModel']) => {
     const selection = getAgentSelection(chatModel);
@@ -1801,6 +1953,7 @@ function App() {
       : task.messages
     const candidates: GeneralAgentAttachment[] = []
     if (task.attachment) candidates.push(task.attachment)
+    if (task.attachments?.length) candidates.push(...task.attachments)
     for (const item of messages) {
       if (item.attachment) candidates.push(item.attachment)
       if (item.attachments?.length) candidates.push(...item.attachments)
@@ -1812,11 +1965,12 @@ function App() {
   const resolveConfirmExecutionCandidates = (
     task: GeneralAgentTask,
     message: GeneralAgentMessage,
+    confirmationText?: string,
   ): { attachment: GeneralAgentAttachment; candidates: OnDemandModelExecutionCandidate[] } | null => {
     if (!message.action || message.action.kind !== 'confirm-agent-plan') return null
     const recentContext = [
       ...task.messages.slice(-6).map((item) => item.content),
-      message.action.confirmationText,
+      confirmationText ?? message.action.confirmationText,
     ].join('\n')
     for (const attachment of latestAgentAttachments(task, message.id)) {
       const candidates = resolveOnDemandModelExecutions(recentContext, plugins, attachment)
@@ -1838,15 +1992,16 @@ function App() {
     task: GeneralAgentTask,
     message: GeneralAgentMessage,
     selectedModelId?: string | null,
+    confirmationText?: string,
   ): PendingOnDemandInstall | null => {
-    const resolved = resolveConfirmExecutionCandidates(task, message)
+    const resolved = resolveConfirmExecutionCandidates(task, message, confirmationText)
     if (!resolved) return null
     const candidate = selectOnDemandExecutionCandidate(resolved.candidates, selectedModelId)
     if (!candidate) return null
     return {
       resolution: candidate.resolution,
       prompt: message.action?.kind === 'confirm-agent-plan'
-        ? message.action.confirmationText
+        ? confirmationText ?? message.action.confirmationText
         : '',
       selectedModeName: null,
       attachmentHint: `\n\n已选择素材：${resolved.attachment.name}\n文件路径：${resolved.attachment.path}`,
@@ -1860,20 +2015,61 @@ function App() {
     const resolved = resolveConfirmExecutionCandidates(task, message)
     if (!resolved || resolved.candidates.length < 2) return null
     const selected =
-      selectOnDemandExecutionCandidate(
-        resolved.candidates,
-        agentMessageModelSelections[message.id],
-      ) ?? resolved.candidates[0]
+      selectOnDemandExecutionCandidate(resolved.candidates) ?? resolved.candidates[0]
     return {
       needLabel: selected.resolution.need.label,
       actionLabel: selected.resolution.need.actionLabel,
-      selectedModelId: selected.model.id,
-      choices: resolved.candidates.map(({ model }) => ({
-        id: model.id,
-        name: model.name,
-        description: model.description,
-        installed: model.installed,
-      })),
+      selectedOptionId: selected.model.id,
+      question: {
+        id: `model:${selected.resolution.need.id}`,
+        prompt: t('选择用于{0}的模型', [selected.resolution.need.label]),
+        options: resolved.candidates.map(({ model }) => ({
+          id: model.id,
+          label: model.name,
+          description: model.description,
+          installed: model.installed,
+        })),
+      },
+    }
+  }
+  const resolveInstallMessageModelOptions = (
+    message: GeneralAgentMessage,
+  ): GeneralAgentMessageModelOptions | null => {
+    const action = message.action
+    if (action?.kind !== 'install-on-demand-model') return null
+    const selectedModel = plugins.find((candidate) => candidate.id === action.modelId) ?? null
+    const resolution: OnDemandModelResolution = {
+      need: {
+        id: action.id,
+        capability: action.capability as ModelPlugin['harnessCapabilities'][number],
+        label: action.needLabel,
+        actionLabel: action.actionLabel,
+        preferredModelIds: action.question?.options.map((option) => option.id) ?? [action.modelId],
+      },
+      installedModel: selectedModel?.installed ? selectedModel : null,
+      recommendedModel: selectedModel,
+    }
+    const candidates = resolveOnDemandModelInstallCandidates(resolution, plugins)
+    const question = action.question ?? (
+      candidates.length > 1
+        ? {
+            id: `model:${action.id}`,
+            prompt: t('选择用于{0}的模型', [action.needLabel]),
+            options: candidates.map((model) => ({
+              id: model.id,
+              label: model.name,
+              description: model.description,
+              installed: model.installed,
+            })),
+          }
+        : null
+    )
+    if (!question || question.options.length < 2) return null
+    return {
+      needLabel: action.needLabel,
+      actionLabel: action.actionLabel,
+      selectedOptionId: action.modelId,
+      question,
     }
   }
   const resolveTaskMessageModelOptions = (
@@ -1882,8 +2078,9 @@ function App() {
     if (!task) return {}
     return Object.fromEntries(
       task.messages.flatMap((message) => {
-        if (message.action?.kind !== 'confirm-agent-plan') return []
-        const options = resolveMessageModelOptions(task, message)
+        const options = message.action?.kind === 'confirm-agent-plan'
+          ? resolveMessageModelOptions(task, message)
+          : resolveInstallMessageModelOptions(message)
         return options ? [[message.id, options]] : []
       }),
     )
@@ -2225,6 +2422,7 @@ function App() {
     const attachments = (() => {
       const candidates: GeneralAgentAttachment[] = []
       if (task.attachment) candidates.push(task.attachment)
+      if (task.attachments?.length) candidates.push(...task.attachments)
       const messageIndex = task.messages.findIndex((item) => item.id === message.id)
       const previousMessages = messageIndex >= 0
         ? task.messages.slice(0, messageIndex + 1)
@@ -2390,6 +2588,7 @@ function App() {
     task: GeneralAgentTask | null,
     message: GeneralAgentMessage,
     selectedModelId?: string | null,
+    confirmationSelections?: Record<string, string>,
   ) => {
     if (!task || !message.action) return
     if (message.action.kind === 'structured-agent-plan') {
@@ -2398,12 +2597,13 @@ function App() {
     }
     if (message.action.kind === 'confirm-agent-plan') {
       const action = message.action
-      const directExecution = resolveConfirmExecution(task, message, selectedModelId)
+      const confirmationText = buildConfirmAgentResponse(action, confirmationSelections)
+      const directExecution = resolveConfirmExecution(task, message, selectedModelId, confirmationText)
       updateGeneralMessageActionStatus(task.id, message.id, 'running')
       void (async () => {
         await submitGeneralPrompt({
           task,
-          content: action.confirmationText,
+          content: confirmationText,
           selectedModeName: null,
           attachmentHint: directExecution?.attachmentHint ?? '',
           attachment: directExecution?.attachment ?? null,
@@ -2429,15 +2629,17 @@ function App() {
     if (message.action.kind !== 'install-on-demand-model') return
     const action = message.action
     updateGeneralMessageActionStatus(task.id, message.id, 'running')
-    const model = plugins.find((candidate) => candidate.id === action.modelId)
+    const selectedInstallModelId = selectedModelId ?? action.modelId
+    const model = plugins.find((candidate) => candidate.id === selectedInstallModelId)
     const pendingFromPrompt = pendingOnDemandModelRef.current.get(task.id)
+    const preferredModelIds = action.question?.options.map((option) => option.id) ?? [action.modelId]
     const resolution: OnDemandModelResolution = {
       need: {
         id: action.id,
         capability: action.capability as ModelPlugin['harnessCapabilities'][number],
         label: action.needLabel,
         actionLabel: action.actionLabel,
-        preferredModelIds: [action.modelId],
+        preferredModelIds,
       },
       installedModel: model?.installed ? model : null,
       recommendedModel: model ?? null,
@@ -2448,8 +2650,20 @@ function App() {
         updateGeneralMessageActionStatus(task.id, message.id, 'done')
         continueWithInstalledOnDemandModel(
           task,
-          pendingFromPrompt?.resolution.recommendedModel?.id === action.modelId
-            ? pendingFromPrompt
+          pendingFromPrompt?.resolution.need.id === action.id
+            ? {
+                ...pendingFromPrompt,
+                resolution,
+                chain: pendingFromPrompt.chain
+                  ? {
+                      resolutions: pendingFromPrompt.chain.resolutions.map((item) =>
+                        item.need.id === resolution.need.id
+                          ? resolution
+                          : item,
+                      ),
+                    }
+                  : undefined,
+              }
             : {
                 resolution,
                 prompt: action.prompt,
@@ -2472,10 +2686,12 @@ function App() {
     selectedModeName: string | null
     attachmentHint: string
     attachment: GeneralAgentAttachment | null
+    attachments: GeneralAgentAttachment[]
   }) => {
     const task = selectedGeneralTask ?? pendingGeneralTaskRef.current ?? createGeneralTask({
       selectedModeId: agentHomeMode,
-      attachment: null,
+      attachment: request.attachment,
+      attachments: request.attachments,
       chatModel: preferredAgentModel,
     })
     pendingGeneralTaskRef.current = task
@@ -2556,6 +2772,7 @@ function App() {
           selectedModeName: request.selectedModeName,
           attachmentHint: '',
           attachment: request.attachment,
+          attachments: request.attachments,
           localResponse: () =>
             t('模型商店暂时没有可用于 {0} 的开源模型', [unavailable.need.label]),
           onError: notify,
@@ -2581,6 +2798,7 @@ function App() {
           selectedModeName: request.selectedModeName,
           attachmentHint: '',
           attachment: request.attachment,
+          attachments: request.attachments,
           localResponse: () => ({
             content: t('需要先安装开源模型 {0} 才能处理「{1}」。点击下方按钮即可安装并继续，或回复“安装”。', [
               missingModel.name,
@@ -2591,6 +2809,7 @@ function App() {
               selectedModeName: request.selectedModeName,
               attachmentHint: request.attachmentHint,
               attachment: request.attachment,
+              modelCandidates: resolveOnDemandModelInstallCandidates(missing, plugins),
             }),
           }),
           onError: notify,
@@ -2618,6 +2837,7 @@ function App() {
         selectedModeName: request.selectedModeName,
         attachmentHint: request.attachmentHint + context,
         attachment: request.attachment,
+        attachments: request.attachments,
         localResponse: async () =>
           (await runOnDemandModelExecutionSequence(
             pendingExecution,
@@ -2657,6 +2877,7 @@ function App() {
           request.attachmentHint +
           onDemandModelContext(modelAction.resolution, modelAction.model),
         attachment: request.attachment,
+        attachments: request.attachments,
         ...(directPlan
           ? {
               localResponse: async () =>
@@ -2686,6 +2907,7 @@ function App() {
         selectedModeName: request.selectedModeName,
         attachmentHint: '',
         attachment: request.attachment,
+        attachments: request.attachments,
         localResponse: async () => {
           const model = await installOnDemandModel(modelAction.resolution)
           const directResult = await runOnDemandModelExecution(pendingExecution, model)
@@ -2714,6 +2936,7 @@ function App() {
         selectedModeName: request.selectedModeName,
         attachmentHint: '',
         attachment: request.attachment,
+        attachments: request.attachments,
         localResponse: () => ({
           content: t('需要先安装开源模型 {0} 才能处理「{1}」。点击下方按钮即可安装并继续，或回复“安装”。', [
             modelAction.model.name,
@@ -2724,6 +2947,7 @@ function App() {
             selectedModeName: request.selectedModeName,
             attachmentHint: request.attachmentHint,
             attachment: request.attachment,
+            modelCandidates: resolveOnDemandModelInstallCandidates(modelAction.resolution, plugins),
           }),
         }),
         onError: notify,
@@ -2738,6 +2962,7 @@ function App() {
         selectedModeName: request.selectedModeName,
         attachmentHint: '',
         attachment: request.attachment,
+        attachments: request.attachments,
         localResponse: () =>
           t('模型商店暂时没有可用于 {0} 的开源模型', [modelAction.resolution.need.label]),
         onError: notify,
@@ -2751,6 +2976,7 @@ function App() {
       selectedModeName: request.selectedModeName,
       attachmentHint: request.attachmentHint,
       attachment: request.attachment,
+      attachments: request.attachments,
       onError: notify,
     })
   }
@@ -4248,6 +4474,20 @@ function App() {
                       setAcpPermissions(current => current.filter(item => item.event.sessionId !== event.sessionId || item.event.requestId !== event.requestId)),
                     ).catch(error => notify(String(error)));
 	                  }}
+                  acpQuestions={acpQuestions.filter(item => item.taskId === selectedGeneralTask?.id).map(item => item.event)}
+                  onAcpQuestion={(event, answers) => {
+                    if (!event.requestId) return;
+                    void respondAcpQuestion(event.sessionId, event.requestId, answers).then(() =>
+                      setAcpQuestions(current => current.filter(item => item.event.sessionId !== event.sessionId || item.event.requestId !== event.requestId)),
+                    ).catch(error => notify(String(error)));
+	                  }}
+                  acpPlanApprovals={acpPlanApprovals.filter(item => item.taskId === selectedGeneralTask?.id).map(item => item.event)}
+                  onAcpPlanApproval={(event, accepted) => {
+                    if (!event.requestId) return;
+                    void respondAcpPlanApproval(event.sessionId, event.requestId, accepted).then(() =>
+                      setAcpPlanApprovals(current => current.filter(item => item.event.sessionId !== event.sessionId || item.event.requestId !== event.requestId)),
+                    ).catch(error => notify(String(error)));
+	                  }}
 	                  acpRunning={Boolean(selectedGeneralTask && activeAcpTasks.includes(selectedGeneralTask.id))}
 	                  onCancelAcp={() => { if (selectedGeneralTask) acpTurns.current.get(selectedGeneralTask.id)?.abort(); }}
 	                  workspaceTitle={isWorkspaceTaskView ? selectedAgentConversation?.title : undefined}
@@ -4256,24 +4496,20 @@ function App() {
 	                  messages={selectedGeneralTask?.messages ?? []}
 	                  draftPrompt={selectedGeneralTask?.draftPrompt ?? ""}
 	                  attachment={selectedGeneralTask?.attachment ?? null}
+	                  attachments={selectedGeneralTask?.attachments ?? []}
 	                  submitting={selectedGeneralTask?.submitting ?? false}
+	                  agentProgress={selectedGeneralTask ? agentProgressByTask[selectedGeneralTask.id] ?? [] : []}
 	                  modelInstallMode={agentModelInstallMode}
 	                  messageModelOptions={resolveTaskMessageModelOptions(selectedGeneralTask)}
 	                  selectedModeId={isWorkspaceTaskView ? selectedAgentConversation?.mode ?? null : selectedGeneralTask?.selectedModeId ?? agentHomeMode}
 	                  chatAvailable={agentChatAvailable}
 	                  onModelInstallModeChange={setAgentModelInstallMode}
-	                  onMessageModelSelect={(messageId, modelId) => {
-                    setAgentMessageModelSelections((current) => ({
-                      ...current,
-                      [messageId]: modelId,
-                    }));
-                  }}
                   onSelectedModeChange={updateAgentHomeMode}
                   onDraftPromptChange={updateAgentHomeDraft}
-                  onAttachmentChange={updateAgentHomeAttachment}
+                  onAttachmentsChange={updateAgentHomeAttachments}
                   onSubmitPrompt={submitAgentHomePrompt}
-                  onRunMessageAction={(message, modelId) =>
-                    runAgentMessageAction(selectedGeneralTask, message, modelId)
+                  onRunMessageAction={(message, modelId, confirmationSelections) =>
+                    runAgentMessageAction(selectedGeneralTask, message, modelId, confirmationSelections)
                   }
                 />
               </div>
