@@ -68,7 +68,6 @@ export async function requestAcpConversation(options: {
     else handle(event)
   })
   options.signal?.addEventListener('abort', abort, { once: true })
-  const timeout = setTimeout(() => fail(t('Agent 回复超时，请重试。')), 15 * 60_000)
   try {
     if (options.signal?.aborted) throw new Error(t('已停止 Agent 回复。'))
     const startup = transport.start({
@@ -91,7 +90,6 @@ export async function requestAcpConversation(options: {
     return await completion
   } finally {
     released = true
-    clearTimeout(timeout)
     options.signal?.removeEventListener('abort', abort)
     remove()
     const startedId = sessionId ?? initializedSessionId

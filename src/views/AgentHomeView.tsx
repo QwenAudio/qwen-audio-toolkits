@@ -10,6 +10,7 @@ import {
   FileImage,
   FileText,
   FileVideo,
+  FolderOpen,
   Languages,
   ListChecks,
   LoaderCircle,
@@ -36,11 +37,14 @@ import type {
 import {
   agentFileCanPreview,
   agentFileKind,
+  agentOutputAttachmentsFromText,
   agentVideoAttachmentsFromText,
+  agentVideoThumbnailTime,
   uniqueAgentFiles,
 } from '../domain/agentFiles'
 import type { OnDemandModelInstallMode } from '../domain/onDemandModels'
 import { t, useLocale } from '../i18n'
+import { revealInFileManager } from '../services/harness'
 import { restoreWorkspaceMedia } from '../services/workspaceStorage'
 import type { ModelPlugin, AcpQuestionAnswer, AcpSessionEvent } from '../types'
 import './AgentHomeView.css'
@@ -176,11 +180,23 @@ function agentFileIcon(file: GeneralAgentAttachment): typeof File {
   return File
 }
 
-function messagePreviewFiles(message: GeneralAgentMessage): GeneralAgentAttachment[] {
+function messageContextFiles(messages: GeneralAgentMessage[], index: number): GeneralAgentAttachment[] {
+  const previous = messages.slice(0, Math.max(0, index + 1))
+  return uniqueAgentFiles(previous.flatMap((item) => [
+    item.attachment,
+    ...(item.attachments ?? []),
+  ]))
+}
+
+function messagePreviewFiles(
+  message: GeneralAgentMessage,
+  contextFiles: GeneralAgentAttachment[] = [],
+): GeneralAgentAttachment[] {
   return uniqueAgentFiles([
     message.attachment,
     ...(message.attachments ?? []),
     ...(message.role === 'assistant' ? agentVideoAttachmentsFromText(message.content) : []),
+    ...(message.role === 'assistant' ? agentOutputAttachmentsFromText(message.content, contextFiles) : []),
   ])
 }
 
@@ -217,6 +233,120 @@ function useAgentPreviewSource(file: GeneralAgentAttachment, canPreview: boolean
   return canPreview && previewReady ? convertFileSrc(file.path) : ''
 }
 
+function useAgentVideoPoster(source: string, enabled: boolean): string {
+  const [poster, setPoster] = useState('')
+
+  useEffect(() => {
+    if (!enabled || !source) {
+      setPoster('')
+      return
+    }
+    let active = true
+    let seekingPoster = false
+    const video = document.createElement('video')
+    video.muted = true
+    video.playsInline = true
+    video.preload = 'auto'
+
+    const clear = () => {
+      video.removeAttribute('src')
+      video.load()
+    }
+    const capture = () => {
+      if (!active || !video.videoWidth || !video.videoHeight) return
+      const targetWidth = Math.min(480, video.videoWidth)
+      const targetHeight = Math.max(1, Math.round((targetWidth / video.videoWidth) * video.videoHeight))
+      const canvas = document.createElement('canvas')
+      canvas.width = targetWidth
+      canvas.height = targetHeight
+      const context = canvas.getContext('2d')
+      if (!context) return
+      try {
+        context.drawImage(video, 0, 0, targetWidth, targetHeight)
+        setPoster(canvas.toDataURL('image/jpeg', 0.82))
+      } catch {
+        setPoster('')
+      }
+    }
+    video.addEventListener('loadedmetadata', () => {
+      const seekTime = agentVideoThumbnailTime(video.duration)
+      if (seekTime <= 0) {
+        capture()
+        return
+      }
+      try {
+        seekingPoster = true
+        video.currentTime = seekTime
+      } catch {
+        seekingPoster = false
+        capture()
+      }
+    }, { once: true })
+    video.addEventListener('seeked', () => {
+      seekingPoster = false
+      capture()
+    }, { once: true })
+    video.addEventListener('loadeddata', () => {
+      if (!seekingPoster) capture()
+    }, { once: true })
+    video.addEventListener('error', () => {
+      if (active) setPoster('')
+    }, { once: true })
+    setPoster('')
+    video.src = source
+    video.load()
+    return () => {
+      active = false
+      clear()
+    }
+  }, [enabled, source])
+
+  return poster
+}
+
+function AgentVideoPlayer({ source, name, poster }: { source: string; name: string; poster?: string }) {
+  const attemptedSeekRef = useRef(false)
+  const previewTimeRef = useRef(0)
+
+  useEffect(() => {
+    attemptedSeekRef.current = false
+    previewTimeRef.current = 0
+  }, [source, poster])
+
+  return (
+    <video
+      className="agent-file-video-player"
+      controls
+      preload="metadata"
+      playsInline
+      poster={poster || undefined}
+      src={source}
+      aria-label={t('播放视频 {0}', [name])}
+      onLoadedMetadata={(event) => {
+        if (poster || attemptedSeekRef.current) return
+        attemptedSeekRef.current = true
+        const video = event.currentTarget
+        const seekTime = agentVideoThumbnailTime(video.duration)
+        if (seekTime <= 0) return
+        try {
+          previewTimeRef.current = seekTime
+          video.currentTime = seekTime
+        } catch {
+          previewTimeRef.current = 0
+        }
+      }}
+      onPlay={(event) => {
+        const previewTime = previewTimeRef.current
+        if (poster || previewTime <= 0) return
+        const video = event.currentTarget
+        if (Math.abs(video.currentTime - previewTime) <= 0.6) {
+          video.currentTime = 0
+        }
+      }}
+    />
+  )
+}
+
 function AgentFilePreview({
   file,
   compact = false,
@@ -234,16 +364,16 @@ function AgentFilePreview({
   const kind = agentFileKind(file)
   const canPreview = agentFileCanPreview(file)
   const source = useAgentPreviewSource(file, canPreview)
+  const videoPoster = useAgentVideoPoster(source, kind === 'video' && Boolean(source))
+  const hasIconMedia = kind === 'image' && Boolean(source)
   return (
     <div
-      className={`agent-file-preview${compact ? ' compact' : ''}${canPreview && kind !== 'audio' ? ' has-media' : ''}${invalid ? ' invalid' : ''}`}
+      className={`agent-file-preview${compact ? ' compact' : ''}${hasIconMedia ? ' has-media' : ''}${invalid ? ' invalid' : ''}`}
       title={file.path}
     >
-      <div className={`agent-file-preview-icon ${canPreview ? 'media' : ''}`}>
+      <div className={`agent-file-preview-icon ${hasIconMedia ? 'media' : ''}`}>
         {kind === 'image' && source ? (
           <img src={source} alt="" loading="lazy" />
-        ) : kind === 'video' && source ? (
-          <video src={source} preload="metadata" muted playsInline aria-label={t('视频缩略图 {0}', [file.name])} />
         ) : (
           <Icon size={compact ? 14 : 17} strokeWidth={1.8} />
         )}
@@ -260,26 +390,30 @@ function AgentFilePreview({
           />
         )}
         {kind === 'video' && !compact && source && (
-          <video
-            className="agent-file-video-player"
-            controls
-            preload="metadata"
-            playsInline
-            src={source}
-            aria-label={t('播放视频 {0}', [file.name])}
-          />
+          <AgentVideoPlayer source={source} name={file.name} poster={videoPoster} />
         )}
       </div>
-      {onRemove && (
+      <div className="agent-file-preview-actions">
         <button
           type="button"
-          aria-label={t('移除附件')}
+          aria-label={t('在访达中显示 {0}', [file.name])}
           disabled={disabled}
-          onClick={onRemove}
+          title={t('在访达中显示')}
+          onClick={() => void revealInFileManager(file.path).catch(() => undefined)}
         >
-          <X size={13} />
+          <FolderOpen size={13} />
         </button>
-      )}
+        {onRemove && (
+          <button
+            type="button"
+            aria-label={t('移除附件')}
+            disabled={disabled}
+            onClick={onRemove}
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -580,7 +714,7 @@ export function AgentHomeView({
                 if (nearBottom) setHasUnreadMessages(false)
               }}
             >
-	              {messages.map((message) => (
+	              {messages.map((message, index) => (
 	                <article
 	                  key={message.id}
 	                  className={`agent-message ${message.role}`}
@@ -591,7 +725,7 @@ export function AgentHomeView({
 	                  <div className="agent-message-body">
 	                    <div className="agent-message-bubble">
 	                      <p>{message.content}</p>
-                      {messagePreviewFiles(message).map((file) => (
+                      {messagePreviewFiles(message, messageContextFiles(messages, index)).map((file) => (
                         <AgentFilePreview file={file} key={`${file.path}-${file.name}`} />
                       ))}
 	                      {message.action && message.action.kind === 'structured-agent-plan' && (() => {
