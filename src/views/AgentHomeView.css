@@ -206,7 +206,12 @@
   height: 28px;
   margin-top: 4px;
 }
-.agent-file-preview > button {
+.agent-file-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.agent-file-preview-actions > button {
   display: grid;
   width: 22px;
   height: 22px;
@@ -218,11 +223,11 @@
   border-radius: 6px;
   cursor: pointer;
 }
-.agent-file-preview > button:hover {
+.agent-file-preview-actions > button:hover {
   color: var(--agent-ink);
   background: color-mix(in srgb, var(--agent-ink) 7%, transparent);
 }
-.agent-file-preview > button:disabled { opacity: .45; cursor: wait; }
+.agent-file-preview-actions > button:disabled { opacity: .45; cursor: wait; }
 .agent-home-composer-toolbar { display: flex; flex-wrap: wrap; min-height: 32px; align-items: center; gap: 9px; padding-top: 10px; margin-top: 24px; }
 .agent-attach-button { display: inline-flex; width: 30px; min-height: 30px; flex: 0 0 auto; align-items: center; justify-content: center; padding: 0; color: var(--agent-muted); background: transparent; border: 0; border-radius: 8px; cursor: pointer; }
 .agent-attach-button:hover { color: var(--agent-ink); background: color-mix(in srgb, var(--agent-ink) 5%, transparent); }

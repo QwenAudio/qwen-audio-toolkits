@@ -11,12 +11,12 @@ import type {
   GeneralAgentTask,
 } from '../domain/agents'
 import { initialAgentModelSelection } from '../domain/agentModelSelection'
-import { uniqueAgentFiles } from '../domain/agentFiles'
+import { agentOutputAttachmentsFromText, uniqueAgentFiles } from '../domain/agentFiles'
 import { inferAgentMessageAction } from '../domain/agentMessageActions'
 import { appendWorkspaceBrief, ensureWorkspaceTaskLink, findWorkspaceGeneralTask } from '../domain/workspaceTaskLink'
 import type { WorkspaceTaskLinkSeed } from '../domain/workspaceTaskLink'
 import { isLocalGreetingContent, sendGeneralAgentPrompt } from '../services/agent'
-import { getWorkspaceStore } from '../services/workspaceStorage'
+import { getWorkspaceStore, restoreWorkspaceMedia } from '../services/workspaceStorage'
 import { useWorkspaceCloseFlush } from './useProjectAutosave'
 
 type GeneralAgentTaskDraft = {
@@ -80,6 +80,28 @@ function bringGeneralTaskToFront(
   if (!existing) return tasks
   const next = { ...existing, ...patch, updatedAt: Date.now() }
   return [next, ...tasks.filter((task) => task.id !== taskId)]
+}
+
+function generalAgentMessageFiles(messages: GeneralAgentMessage[]): GeneralAgentAttachment[] {
+  return uniqueAgentFiles(messages.flatMap((message) => [
+    message.attachment,
+    ...(message.attachments ?? []),
+  ]))
+}
+
+async function existingAgentOutputAttachments(
+  content: string,
+  contextFiles: GeneralAgentAttachment[],
+): Promise<GeneralAgentAttachment[]> {
+  const candidates = agentOutputAttachmentsFromText(content, contextFiles)
+  if (!candidates.length) return []
+  try {
+    const restored = await restoreWorkspaceMedia(candidates.map(file => file.path))
+    const available = new Set(restored.available)
+    return candidates.filter(file => available.has(file.path))
+  } catch {
+    return candidates
+  }
 }
 
 export function appendVisibleGeneralUserMessage(
@@ -356,6 +378,16 @@ export function useAgentConversations(
         typeof response === 'string'
           ? inferAgentMessageAction(responseContent)
           : response.action ?? inferAgentMessageAction(responseContent)
+      const responseAttachments = typeof response === 'string'
+        ? []
+        : response.attachments ?? []
+      const inferredOutputAttachments = await existingAgentOutputAttachments(
+        responseContent,
+        uniqueAgentFiles([
+          ...generalAgentMessageFiles(agentMessages),
+          ...responseAttachments,
+        ]),
+      )
       setGeneralTasks((current) =>
         bringGeneralTaskToFront(current, request.task.id, {
           messages: [
@@ -365,7 +397,10 @@ export function useAgentConversations(
               responseContent || t('Agent 没有返回文本结果，请稍后重试。'),
               responseAction,
               null,
-              typeof response === 'string' ? [] : response.attachments,
+              uniqueAgentFiles([
+                ...responseAttachments,
+                ...inferredOutputAttachments,
+              ]),
             ),
           ],
           submitting: false,
