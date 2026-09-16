@@ -123,6 +123,8 @@ export interface AgentConversation {
   videoDubbingMode?: VideoDubbingMode
   videoDubbingLanguages?: VideoDubbingLanguages
   videoDubbingStyle?: VideoDubbingStyle
+  /** Direct workshop runs stay in the dedicated editor instead of opening Agent chat. */
+  launchSource?: 'workshop'
   sourceTaskId?: string
   createdAt?: number
   updatedAt?: number

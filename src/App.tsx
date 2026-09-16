@@ -38,6 +38,7 @@ import {
   ShoppingBag,
   MessageSquareText,
   Sparkles,
+  WandSparkles,
   SquarePen,
   Sun,
   Trash2,
@@ -178,6 +179,11 @@ const MeetingNotesView = lazy(() =>
 const VideoDubbingView = lazy(() =>
   import("./views/VideoDubbingView").then((module) => ({
     default: module.VideoDubbingView,
+  })),
+);
+const CreativeWorkshopView = lazy(() =>
+  import("./views/CreativeWorkshopView").then((module) => ({
+    default: module.CreativeWorkshopView,
   })),
 );
 
@@ -545,7 +551,7 @@ function summarizeRun(run: HarnessRun): HarnessRun {
   };
 }
 
-type ShellPage = "workspace" | "skills" | "models" | "settings";
+type ShellPage = "workspace" | "workshop" | "skills" | "models" | "settings";
 type SettingsSection = "general" | "api" | "appearance" | "storage" | "archived";
 
 type AccentColor = "mint" | "indigo" | "amber" | "rose";
@@ -734,9 +740,9 @@ function App() {
   useEffect(() => {
     if (isWorkspaceTaskView && selectedAgentConversationId) {
       setWorkspacePanelOpen(true);
-      setWorkspacePanelFocused(false);
+      setWorkspacePanelFocused(selectedAgentConversation?.launchSource === 'workshop');
     }
-  }, [isWorkspaceTaskView, selectedAgentConversationId]);
+  }, [isWorkspaceTaskView, selectedAgentConversation?.launchSource, selectedAgentConversationId]);
   const [agentHomeMode, setAgentHomeMode] = useState<AgentCreationMode | null>(
     null,
   );
@@ -1368,7 +1374,8 @@ function App() {
   const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth;
   const compactWorkspace = viewportWidth - visibleContentOffset < 760;
   const editorVisible = isWorkspaceTaskView && workspacePanelOpen;
-  const editorFillsWorkspace = editorVisible && (compactWorkspace || workspacePanelFocused);
+  const directWorkflow = selectedAgentConversation?.launchSource === 'workshop';
+  const editorFillsWorkspace = editorVisible && (compactWorkspace || workspacePanelFocused || directWorkflow);
 
   const selectedPlugin =
     orderedRunnablePlugins.find((plugin) => plugin.id === selectedPluginId) ??
@@ -2987,6 +2994,7 @@ function App() {
     videoDubbingMode?: VideoDubbingMode,
     videoDubbingLanguages?: VideoDubbingLanguages,
     videoDubbingStyle?: VideoDubbingStyle,
+    launchSource?: 'workshop',
   ) => {
     const skill = appAgents.find((agent) => agent.workspaceEntry === mode);
     if (!skill?.installed) {
@@ -3014,6 +3022,7 @@ function App() {
       videoDubbingMode,
       videoDubbingLanguages,
       videoDubbingStyle,
+      launchSource,
       sourceTaskId: sourceTask.id,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -3104,6 +3113,7 @@ function App() {
     changeView("agents");
   };
   const openSkills = () => openShellPage("skills");
+  const openWorkshop = () => openShellPage("workshop");
   const openModelStore = () => openShellPage("models");
   const openExtensions = openModelStore;
   const openSettings = () => {
@@ -3967,6 +3977,15 @@ function App() {
               <span>{t("新任务")}</span>
             </button>
             <button
+              className={`sidebar-primary-button${shellPage === "workshop" ? " active" : ""}`}
+              type="button"
+              aria-current={shellPage === "workshop" ? "page" : undefined}
+              onClick={shellPage === "workshop" ? leaveShellPage : openWorkshop}
+            >
+              <WandSparkles size={17} />
+              <span>{t("创意工坊")}</span>
+            </button>
+            <button
               ref={extensionsTriggerRef}
               className={`sidebar-primary-button${shellPage === "skills" ? " active" : ""}`}
               type="button"
@@ -4353,7 +4372,7 @@ function App() {
                 {t('保存录制')}
               </button>
             )}
-            {shellPage === "workspace" && isWorkspaceTaskView && (
+            {shellPage === "workspace" && isWorkspaceTaskView && !directWorkflow && (
               <button
                 type="button"
                 className="icon-button workspace-editor-toggle"
@@ -4401,6 +4420,15 @@ function App() {
                 onCloudModelInstalled={setCloudModelInstalled}
                 onAppAgentInstalled={setAppAgentInstalled}
                 onAction={notify}
+              />
+            )}
+            {shellPage === "workshop" && (
+              <CreativeWorkshopView
+                appAgents={appAgents}
+                onOpenSkills={openSkills}
+                onLaunch={({ mode, prompt, sourcePath, videoDubbingMode, videoDubbingLanguages, videoDubbingStyle }) =>
+                  launchCreationAgent(mode, prompt, sourcePath, videoDubbingMode, videoDubbingLanguages, videoDubbingStyle, 'workshop')
+                }
               />
             )}
             {shellPage === "models" && (
@@ -4577,7 +4605,7 @@ function App() {
                           catalog={catalog}
                           onRunAudio={runAudio}
                           onRunText={runText}
-                          onGenerateText={(prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
+                          onGenerateText={conversation.launchSource === 'workshop' ? undefined : (prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
                           onOpenStore={openExtensions}
                           onAction={message => reportEditorMessage(conversation.id, message)}
                         />
@@ -4608,7 +4636,7 @@ function App() {
                           models={orderedRunnablePlugins}
                           catalog={catalog}
                           onRunText={runText}
-                          onGenerateText={(prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
+                          onGenerateText={conversation.launchSource === 'workshop' ? undefined : (prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
                           onOpenStore={openExtensions}
                           onAction={message => reportEditorMessage(conversation.id, message)}
                         />
@@ -4665,7 +4693,7 @@ function App() {
                           initialInstruction={conversation.prompt}
                           models={orderedRunnablePlugins}
                           onRunText={runText}
-                          onGenerateText={(prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
+                          onGenerateText={conversation.launchSource === 'workshop' ? undefined : (prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
                           onRunAudio={runAudio}
                           onOpenStore={openExtensions}
                           onAction={message => reportEditorMessage(conversation.id, message)}

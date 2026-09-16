@@ -56,14 +56,17 @@ Signed updater artifacts are created separately by the GitHub release workflow.
 
 ## App layout
 
-The left sidebar starts with the **QwenAudio Toolkits** brand and three primary
+The left sidebar starts with the **QwenAudio Toolkits** brand and four primary
 entries:
 
-- **新任务 / New Task** opens the creation home page. Describe the task, choose
-  a skill, and attach source material when the workflow needs a file.
-- **技能 / Skills** lists task workflows such as video editing, AI podcast,
-  video translation, and meeting notes. Built-in skills can be hidden from the
-  workspace and installed again later.
+- **新任务 / New Task** opens the Agent-oriented creation home page for
+  open-ended requests and natural-language iteration.
+- **创意工坊 / Creative Workshop** opens direct, guided video and audio workflows.
+  Choose a workflow, add materials, set fixed options, and enter its editor
+  without configuring an Agent model first.
+- **技能 / Skills** manages installable capabilities and their usage metadata.
+  During the current migration, some built-in workspace workflows remain
+  visible here as legacy Skills.
 - **模型商店 / Model Store** lists local and cloud models. Models provide the
   underlying ASR, VAD, TTS, enhancement, speaker, and text capabilities used by
   skills and direct model conversations.
@@ -73,14 +76,26 @@ surface with **常规 / General**, **外观 / Appearance**, and
 **模型与存储 / Models & Storage**. Use **返回应用 / Back to app** to return to
 the main workspace.
 
-## Start a task
+## Start a creation
+
+For a common video or audio task, use **创意工坊 / Creative Workshop**:
+
+1. Choose a workflow under **视频创作 / Video creation** or
+   **音频创作 / Audio creation**.
+2. Add a source video or document when requested.
+3. Choose fixed options, such as cut goals, dubbing language, podcast format,
+   or meeting-note focus.
+4. Select **开始创作 / Start creating**. The dedicated editor opens directly and
+   shows any model-install actions it needs.
+
+Use **新任务 / New Task** when you want an Agent to plan a non-standard task:
 
 1. Open **新任务 / New Task**.
 2. Describe the audio or video result you want.
-3. Select a skill from the chips below the composer.
+3. Optionally select an Agent capability from the chips below the composer.
 4. Add the required source file when prompted.
-5. If a required model is missing, follow the install link to **技能 / Skills**
-   or **模型商店 / Model Store**, then return to the task.
+5. If a required capability or model is missing, follow the install link to
+   **技能 / Skills** or **模型商店 / Model Store**, then return to the task.
 
 ## Install and run a local model
 

@@ -21,8 +21,10 @@ flowchart TD
 
 The React frontend lives in `src/`:
 
-- `App.tsx` owns the desktop shell, New Task home page, Skills and Model Store
-  navigation, settings, and global run state.
+- `App.tsx` owns the desktop shell, New Task home page, Creative Workshop,
+  Skills and Model Store navigation, settings, and global run state.
+- `views/CreativeWorkshopView.tsx` presents user-facing video and audio
+  workflows, gathers fixed launch parameters, and opens an editor-only task.
 - `views/ModelWorkspaceView.tsx` renders the conversation and capability-aware
   input controls.
 - `views/PluginsView.tsx` renders the Skills and Model Store catalog surfaces,
@@ -52,16 +54,27 @@ to the parent result detail. Model bindings are persisted by the Rust backend,
 so sidebar removal, store removal, and the local API share the same reference
 graph. Referenced weights are retained; unreferenced weights are deleted.
 
-## Skill and model projects
+## Creative Workshop, Skills, and model projects
 
-The product UI separates task-oriented **Skills** from the **Model Store**.
-Both can be backed by declarative project metadata during the migration from
-legacy plugin packages. `agents.rs` still validates the `agent.json` manifest
-name, while `plugins.rs` installs the project and registers its selected host
-adapter. New projects do not depend on other imported projects. Legacy model
-packages remain compatible during migration. See
-[Skill and model projects](agent-projects.md) for implemented boundaries and
-examples.
+The product has three separate layers:
+
+1. **Creative Workshop** is the user-facing catalog of high-frequency video and
+   audio task recipes. A recipe gathers fixed inputs and options, then opens a
+   dedicated editor without displaying an Agent conversation.
+2. **Skills** are reusable declarative capabilities. They describe what an
+   Agent or workflow can do, when to use it, its inputs and outputs, the tools
+   it invokes, and its model or permission requirements.
+3. **Model Store** entries are concrete local or cloud implementations of
+   capabilities such as ASR, TTS, VAD, text generation, and enhancement.
+
+Today, some built-in workspace workflows are still cataloged and installed as
+legacy Skills. The target is for a workshop recipe to compose multiple Skills,
+and for an Agent to discover and compose those same Skills for open-ended
+requests. `agents.rs` continues to validate the current `agent.json` manifest
+and `plugins.rs` registers its reviewed host adapter during this migration. See
+[Creative Workshop and Skills design](creative-workshop-skills-design.md) for
+the target contract and [Skill and model projects](agent-projects.md) for
+implemented manifest boundaries.
 
 ## Model plugins
 

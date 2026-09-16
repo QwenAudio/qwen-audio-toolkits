@@ -1,22 +1,31 @@
 # Skill and model project manifests
 
-QwenAudio Toolkits now presents two user-facing project types:
+QwenAudio Toolkits distinguishes three concepts:
 
-- **Skills** are task workflows, such as video editing, AI podcast generation,
-  video translation, and meeting notes.
+- **Creative Workshop workflows** are user-facing task recipes, such as video
+  editing, AI podcast generation, video dubbing, and meeting notes.
+- **Skills** are reusable capability definitions that an Agent or a workflow can
+  discover and compose.
 - **Model Store entries** provide the local or cloud model capabilities that
-  skills and direct model conversations call.
+  Skills and direct model conversations call.
 
-During the current migration period, both kinds of project can still use the
-`agent.json` manifest name internally. In this document, "project manifest"
-refers to that technical contract rather than the label shown in the desktop
-sidebar.
+This document describes the currently implemented `agent.json` project
+manifest. It is a migration contract for reviewed adapters and model-backed
+projects, not yet the full future Skill definition. See
+[Creative Workshop and Skills design](creative-workshop-skills-design.md) for
+the target capability-oriented boundary.
+
+During the current migration period, imported Skill and model projects can
+still use the `agent.json` manifest name internally. In this document, "project
+manifest" refers to that technical contract rather than the label shown in the
+desktop sidebar.
 
 ## Implemented in this version
 
-- The desktop UI has separate **Skills** and **Model Store** pages. The Skills
-  page shows workflow usage and import actions; the Model Store shows model
-  capabilities, variants, dependencies, and install state.
+- The desktop UI has separate **Creative Workshop**, **Skills**, and **Model
+  Store** pages. Creative Workshop presents fixed task recipes; the current
+  Skills page shows imported project usage and install actions; Model Store
+  shows model capabilities, variants, dependencies, and install state.
 - `agent.json` v1 selects a reviewed `host-adapter` implementation. This selection
   is the actual execution adapter, not display-only metadata.
 - Importing `agent.json` copies its containing project directory, including its

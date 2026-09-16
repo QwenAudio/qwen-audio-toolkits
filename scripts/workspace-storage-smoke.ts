@@ -11,7 +11,7 @@ import {
 } from '../src/services/workspaceStorage'
 
 const metadata: WorkspaceMetadata = {
-  conversations: [{ archived: true, id: 'project-1', title: '播客草稿', mode: 'ai-podcast', prompt: '聊聊音乐', sourcePath: '/audio/source.wav' }],
+  conversations: [{ archived: true, id: 'project-1', title: '播客草稿', mode: 'ai-podcast', prompt: '聊聊音乐', sourcePath: '/audio/source.wav', launchSource: 'workshop' }],
   generalTasks: [{
     archived: true, id: 'task-1', kind: 'general', title: '创作', draftPrompt: '保留草稿', selectedModeId: 'video-dubbing',
     chatModel: { transport: 'acp', providerId: 'opencode-bundled', apiProviderId: 'api.custom.persisted', modelId: '' },
@@ -72,6 +72,7 @@ const restored = await reopened.initialize()
 assert.equal(restored.conversations[0].restored, true)
 assert.equal(restored.selectedId, 'project-1')
 assert.equal(restored.conversations[0].archived, true)
+assert.equal(restored.conversations[0].launchSource, 'workshop', 'direct workshop tasks restore into the editor-only flow')
 assert.equal(restored.generalTasks[0].archived, true)
 assert.equal(restored.generalTasks[0].submitting, false)
 assert.deepEqual({ ...restored.generalTasks[0].chatModel }, metadata.generalTasks[0].chatModel, 'restore the task-specific provider and model')
@@ -107,6 +108,10 @@ assert.throws(() => parseWorkspaceDocument(JSON.stringify({
     generalTasks: [{ ...parsed.metadata.generalTasks[0], chatModel: { transport: 'acp', providerId: 'opencode-bundled', apiProviderId: 1, modelId: '' } }],
   },
 })), 'non-string API Provider bindings must be rejected')
+assert.throws(() => parseWorkspaceDocument(JSON.stringify({
+  ...parsed,
+  metadata: { ...parsed.metadata, conversations: [{ ...parsed.metadata.conversations[0], launchSource: 'agent' }] },
+})), 'unknown workspace launch sources must be rejected')
 
 for (const bad of ['{broken', '{"version":99}', JSON.stringify({ ...parsed, projects: { 'project-1:podcast': { ...parsed.projects['project-1:podcast'], version: 99 } } })]) {
   let writes = 0
