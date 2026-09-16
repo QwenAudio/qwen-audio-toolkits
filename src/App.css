@@ -3743,6 +3743,7 @@ button.job-state {
 }
 .model-view-container.page-skills,
 .model-view-container.page-models,
+.model-view-container.page-workshop,
 .model-view-container.page-settings {
   background: var(--surface-raised);
 }
@@ -6754,6 +6755,7 @@ never clipped by the sidebar. */
 }
 .model-view-container.page-skills,
 .model-view-container.page-models,
+.model-view-container.page-workshop,
 .model-view-container.page-settings {
   display: block;
 }

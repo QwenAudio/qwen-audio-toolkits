@@ -99,7 +99,7 @@ function validMessage(value: unknown): boolean {
 
 function validConversation(value: unknown): boolean {
   return isRecord(value) && (value.archived === undefined || typeof value.archived === 'boolean') && typeof value.id === 'string' && KEY_PATTERN.test(value.id) &&
-    MODES.has(String(value.mode)) && typeof value.title === 'string' &&
+    MODES.has(String(value.mode)) && (value.launchSource === undefined || value.launchSource === 'workshop') && typeof value.title === 'string' &&
     typeof value.prompt === 'string' && typeof value.sourcePath === 'string' && validCreationOptions(value)
 }
 

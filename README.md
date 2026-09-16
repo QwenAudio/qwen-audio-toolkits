@@ -7,9 +7,9 @@
 [![macOS](https://img.shields.io/badge/macOS-14.2%2B-black?logo=apple)](docs/getting-started.md)
 
 QwenAudio Toolkits is a local-first desktop workspace for audio AI creation and
-model execution. It starts from a new-task home page where you can describe
-what you want to create, choose a skill such as video editing, AI podcast,
-video translation, or meeting notes, and install the underlying models only
+model execution. It offers a **Creative Workshop** for direct, guided tasks
+such as video editing, AI podcast, video dubbing, and meeting notes, alongside
+an Agent workspace for open-ended requests. Required models are installed only
 when they are needed.
 
 The product goal is to become a conversational Agent-driven audio and video
@@ -18,7 +18,11 @@ models, and produces reviewable edits; dedicated editing surfaces provide
 timeline, waveform, caption, dubbing, and preview controls; the model store
 supplies local and cloud capabilities on demand.
 
-Three product pillars guide this goal:
+Four product pillars guide this goal:
+
+- **Creative Workshop workflows**: choose a frequent creative goal, set a few
+  fixed parameters, and enter its dedicated workspace without first configuring
+  or conversing with an Agent.
 
 - **Conversational Agent workflow**: describe an audio or video goal in natural
   language, then let the Agent plan the workflow, choose tools and models,
@@ -43,8 +47,8 @@ not bundled into the application installer.
 - Audio enhancement and noise suppression
 - Text normalization, including TN / ITN processing
 - Text-to-speech and reference-voice workflows where supported by the model
-- Task-oriented skills for video editing, AI podcast generation, video
-  translation, and meeting notes
+- Guided video and audio workflows for video editing, captions, dubbing,
+  podcast generation, and meeting notes
 - Local model runtimes and cloud API models behind one typed Harness contract
 - A model store with variants, checksums, dependencies, and resumable downloads
 - Shared input, streaming, preview, and result-detail interactions across model
@@ -108,26 +112,48 @@ inside the release workflow to create signed updater artifacts.
 See the [getting started guide](docs/getting-started.md) for permissions,
 model installation, cloud configuration, and local data locations.
 
-## Start a task
+## Start a creation
+
+Use **创意工坊 / Creative Workshop** when the goal matches a common, guided
+workflow. It is the primary entry point for users who want to create directly:
+
+1. Choose a video or audio workflow.
+2. Add the required source material, if any.
+3. Set the workflow's fixed options, such as caption generation, dubbing
+   language, or meeting-note focus.
+4. Start in the dedicated editor. The editor checks and helps install the
+   models it needs; it does not require an Agent conversation or Agent model
+   configuration.
+
+The initial workshop workflows are **Smart Cut**, **Captioned Video**,
+**Video Dubbing**, **AI Podcast**, and **Meeting Notes**. They are grouped into
+video and audio creation and keep their projects in the regular recent-task
+history.
+
+Use **New Task** when the request is open-ended, needs planning, or benefits
+from natural-language iteration:
 
 1. Open **New Task**.
 2. Describe what you want to create.
-3. Choose a skill, such as **视频剪辑**, **AI 播客**, **视频配音**, or
-   **会议纪要**.
+3. Optionally select an Agent capability and describe additional constraints.
 4. Add source material when the selected skill needs a file.
 5. Install or configure the required models if the skill asks for them.
 
-Skills are workflow entry points. They orchestrate installed models, but model
-weights, cloud API configuration, and model dependencies remain managed by the
-model store.
+The product distinguishes a user-facing workflow from a reusable **Skill**.
+Creative Workshop workflows are fixed task recipes; Skills are declarative,
+installable capabilities that an Agent or workflow can discover and compose.
+For example, a video-dubbing workflow can combine transcription, dialogue
+translation, voice synthesis, and subtitle rendering Skills. The current
+catalog still exposes some built-in workspace workflows as legacy Skills while
+this separation is migrated. See [Creative Workshop and Skills design](docs/creative-workshop-skills-design.md).
 
-Each skill keeps the conversation in the center and its manual editor on the
-right. Ask AI to change editing parameters, mark cuts, edit podcast turns,
-adjust dubbing settings, or inspect meeting notes. AI actions update the same
-state as the editor controls, and replies report what actually happened. If you
-edit the workspace while AI is planning, its pending changes are stopped so
-you can send an updated request. Changed podcast or dubbing settings require
-new audio before the updated result can be exported.
+Agent-created tasks keep the conversation beside their manual editor. Ask AI to
+change editing parameters, mark cuts, edit podcast turns, adjust dubbing
+settings, or inspect meeting notes. Creative Workshop tasks open directly in
+the dedicated editor instead. Both paths operate on the same saved project
+state. If you edit an Agent workspace while it is planning, its pending changes
+are stopped so you can send an updated request. Changed podcast or dubbing
+settings require new audio before the updated result can be exported.
 
 The suggested exact commands, such as **关闭字幕** and **配音风格设为轻松**,
 work without a language model. Other requests use the selected ACP Agent,
@@ -198,14 +224,16 @@ does not read or overwrite saved tasks. An unreadable or unsupported workspace
 file is preserved and autosaving is paused. Back it up before repairing or
 moving it aside, then restart the app.
 
-## Skills and model projects
+## Creative Workshop, Skills, and model projects
 
-The desktop UI separates **Skills** from **Model Store**. Skills are
-task-oriented workflows, while Model Store entries provide the concrete local
-or cloud capabilities that those workflows call. Under the hood, imported skill
-or model projects can still use the `agent.json` project manifest during the
-current migration period. See [Skill and model projects](docs/agent-projects.md)
-for examples and the current host-adapter execution boundary.
+The desktop UI separates **Creative Workshop** from **Skills** and the
+**Model Store**. Creative Workshop owns user-facing task recipes; Skills own
+reusable capability definitions, instructions, contracts, and requirements;
+Model Store entries provide concrete local or cloud model implementations.
+During the current migration period, imported skill projects and model projects
+use the existing manifest contracts. See [Creative Workshop and Skills design](docs/creative-workshop-skills-design.md)
+for the target boundary and [Skill and model projects](docs/agent-projects.md)
+for the current host-adapter execution boundary.
 
 ## Architecture
 
