@@ -34,6 +34,7 @@ export interface GeneralAgentInstallModelAction {
   selectedModeName: string | null
   attachmentHint: string
   attachment?: GeneralAgentAttachment | null
+  question?: GeneralAgentAskQuestion
 }
 
 export interface GeneralAgentConfirmAction {
@@ -42,6 +43,29 @@ export interface GeneralAgentConfirmAction {
   status: GeneralAgentActionStatus
   label: string
   confirmationText: string
+  questions?: GeneralAgentConfirmQuestion[]
+}
+
+export interface GeneralAgentAskQuestionOption {
+  id: string
+  label: string
+  description?: string
+  installed?: boolean
+}
+
+export interface GeneralAgentAskQuestion {
+  id: string
+  prompt: string
+  options: GeneralAgentAskQuestionOption[]
+  allowMultiple?: boolean
+}
+
+export interface GeneralAgentConfirmOption extends GeneralAgentAskQuestionOption {
+  confirmationText: string
+}
+
+export interface GeneralAgentConfirmQuestion extends GeneralAgentAskQuestion {
+  options: GeneralAgentConfirmOption[]
 }
 
 export interface AgentPlanStep {
@@ -82,18 +106,11 @@ export interface GeneralAgentMessage {
   attachments?: GeneralAgentAttachment[]
 }
 
-export interface GeneralAgentModelChoice {
-  id: string
-  name: string
-  description: string
-  installed: boolean
-}
-
 export interface GeneralAgentMessageModelOptions {
   needLabel: string
   actionLabel: string
-  selectedModelId: string
-  choices: GeneralAgentModelChoice[]
+  selectedOptionId: string
+  question: GeneralAgentAskQuestion
 }
 
 export interface AgentConversation {
@@ -136,7 +153,19 @@ export interface GeneralAgentTask {
     path: string
     name: string
   } | null
+  attachments?: GeneralAgentAttachment[]
   createdAt: number
   updatedAt: number
   submitting: boolean
+}
+
+export type GeneralAgentProgressStatus = 'running' | 'done' | 'failed' | 'waiting'
+
+export interface GeneralAgentProgressEntry {
+  id: string
+  label: string
+  detail?: string
+  status: GeneralAgentProgressStatus
+  createdAt: number
+  updatedAt: number
 }

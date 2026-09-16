@@ -52,11 +52,34 @@ function isAttachment(value: unknown): boolean {
   return value == null || (isRecord(value) && typeof value.path === 'string' && typeof value.name === 'string')
 }
 
+function validConfirmQuestions(value: unknown): boolean {
+  return value === undefined || (Array.isArray(value) && value.every((question) =>
+    isRecord(question) && typeof question.id === 'string' && typeof question.prompt === 'string' &&
+    Array.isArray(question.options) && question.options.length >= 2 &&
+    question.options.every((option) =>
+      isRecord(option) && typeof option.id === 'string' &&
+      typeof option.label === 'string' && typeof option.confirmationText === 'string')))
+}
+
+function validAskQuestion(value: unknown): boolean {
+  return value === undefined || (
+    isRecord(value) && typeof value.id === 'string' && typeof value.prompt === 'string' &&
+    (value.allowMultiple === undefined || typeof value.allowMultiple === 'boolean') &&
+    Array.isArray(value.options) && value.options.length >= 2 &&
+    value.options.every((option) =>
+      isRecord(option) && typeof option.id === 'string' && typeof option.label === 'string' &&
+      (option.description === undefined || typeof option.description === 'string') &&
+      (option.installed === undefined || typeof option.installed === 'boolean'))
+  )
+}
+
 function validAction(value: unknown): boolean {
   if (!isRecord(value) || typeof value.id !== 'string' || !ACTION_STATUSES.has(String(value.status))) return false
-  if (value.kind === 'confirm-agent-plan') return typeof value.label === 'string' && typeof value.confirmationText === 'string'
+  if (value.kind === 'confirm-agent-plan') return typeof value.label === 'string' && typeof value.confirmationText === 'string' &&
+    validConfirmQuestions(value.questions)
   if (value.kind === 'install-on-demand-model') return ['modelId', 'modelName', 'capability', 'needLabel', 'actionLabel', 'prompt', 'attachmentHint'].every((key) => typeof value[key] === 'string') &&
-    (value.selectedModeName === null || typeof value.selectedModeName === 'string') && isAttachment(value.attachment)
+    (value.selectedModeName === null || typeof value.selectedModeName === 'string') && isAttachment(value.attachment) &&
+    validAskQuestion(value.question)
   if (value.kind !== 'structured-agent-plan' || typeof value.confirmationText !== 'string') return false
   return Array.isArray(value.steps) && value.steps.every((step) =>
     isRecord(step) && typeof step.id === 'string' && typeof step.description === 'string' &&
@@ -81,7 +104,9 @@ function validConversation(value: unknown): boolean {
 }
 
 function validGeneralTask(value: unknown): boolean {
-  return isRecord(value) && (value.archived === undefined || typeof value.archived === 'boolean') && typeof value.id === 'string' && KEY_PATTERN.test(value.id) && value.kind === 'general' &&
+  if (!isRecord(value)) return false
+  if (value.attachments !== undefined && (!Array.isArray(value.attachments) || !value.attachments.every((attachment) => attachment !== null && isAttachment(attachment)))) return false
+  return (value.archived === undefined || typeof value.archived === 'boolean') && typeof value.id === 'string' && KEY_PATTERN.test(value.id) && value.kind === 'general' &&
     typeof value.title === 'string' && typeof value.draftPrompt === 'string' &&
     typeof value.submitting === 'boolean' && typeof value.createdAt === 'number' && typeof value.updatedAt === 'number' &&
     (value.selectedModeId === null || MODES.has(String(value.selectedModeId))) && isAttachment(value.attachment) &&

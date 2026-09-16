@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import {
+  buildConfirmAgentResponse,
   createConfirmAgentAction,
+  extractConfirmationQuestions,
   hasConfirmableAgentRequest,
   inferAgentMessageAction,
 } from '../src/domain/agentMessageActions'
@@ -46,5 +48,28 @@ for (const content of negativeCases) {
   assert.equal(inferAgentMessageAction(content), undefined)
 }
 
-console.log(JSON.stringify({ status: 'passed', positives: positiveCases.length, negatives: negativeCases.length }, null, 2))
+const videoClipConfirmation = [
+  '需要确认两点后我再执行：',
+  '',
+  '- 注解是**整段持续显示**还是只在**每段开头展示几秒**？',
+  '- 输出文件名用 `拼接演示视频.mp4` 可以吗？',
+].join('\n')
+const videoQuestions = extractConfirmationQuestions(videoClipConfirmation)
+assert.equal(videoQuestions.length, 2)
+assert.equal(videoQuestions[0].prompt, '注解是整段持续显示还是只在每段开头展示几秒')
+assert.deepEqual(videoQuestions[0].options.map((option) => option.label), ['整段持续显示', '只在每段开头展示几秒'])
+assert.equal(videoQuestions[1].prompt, '输出文件名用 拼接演示视频.mp4 可以吗')
+assert.deepEqual(videoQuestions[1].options.map((option) => option.label), ['使用 拼接演示视频.mp4', '需要修改'])
+const videoAction = createConfirmAgentAction(videoClipConfirmation)
+assert.equal(videoAction?.label, '确认选择')
+assert.equal(videoAction?.questions?.length, 2)
+assert.equal(buildConfirmAgentResponse(videoAction!, {
+  [videoQuestions[0].id]: videoQuestions[0].options[0].id,
+  [videoQuestions[1].id]: videoQuestions[1].options[0].id,
+}), [
+  '确认以下选择：',
+  '- 注解是整段持续显示还是只在每段开头展示几秒：选择：整段持续显示',
+  '- 输出文件名用 拼接演示视频.mp4 可以吗：使用 拼接演示视频.mp4',
+].join('\n'))
 
+console.log(JSON.stringify({ status: 'passed', positives: positiveCases.length, negatives: negativeCases.length, choiceQuestions: videoQuestions.length }, null, 2))

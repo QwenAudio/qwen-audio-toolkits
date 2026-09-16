@@ -285,6 +285,10 @@ pub struct AcpSessionEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     options: Option<Vec<Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    questions: Option<Vec<Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    phases: Option<Vec<Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     panel: Option<String>,
 }
 
@@ -306,6 +310,8 @@ impl AcpSessionEvent {
             request_id: None,
             title: None,
             options: None,
+            questions: None,
+            phases: None,
             panel: None,
         }
     }
@@ -350,6 +356,8 @@ struct AcpSessionState {
     next_request_id: AtomicU64,
     pending: StdMutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>,
     permissions: StdMutex<HashMap<String, oneshot::Sender<Option<String>>>>,
+    questions: StdMutex<HashMap<String, oneshot::Sender<Value>>>,
+    plan_approvals: StdMutex<HashMap<String, oneshot::Sender<Value>>>,
     turn_active: AtomicBool,
     closed: AtomicBool,
 }
@@ -680,6 +688,16 @@ impl AcpSessionState {
                 let _ = sender.send(None);
             }
         }
+        if let Ok(mut questions) = self.questions.lock() {
+            for (_, sender) in questions.drain() {
+                let _ = sender.send(json!({ "outcome": "cancelled" }));
+            }
+        }
+        if let Ok(mut plan_approvals) = self.plan_approvals.lock() {
+            for (_, sender) in plan_approvals.drain() {
+                let _ = sender.send(json!({ "outcome": "cancelled" }));
+            }
+        }
     }
 }
 
@@ -789,6 +807,108 @@ fn translate_session_update(state: &AcpSessionState, session_id: &str, update: &
     }
 }
 
+fn value_string(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_question_options(question: &Value) -> Vec<Value> {
+    question
+        .get("options")
+        .and_then(Value::as_array)
+        .map(|options| {
+            options
+                .iter()
+                .enumerate()
+                .map(|(index, option)| {
+                    let id = value_string(option.get("id"))
+                        .or_else(|| value_string(option.get("optionId")))
+                        .unwrap_or_else(|| format!("option-{index}"));
+                    let label = value_string(option.get("label"))
+                        .or_else(|| value_string(option.get("name")))
+                        .unwrap_or_else(|| id.clone());
+                    json!({ "id": id, "label": label })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn normalize_questions(params: &Value) -> Option<Vec<Value>> {
+    params
+        .get("questions")
+        .and_then(Value::as_array)
+        .map(|questions| {
+            questions
+                .iter()
+                .enumerate()
+                .map(|(index, question)| {
+                    let id = value_string(question.get("id"))
+                        .unwrap_or_else(|| format!("question-{index}"));
+                    let prompt = value_string(question.get("prompt"))
+                        .or_else(|| value_string(question.get("title")))
+                        .unwrap_or_else(|| id.clone());
+                    json!({
+                        "id": id,
+                        "prompt": prompt,
+                        "options": normalize_question_options(question),
+                        "allowMultiple": question
+                            .get("allowMultiple")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                    })
+                })
+                .collect()
+        })
+}
+
+fn normalize_plan_entries(value: Option<&Value>) -> Option<Vec<Value>> {
+    value.and_then(Value::as_array).map(|entries| {
+        entries
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                let content = value_string(entry.get("content"))
+                    .or_else(|| value_string(entry.get("title")))
+                    .or_else(|| value_string(entry.get("name")))
+                    .unwrap_or_else(|| format!("步骤 {}", index + 1));
+                json!({
+                    "id": value_string(entry.get("id")),
+                    "content": content,
+                    "status": value_string(entry.get("status")),
+                })
+            })
+            .collect()
+    })
+}
+
+fn normalize_plan_phases(params: &Value) -> Option<Vec<Value>> {
+    params
+        .get("phases")
+        .or_else(|| params.pointer("/plan/phases"))
+        .and_then(Value::as_array)
+        .map(|phases| {
+            phases
+                .iter()
+                .enumerate()
+                .map(|(index, phase)| {
+                    json!({
+                        "id": value_string(phase.get("id")),
+                        "name": value_string(phase.get("name"))
+                            .or_else(|| value_string(phase.get("title")))
+                            .unwrap_or_else(|| format!("阶段 {}", index + 1)),
+                        "todos": normalize_plan_entries(phase.get("todos"))
+                            .or_else(|| normalize_plan_entries(phase.get("items")))
+                            .unwrap_or_default(),
+                    })
+                })
+                .collect()
+        })
+}
+
 fn handle_server_request(state: Arc<AcpSessionState>, id: &Value, method: &str, params: &Value) {
     if method == "session/request_permission" {
         let request_key = Uuid::new_v4().to_string();
@@ -844,6 +964,93 @@ fn handle_server_request(state: Arc<AcpSessionState>, id: &Value, method: &str, 
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "result": outcome,
+            }));
+        });
+        return;
+    }
+    if method == "cursor/ask_question" {
+        let request_key = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel::<Value>();
+        if let Ok(mut questions) = state.questions.lock() {
+            questions.insert(request_key.clone(), tx);
+        } else {
+            return;
+        }
+        let mut event = AcpSessionEvent::base(&state.session_id, "question_requested");
+        event.request_id = Some(request_key.clone());
+        event.tool_call_id = params
+            .get("toolCallId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        event.title = value_string(params.get("title"))
+            .or_else(|| value_string(params.pointer("/toolCall/title")));
+        event.questions = normalize_questions(params);
+        state.emit(event);
+        let state_for_response = state.clone();
+        let request_id = id.clone();
+        tauri::async_runtime::spawn(async move {
+            let outcome = rx
+                .await
+                .unwrap_or_else(|_| json!({ "outcome": "cancelled" }));
+            if let Ok(mut questions) = state_for_response.questions.lock() {
+                questions.remove(&request_key);
+            }
+            let mut resolved =
+                AcpSessionEvent::base(&state_for_response.session_id, "question_resolved");
+            resolved.request_id = Some(request_key);
+            state_for_response.emit(resolved);
+            let _ = state_for_response.writer_tx.try_send(json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": { "outcome": outcome },
+            }));
+        });
+        return;
+    }
+    if method == "cursor/create_plan" {
+        let request_key = Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel::<Value>();
+        if let Ok(mut plan_approvals) = state.plan_approvals.lock() {
+            plan_approvals.insert(request_key.clone(), tx);
+        } else {
+            return;
+        }
+        let mut event = AcpSessionEvent::base(&state.session_id, "plan_approval_requested");
+        event.request_id = Some(request_key.clone());
+        event.tool_call_id = params
+            .get("toolCallId")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        event.title = value_string(params.get("title"))
+            .or_else(|| value_string(params.get("name")))
+            .or_else(|| value_string(params.pointer("/plan/title")))
+            .or_else(|| value_string(params.pointer("/plan/name")));
+        event.content = value_string(params.get("overview"))
+            .or_else(|| value_string(params.get("description")))
+            .or_else(|| value_string(params.get("planMarkdown")))
+            .or_else(|| value_string(params.get("plan")));
+        event.plan = normalize_plan_entries(params.get("todos"))
+            .or_else(|| normalize_plan_entries(params.pointer("/plan/todos")))
+            .or_else(|| normalize_plan_entries(params.get("plan")));
+        event.phases = normalize_plan_phases(params);
+        state.emit(event);
+        let state_for_response = state.clone();
+        let request_id = id.clone();
+        tauri::async_runtime::spawn(async move {
+            let outcome = rx
+                .await
+                .unwrap_or_else(|_| json!({ "outcome": "cancelled" }));
+            if let Ok(mut plan_approvals) = state_for_response.plan_approvals.lock() {
+                plan_approvals.remove(&request_key);
+            }
+            let mut resolved =
+                AcpSessionEvent::base(&state_for_response.session_id, "plan_approval_resolved");
+            resolved.request_id = Some(request_key);
+            state_for_response.emit(resolved);
+            let _ = state_for_response.writer_tx.try_send(json!({
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": { "outcome": outcome },
             }));
         });
         return;
@@ -1150,6 +1357,8 @@ pub async fn acp_start_session(
         next_request_id: AtomicU64::new(1),
         pending: StdMutex::new(HashMap::new()),
         permissions: StdMutex::new(HashMap::new()),
+        questions: StdMutex::new(HashMap::new()),
+        plan_approvals: StdMutex::new(HashMap::new()),
         turn_active: AtomicBool::new(false),
         closed: AtomicBool::new(false),
     });
@@ -1314,6 +1523,16 @@ pub fn acp_cancel_turn(
             let _ = sender.send(None);
         }
     }
+    if let Ok(mut questions) = state.questions.lock() {
+        for (_, sender) in questions.drain() {
+            let _ = sender.send(json!({ "outcome": "cancelled" }));
+        }
+    }
+    if let Ok(mut plan_approvals) = state.plan_approvals.lock() {
+        for (_, sender) in plan_approvals.drain() {
+            let _ = sender.send(json!({ "outcome": "cancelled" }));
+        }
+    }
     state.send_notification(
         "session/cancel",
         json!({ "sessionId": agent_session_id_of(&state) }),
@@ -1343,6 +1562,56 @@ pub fn acp_respond_permission(
     sender
         .send(option_id)
         .map_err(|_| "权限请求已结束".to_string())
+}
+
+#[tauri::command]
+pub fn acp_respond_question(
+    runtime: State<'_, Arc<AcpRuntime>>,
+    session_id: String,
+    request_id: String,
+    outcome: Value,
+) -> Result<(), String> {
+    let state = runtime
+        .sessions
+        .lock()
+        .map_err(|_| "Agent 会话状态不可用".to_string())?
+        .get(&session_id)
+        .map(|handle| handle.state.clone())
+        .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
+    let sender = state
+        .questions
+        .lock()
+        .map_err(|_| "Agent 问题状态不可用".to_string())?
+        .remove(&request_id)
+        .ok_or_else(|| "问题请求已失效".to_string())?;
+    sender
+        .send(outcome)
+        .map_err(|_| "问题请求已结束".to_string())
+}
+
+#[tauri::command]
+pub fn acp_respond_plan_approval(
+    runtime: State<'_, Arc<AcpRuntime>>,
+    session_id: String,
+    request_id: String,
+    outcome: Value,
+) -> Result<(), String> {
+    let state = runtime
+        .sessions
+        .lock()
+        .map_err(|_| "Agent 会话状态不可用".to_string())?
+        .get(&session_id)
+        .map(|handle| handle.state.clone())
+        .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
+    let sender = state
+        .plan_approvals
+        .lock()
+        .map_err(|_| "Agent 计划确认状态不可用".to_string())?
+        .remove(&request_id)
+        .ok_or_else(|| "计划确认请求已失效".to_string())?;
+    sender
+        .send(outcome)
+        .map_err(|_| "计划确认请求已结束".to_string())
 }
 
 #[tauri::command]

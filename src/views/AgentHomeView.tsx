@@ -7,6 +7,7 @@ import {
   Copy,
   File,
   FileAudio,
+  FileImage,
   FileText,
   FileVideo,
   Languages,
@@ -30,18 +31,20 @@ import type {
   GeneralAgentAttachment,
   GeneralAgentMessage,
   GeneralAgentMessageModelOptions,
+  GeneralAgentProgressEntry,
 } from '../domain/agents'
 import {
   agentFileCanPreview,
   agentFileKind,
+  agentVideoAttachmentsFromText,
   uniqueAgentFiles,
 } from '../domain/agentFiles'
 import type { OnDemandModelInstallMode } from '../domain/onDemandModels'
 import { t, useLocale } from '../i18n'
-import type { ModelPlugin, AcpSessionEvent } from '../types'
+import { restoreWorkspaceMedia } from '../services/workspaceStorage'
+import type { ModelPlugin, AcpQuestionAnswer, AcpSessionEvent } from '../types'
 import './AgentHomeView.css'
 
-const AUDIO_EXTENSIONS = ['wav', 'mp3', 'm4a', 'aac', 'flac', 'ogg', 'opus', 'webm'] as const
 const VIDEO_EXTENSIONS = ['mp4', 'mov', 'm4v', 'webm', 'mkv'] as const
 const DOCUMENT_EXTENSIONS = ['pdf', 'docx', 'txt', 'md', 'markdown'] as const
 
@@ -49,6 +52,10 @@ interface AgentHomeViewProps {
   skills: ModelPlugin[]
   acpPermissions: AcpSessionEvent[]
   onAcpPermission: (event: AcpSessionEvent, optionId?: string) => void
+  acpQuestions: AcpSessionEvent[]
+  onAcpQuestion: (event: AcpSessionEvent, answers?: AcpQuestionAnswer[]) => void
+  acpPlanApprovals: AcpSessionEvent[]
+  onAcpPlanApproval: (event: AcpSessionEvent, accepted: boolean) => void
   acpRunning: boolean
   onCancelAcp: () => void
   chatModelUnavailable: boolean
@@ -64,23 +71,29 @@ interface AgentHomeViewProps {
   messages: GeneralAgentMessage[]
   draftPrompt: string
   attachment: { path: string; name: string } | null
+  attachments: GeneralAgentAttachment[]
   submitting: boolean
+  agentProgress: GeneralAgentProgressEntry[]
   modelInstallMode: OnDemandModelInstallMode
   messageModelOptions: Record<string, GeneralAgentMessageModelOptions>
   selectedModeId: AgentCreationMode | null
   onModelInstallModeChange: (mode: OnDemandModelInstallMode) => void
-  onMessageModelSelect: (messageId: string, modelId: string) => void
   chatAvailable: boolean
   onSelectedModeChange: (mode: AgentCreationMode | null) => void
   onDraftPromptChange: (prompt: string) => void
-  onAttachmentChange: (attachment: { path: string; name: string } | null) => void
+  onAttachmentsChange: (attachments: GeneralAgentAttachment[]) => void
   onSubmitPrompt: (request: {
     content: string
     selectedModeName: string | null
     attachmentHint: string
     attachment: { path: string; name: string } | null
+    attachments: GeneralAgentAttachment[]
   }) => void
-  onRunMessageAction: (message: GeneralAgentMessage, modelId?: string | null) => void
+  onRunMessageAction: (
+    message: GeneralAgentMessage,
+    modelId?: string | null,
+    confirmationSelections?: Record<string, string>,
+  ) => void
 
 }
 
@@ -107,22 +120,20 @@ const TASK_PROMPTS: Partial<Record<AgentCreationMode, string>> = {
   'meeting-notes': '帮我整理会议记录，识别发言内容，总结关键结论、待办事项和负责人。',
 }
 
-function attachmentHint(path: string): string {
-  return `\n\n已选择素材：${path}\n请在规划时考虑这个素材，但当前阶段不要直接处理或修改文件。`
+function attachmentsHint(files: GeneralAgentAttachment[]): string {
+  if (!files.length) return ''
+  const list = files.map((file, index) => `${index + 1}. ${file.name}\n文件路径：${file.path}`).join('\n')
+  return `\n\n已选择素材：\n${list}\n请在规划时考虑这些素材，但当前阶段不要直接处理或修改文件。`
 }
 
 function attachmentMatchesMode(path: string, mode: AgentCreationMode | null): boolean {
   const extension = path.split('.').at(-1)?.toLowerCase() ?? ''
+  if (!extension) return true
   if (!mode) {
-    return [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS, ...DOCUMENT_EXTENSIONS].includes(
-      extension as
-        | (typeof AUDIO_EXTENSIONS)[number]
-        | (typeof VIDEO_EXTENSIONS)[number]
-        | (typeof DOCUMENT_EXTENSIONS)[number],
-    )
+    return true
   }
   return mode === 'meeting-notes'
-    ? false
+    ? true
     : mode === 'agent-chat'
       ? true
       : mode === 'ai-podcast'
@@ -159,9 +170,51 @@ async function copyTextToClipboard(text: string): Promise<void> {
 function agentFileIcon(file: GeneralAgentAttachment): typeof File {
   const kind = agentFileKind(file)
   if (kind === 'audio') return FileAudio
+  if (kind === 'image') return FileImage
   if (kind === 'video') return FileVideo
   if (kind === 'document') return FileText
   return File
+}
+
+function messagePreviewFiles(message: GeneralAgentMessage): GeneralAgentAttachment[] {
+  return uniqueAgentFiles([
+    message.attachment,
+    ...(message.attachments ?? []),
+    ...(message.role === 'assistant' ? agentVideoAttachmentsFromText(message.content) : []),
+  ])
+}
+
+const restoredAgentPreviewFiles = new Set<string>()
+
+function useAgentPreviewSource(file: GeneralAgentAttachment, canPreview: boolean): string {
+  const [previewReady, setPreviewReady] = useState(() => canPreview && restoredAgentPreviewFiles.has(file.path))
+
+  useEffect(() => {
+    if (!canPreview) {
+      setPreviewReady(false)
+      return
+    }
+    if (restoredAgentPreviewFiles.has(file.path)) {
+      setPreviewReady(true)
+      return
+    }
+    let active = true
+    setPreviewReady(false)
+    void restoreWorkspaceMedia([file.path])
+      .then(({ available }) => {
+        const allowed = available.includes(file.path)
+        if (allowed) restoredAgentPreviewFiles.add(file.path)
+        if (active) setPreviewReady(allowed)
+      })
+      .catch(() => {
+        if (active) setPreviewReady(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [canPreview, file.path])
+
+  return canPreview && previewReady ? convertFileSrc(file.path) : ''
 }
 
 function AgentFilePreview({
@@ -178,25 +231,42 @@ function AgentFilePreview({
   onRemove?: () => void
 }) {
   const Icon = agentFileIcon(file)
+  const kind = agentFileKind(file)
   const canPreview = agentFileCanPreview(file)
-  const source = canPreview ? convertFileSrc(file.path) : ''
+  const source = useAgentPreviewSource(file, canPreview)
   return (
     <div
-      className={`agent-file-preview${compact ? ' compact' : ''}${invalid ? ' invalid' : ''}`}
+      className={`agent-file-preview${compact ? ' compact' : ''}${canPreview && kind !== 'audio' ? ' has-media' : ''}${invalid ? ' invalid' : ''}`}
       title={file.path}
     >
-      <div className="agent-file-preview-icon">
-        <Icon size={compact ? 14 : 17} strokeWidth={1.8} />
+      <div className={`agent-file-preview-icon ${canPreview ? 'media' : ''}`}>
+        {kind === 'image' && source ? (
+          <img src={source} alt="" loading="lazy" />
+        ) : kind === 'video' && source ? (
+          <video src={source} preload="metadata" muted playsInline aria-label={t('视频缩略图 {0}', [file.name])} />
+        ) : (
+          <Icon size={compact ? 14 : 17} strokeWidth={1.8} />
+        )}
       </div>
       <div className="agent-file-preview-body">
         <strong>{file.name}</strong>
         <span>{file.path}</span>
-        {canPreview && (
+        {kind === 'audio' && source && (
           <audio
             controls
             preload="metadata"
             src={source}
             aria-label={t('播放 {0}', [file.name])}
+          />
+        )}
+        {kind === 'video' && !compact && source && (
+          <video
+            className="agent-file-video-player"
+            controls
+            preload="metadata"
+            playsInline
+            src={source}
+            aria-label={t('播放视频 {0}', [file.name])}
           />
         )}
       </div>
@@ -216,7 +286,7 @@ function AgentFilePreview({
 
 export function AgentHomeView({
   skills,
-  acpPermissions, onAcpPermission, acpRunning, onCancelAcp,
+  acpPermissions = [], onAcpPermission, acpQuestions = [], onAcpQuestion, acpPlanApprovals = [], onAcpPlanApproval, acpRunning, onCancelAcp,
   chatModelUnavailable,
   chatModelOptions,
   chatModelId,
@@ -230,21 +300,24 @@ export function AgentHomeView({
   messages,
   draftPrompt,
   attachment,
+  attachments,
   submitting,
+  agentProgress,
   modelInstallMode,
   messageModelOptions,
   selectedModeId,
   onModelInstallModeChange,
-  onMessageModelSelect,
   onSelectedModeChange,
   onDraftPromptChange,
-  onAttachmentChange,
+  onAttachmentsChange,
   onSubmitPrompt,
   onRunMessageAction,
 }: AgentHomeViewProps) {
   useLocale()
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null)
   const [expandedModelChoices, setExpandedModelChoices] = useState<Set<string>>(() => new Set())
+  const [confirmationSelections, setConfirmationSelections] = useState<Record<string, Record<string, string>>>({})
+  const [acpQuestionSelections, setAcpQuestionSelections] = useState<Record<string, Record<string, string[]>>>({})
   const [choosingAttachment, setChoosingAttachment] = useState(false)
   const [composerError, setComposerError] = useState<string | null>(null)
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false)
@@ -276,7 +349,18 @@ export function AgentHomeView({
   const inWorkspace = workspaceTitle !== undefined
   const hasConversation = inWorkspace || messages.length > 0 || submitting
   const visibleMessageCount = messages.length + (submitting ? 1 : 0)
+  const visibleAgentProgress = agentProgress.slice(-5)
   const showSkillRow = !hasConversation && modes.length > 0
+  const selectedAttachments = useMemo(
+    () => uniqueAgentFiles([
+      attachment,
+      ...attachments,
+    ]),
+    [attachment, attachments],
+  )
+  const selectedAttachmentSignature = selectedAttachments
+    .map((file) => `${file.path}\n${file.name}`)
+    .join('\n')
 
   useEffect(() => {
     setExpandedModelChoices(new Set())
@@ -302,7 +386,7 @@ export function AgentHomeView({
     prompt.style.overflowY = prompt.scrollHeight > 200 ? 'auto' : 'hidden'
     const list = messageListRef.current
     if (list && followMessagesRef.current) list.scrollTop = list.scrollHeight
-  }, [draftPrompt, hasConversation, attachment?.path, selectedModeId])
+  }, [draftPrompt, hasConversation, selectedAttachmentSignature, selectedModeId])
 
   useEffect(() => {
     const list = messageListRef.current
@@ -327,51 +411,87 @@ export function AgentHomeView({
       : selectedEntry === 'ai-podcast' ? [t('语速设为 1.1 倍'), t('更新播客音频')]
         : selectedEntry === 'meeting-notes' ? [t('查看会议总结'), t('查看实时转写')]
         : [t('配音风格设为轻松'), t('开始配音')]
-  const attachmentCompatible = !attachment || !selectedEntry || attachmentMatchesMode(attachment.path, selectedEntry)
-  const canSubmit = Boolean(draftPrompt.trim() || attachment) && !submitting && !choosingAttachment && attachmentCompatible && !chatModelUnavailable
-  const attachmentHelp = !attachmentCompatible && selectedModeId === 'ai-podcast'
-    ? t('AI 播客仅支持 PDF、DOCX、TXT 和 Markdown，请更换附件')
-    : !attachmentCompatible
-      ? t('当前技能不支持这个文件类型，请更换附件或取消技能选择')
-      : workspaceCanOperate ? t('可以直接操作右侧界面，也可以告诉 AI 要修改什么。')
+  const hasModeSpecificAttachments = Boolean(selectedEntry) && selectedAttachments.some(file => !attachmentMatchesMode(file.path, selectedEntry))
+  const canSubmit = Boolean(draftPrompt.trim() || selectedAttachments.length > 0) && !submitting && !choosingAttachment && !chatModelUnavailable
+  const attachmentHelp = hasModeSpecificAttachments
+    ? t('已添加任意文件；当前技能可能只会直接处理其中支持的素材类型。')
+    : workspaceCanOperate ? t('可以直接操作右侧界面，也可以告诉 AI 要修改什么。')
       : selectedEntry === 'meeting-notes'
-        ? inWorkspace ? t('在右侧开始记录，查看实时转写和会议总结。') : t('会议纪要使用实时音频，请先描述会议目标和记录要求')
-        : attachment
+        ? inWorkspace ? t('在右侧开始记录，也可以添加任意文件作为上下文。') : t('可添加任意文件作为会议上下文，也可以先描述会议目标和记录要求')
+        : selectedAttachments.length > 0
           ? t('文件路径会作为上下文发送给 Agent')
-          : selectedEntry === 'ai-podcast'
-            ? t('可添加 PDF、DOCX、TXT 或 Markdown 文档')
+        : selectedEntry === 'ai-podcast'
+            ? t('可添加任意文件；播客工作流会优先处理文档类素材')
             : selectedEntry === 'smart-cut' || selectedEntry === 'video-dubbing'
-              ? t('可添加 MP4、MOV、M4V、WebM 或 MKV 视频')
-              : t('可选：添加音频、视频、PDF 或文档作为任务上下文')
+            ? t('可添加任意文件；视频工作流会优先处理视频类素材')
+            : t('可选：添加任意类型文件作为任务上下文')
+
+  const acpInteractiveKey = (event: AcpSessionEvent) =>
+    `${event.sessionId}:${event.requestId ?? event.toolCallId ?? event.title ?? 'request'}`
+
+  const toggleAcpQuestionOption = (
+    event: AcpSessionEvent,
+    questionId: string,
+    optionId: string,
+    allowMultiple = false,
+  ) => {
+    const eventKey = acpInteractiveKey(event)
+    setAcpQuestionSelections(current => {
+      const eventSelections = current[eventKey] ?? {}
+      const selected = eventSelections[questionId] ?? []
+      const nextQuestion = allowMultiple
+        ? selected.includes(optionId)
+          ? selected.filter(id => id !== optionId)
+          : [...selected, optionId]
+        : [optionId]
+      return {
+        ...current,
+        [eventKey]: {
+          ...eventSelections,
+          [questionId]: nextQuestion,
+        },
+      }
+    })
+  }
+
+  const acpQuestionAnswers = (event: AcpSessionEvent): AcpQuestionAnswer[] => {
+    const eventSelections = acpQuestionSelections[acpInteractiveKey(event)] ?? {}
+    return (event.questions ?? []).map(question => ({
+      questionId: question.id,
+      selectedOptionIds: eventSelections[question.id] ?? [],
+    }))
+  }
+
+  const acpQuestionComplete = (event: AcpSessionEvent) => {
+    const questions = event.questions ?? []
+    return questions.length > 0 && acpQuestionAnswers(event).every(answer => answer.selectedOptionIds.length > 0)
+  }
 
   const chooseAttachment = async () => {
     if (choosingAttachment || submitting) return
     const requestId = ++attachmentRequestRef.current
     setChoosingAttachment(true)
     setComposerError(null)
-    const filters = selectedModeId === 'ai-podcast'
-      ? [{ name: t('文档'), extensions: [...DOCUMENT_EXTENSIONS] }]
-      : selectedModeId === 'smart-cut' || selectedModeId === 'video-dubbing'
-        ? [{ name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] }]
-        : [
-            { name: t('音频文件'), extensions: [...AUDIO_EXTENSIONS] },
-            { name: t('视频文件'), extensions: [...VIDEO_EXTENSIONS] },
-            { name: t('文档'), extensions: [...DOCUMENT_EXTENSIONS] },
-          ]
     try {
       const selection = await open({
         title: t('添加创作素材'),
-        multiple: false,
+        multiple: true,
         directory: false,
-        filters,
       })
       if (requestId !== attachmentRequestRef.current) return
-      const path = typeof selection === 'string' ? selection : null
-      if (path) {
-        onAttachmentChange({
+      const paths = Array.isArray(selection)
+        ? selection
+        : typeof selection === 'string'
+          ? [selection]
+          : []
+      if (paths.length) {
+        onAttachmentsChange(uniqueAgentFiles([
+          ...selectedAttachments,
+          ...paths.map((path) => ({
           path,
           name: path.split(/[\\/]/u).at(-1) || t('未命名文件'),
-        })
+          })),
+        ]))
       }
     } catch {
       if (requestId === attachmentRequestRef.current) {
@@ -394,10 +514,11 @@ export function AgentHomeView({
     onSubmitPrompt({
       content: trimmed,
       selectedModeName: selectedMode ? t(selectedMode.name) : null,
-      attachmentHint: attachment ? attachmentHint(attachment.path) : '',
-      attachment,
+      attachmentHint: attachmentsHint(selectedAttachments),
+      attachment: selectedAttachments[0] ?? null,
+      attachments: selectedAttachments,
     })
-    if (attachment) onAttachmentChange(null)
+    if (selectedAttachments.length) onAttachmentsChange([])
   }
 
   const copyMessage = async (message: GeneralAgentMessage) => {
@@ -470,12 +591,9 @@ export function AgentHomeView({
 	                  <div className="agent-message-body">
 	                    <div className="agent-message-bubble">
 	                      <p>{message.content}</p>
-	                      {uniqueAgentFiles([
-	                        message.attachment,
-	                        ...(message.attachments ?? []),
-	                      ]).map((file) => (
-	                        <AgentFilePreview file={file} key={`${file.path}-${file.name}`} />
-	                      ))}
+                      {messagePreviewFiles(message).map((file) => (
+                        <AgentFilePreview file={file} key={`${file.path}-${file.name}`} />
+                      ))}
 	                      {message.action && message.action.kind === 'structured-agent-plan' && (() => {
                         const action = message.action
                         const isRunning = action.status === 'running'
@@ -535,32 +653,65 @@ export function AgentHomeView({
                           </div>
                         )
                       })()}
-                      {message.action && message.action.kind !== 'structured-agent-plan' && (() => {
+	                      {message.action && message.action.kind !== 'structured-agent-plan' && (() => {
 	                        const modelOptions = messageModelOptions[message.id]
 	                        const expanded = expandedModelChoices.has(message.id)
-	                        const choices = modelOptions?.choices ?? []
-                          const firstChoices = choices.slice(0, 3)
-                          const selectedChoice = choices.find((choice) => choice.id === modelOptions?.selectedModelId)
-                          const visibleChoices = expanded
-                            ? choices
-                            : selectedChoice && !firstChoices.includes(selectedChoice)
-                              ? [...firstChoices.slice(0, 2), selectedChoice]
-                              : firstChoices
-	                        const hiddenChoiceCount = modelOptions
-	                          ? Math.max(0, modelOptions.choices.length - visibleChoices.length)
+                          const confirmQuestions = message.action.kind === 'confirm-agent-plan'
+                            ? message.action.questions ?? []
+                            : []
+                          const installQuestion = message.action.kind === 'install-on-demand-model'
+                            ? message.action.question
+                            : undefined
+                          const modelQuestion = modelOptions?.question ?? installQuestion
+                          const selectedConfirmOptions = confirmationSelections[message.id] ?? {}
+                          const confirmationReady = confirmQuestions.every((question) => selectedConfirmOptions[question.id])
+                          const modelOptionsList = modelQuestion?.options ?? []
+                          const firstModelOptions = modelOptionsList.slice(0, 3)
+                          const defaultModelOptionId = modelOptions?.selectedOptionId ?? (
+                            message.action.kind === 'install-on-demand-model'
+                              ? message.action.modelId
+                              : undefined
+                          )
+                          const selectedModelOptionId = modelQuestion
+                            ? selectedConfirmOptions[modelQuestion.id] ?? defaultModelOptionId
+                            : undefined
+                          const selectedModelOption = modelOptionsList.find((option) => option.id === selectedModelOptionId)
+                          const installModelName = message.action.kind === 'install-on-demand-model'
+                            ? selectedModelOption?.label ?? message.action.modelName
+                            : ''
+                          const visibleModelOptions = expanded
+                            ? modelOptionsList
+                            : selectedModelOption && !firstModelOptions.includes(selectedModelOption)
+                              ? [...firstModelOptions.slice(0, 2), selectedModelOption]
+                              : firstModelOptions
+	                        const hiddenChoiceCount = modelQuestion
+	                          ? Math.max(0, modelQuestion.options.length - visibleModelOptions.length)
 	                          : 0
+                          const askQuestions = [
+                            ...confirmQuestions,
+                            ...(modelQuestion
+                              ? [{ ...modelQuestion, options: visibleModelOptions }]
+                              : []),
+                          ]
+                          const actionDisabled = submitting ||
+                            message.action.status === 'running' ||
+                            message.action.status === 'done' ||
+                            (confirmQuestions.length > 0 && !confirmationReady) ||
+                            (Boolean(modelQuestion) && !selectedModelOptionId)
 	                        return (
 	                          <div className={`agent-message-action ${message.action.status}`}>
 	                            <div className="agent-message-action-head">
 	                              <div>
 	                                <strong>
 	                                  {message.action.kind === 'install-on-demand-model'
-	                                    ? message.action.modelName
+	                                    ? installModelName
 	                                    : t('需要确认')}
 	                                </strong>
 	                                <span>
 	                                  {message.action.kind === 'install-on-demand-model'
 	                                    ? t('用于{0}', [message.action.needLabel])
+                                      : askQuestions.length
+                                        ? t('请选择 {0} 个确认项', [String(askQuestions.length)])
 	                                    : modelOptions
 	                                      ? t('选择用于{0}的模型', [modelOptions.needLabel])
 	                                      : t('确认后继续')}
@@ -568,8 +719,8 @@ export function AgentHomeView({
 	                              </div>
 	                              <button
 	                                type="button"
-	                                disabled={submitting || message.action.status === 'running' || message.action.status === 'done'}
-	                                onClick={() => onRunMessageAction(message, modelOptions?.selectedModelId)}
+	                                disabled={actionDisabled}
+	                                onClick={() => onRunMessageAction(message, selectedModelOptionId, selectedConfirmOptions)}
 	                              >
 	                                {message.action.status === 'running' ? (
 	                                  <LoaderCircle className="model-spin" size={14} />
@@ -593,46 +744,59 @@ export function AgentHomeView({
 	                                      : t(message.action.label)}
 	                              </button>
 	                            </div>
-	                            {modelOptions && (
-	                              <div className="agent-model-choice-panel" aria-label={t('选择模型')}>
-	                                <div className="agent-model-choice-list">
-	                                  {visibleChoices.map((choice) => (
-	                                    <button
-	                                      type="button"
-	                                      className={choice.id === modelOptions.selectedModelId ? 'selected' : ''}
-	                                      aria-pressed={choice.id === modelOptions.selectedModelId}
-	                                      disabled={submitting || message.action?.status === 'running' || message.action?.status === 'done'}
-	                                      key={choice.id}
-	                                      title={choice.description}
-	                                      onClick={() => onMessageModelSelect(message.id, choice.id)}
-	                                    >
-	                                      <span>{choice.name}</span>
-	                                      <small>{choice.installed ? t('已安装') : t('待安装')}</small>
-	                                    </button>
-	                                  ))}
-	                                </div>
-	                                {modelOptions.choices.length > 3 && (
-	                                  <button
-	                                    type="button"
-	                                    className="agent-model-choice-toggle"
-	                                    aria-expanded={expanded}
-	                                    onClick={() => setExpandedModelChoices((current) => {
-	                                      const next = new Set(current)
-	                                      if (next.has(message.id)) {
-	                                        next.delete(message.id)
-	                                      } else {
-	                                        next.add(message.id)
-	                                      }
-	                                      return next
-	                                    })}
-	                                  >
-	                                    {expanded
-	                                      ? t('收起模型')
-	                                      : t('展开其余 {0} 个模型', [hiddenChoiceCount])}
-	                                  </button>
-	                                )}
-	                              </div>
-	                            )}
+                              {askQuestions.length > 0 && (
+                                <div className="agent-confirm-choice-panel" aria-label={t('选择确认项')}>
+                                  {askQuestions.map((question) => (
+                                    <div className="agent-confirm-choice-group" key={question.id}>
+                                      <span>{question.prompt}</span>
+                                      <div className="agent-confirm-choice-list">
+                                        {question.options.map((option) => (
+                                          <button
+                                            type="button"
+                                            className={(selectedConfirmOptions[question.id] ?? (question.id === modelQuestion?.id ? defaultModelOptionId : undefined)) === option.id ? 'selected' : ''}
+                                            aria-pressed={(selectedConfirmOptions[question.id] ?? (question.id === modelQuestion?.id ? defaultModelOptionId : undefined)) === option.id}
+                                            disabled={submitting || message.action?.status === 'running' || message.action?.status === 'done'}
+                                            key={option.id}
+                                            title={option.description}
+                                            onClick={() => setConfirmationSelections((current) => ({
+                                              ...current,
+                                              [message.id]: {
+                                                ...(current[message.id] ?? {}),
+                                                [question.id]: option.id,
+                                              },
+                                            }))}
+                                          >
+                                            <span>{option.label}</span>
+                                            {typeof option.installed === 'boolean' && (
+                                              <small>{option.installed ? t('已安装') : t('待安装')}</small>
+                                            )}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                                  {modelQuestion && modelQuestion.options.length > 3 && (
+                                    <button
+                                      type="button"
+                                      className="agent-model-choice-toggle"
+                                      aria-expanded={expanded}
+                                      onClick={() => setExpandedModelChoices((current) => {
+                                        const next = new Set(current)
+                                        if (next.has(message.id)) {
+                                          next.delete(message.id)
+                                        } else {
+                                          next.add(message.id)
+                                        }
+                                        return next
+                                      })}
+                                    >
+                                      {expanded
+                                        ? t('收起模型')
+                                        : t('展开其余 {0} 个模型', [hiddenChoiceCount])}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
 	                          </div>
 	                        )
 	                      })()}
@@ -662,6 +826,27 @@ export function AgentHomeView({
 	                        <LoaderCircle className="model-spin" size={14} />
 	                        {t('正在处理当前任务…')}
 	                      </p>
+	                      {visibleAgentProgress.length > 0 && (
+	                        <ol className="agent-progress-list" aria-label={t('Agent 执行进度')}>
+	                          {visibleAgentProgress.map((entry) => (
+	                            <li key={entry.id} className={`agent-progress-item ${entry.status}`}>
+	                              <span className="agent-progress-icon" aria-hidden="true">
+	                                {entry.status === 'done'
+	                                  ? <Check size={12} />
+	                                  : entry.status === 'failed'
+	                                    ? <X size={12} />
+	                                    : entry.status === 'waiting'
+	                                      ? <span className="agent-progress-dot" />
+	                                      : <LoaderCircle className="model-spin" size={12} />}
+	                              </span>
+	                              <span className="agent-progress-copy">
+	                                <span className="agent-progress-label">{entry.label}</span>
+	                                {entry.detail && <span className="agent-progress-detail">{entry.detail}</span>}
+	                              </span>
+	                            </li>
+	                          ))}
+	                        </ol>
+	                      )}
 	                    </div>
 	                  </div>
 	                </article>
@@ -692,6 +877,73 @@ export function AgentHomeView({
               <button type="button" onClick={() => onAcpPermission(event)}>{t('拒绝')}</button>
             </div>
           </section>)}
+          {acpQuestions.map(event => {
+            const eventKey = acpInteractiveKey(event)
+            const eventSelections = acpQuestionSelections[eventKey] ?? {}
+            const complete = acpQuestionComplete(event)
+            return (
+              <section className="agent-acp-interaction" key={eventKey} aria-label={t('Agent 请求选择')}>
+                <strong>{event.title || t('Agent 请求选择')}</strong>
+                <div className="agent-acp-question-list">
+                  {(event.questions ?? []).map(question => (
+                    <div className="agent-acp-question" key={question.id}>
+                      <span>{question.prompt}</span>
+                      <div className="agent-acp-option-list">
+                        {question.options.map(option => {
+                          const selected = (eventSelections[question.id] ?? []).includes(option.id)
+                          return (
+                            <button
+                              type="button"
+                              className={selected ? 'selected' : undefined}
+                              key={option.id}
+                              onClick={() => toggleAcpQuestionOption(event, question.id, option.id, question.allowMultiple)}
+                            >
+                              {option.label}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="agent-acp-actions">
+                  <button type="button" disabled={!complete} onClick={() => onAcpQuestion(event, acpQuestionAnswers(event))}>{t('提交选择')}</button>
+                  <button type="button" onClick={() => onAcpQuestion(event)}>{t('取消')}</button>
+                </div>
+              </section>
+            )
+          })}
+          {acpPlanApprovals.map(event => {
+            const eventKey = acpInteractiveKey(event)
+            const hasPlan = Boolean(event.plan?.length || event.phases?.length)
+            return (
+              <section className="agent-acp-interaction" key={eventKey} aria-label={t('Agent 请求确认计划')}>
+                <strong>{event.title || t('Agent 请求确认计划')}</strong>
+                {event.content && <p>{event.content}</p>}
+                {hasPlan && (
+                  <div className="agent-acp-plan">
+                    {event.plan?.length ? (
+                      <ul>
+                        {event.plan.map((item, index) => <li key={item.id ?? `${index}`}>{item.content}</li>)}
+                      </ul>
+                    ) : null}
+                    {event.phases?.map((phase, index) => (
+                      <div className="agent-acp-plan-phase" key={phase.id ?? `${index}`}>
+                        <span>{phase.name || t('阶段 {0}', [String(index + 1)])}</span>
+                        <ul>
+                          {(phase.todos ?? []).map((item, itemIndex) => <li key={item.id ?? `${itemIndex}`}>{item.content}</li>)}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="agent-acp-actions">
+                  <button type="button" onClick={() => onAcpPlanApproval(event, true)}>{t('批准执行')}</button>
+                  <button type="button" onClick={() => onAcpPlanApproval(event, false)}>{t('拒绝')}</button>
+                </div>
+              </section>
+            )
+          })}
           <div className="agent-home-composer" aria-busy={submitting}>
             {workspaceExamples.length > 0 && !draftPrompt && (
               <div className="workspace-chat-examples" aria-label={t('试试这样操作')}>
@@ -702,27 +954,27 @@ export function AgentHomeView({
               </div>
             )}
 
-	            {attachment && (
+	            {selectedAttachments.map((file) => (
 	              <AgentFilePreview
-	                compact
-	                file={attachment}
-	                invalid={!attachmentCompatible}
-	                disabled={submitting || choosingAttachment}
+		                compact
+		                file={file}
+		                key={`${file.path}-${file.name}`}
+		                disabled={submitting || choosingAttachment}
 	                onRemove={() => {
-                    onAttachmentChange(null)
+                    onAttachmentsChange(selectedAttachments.filter(candidate => candidate.path !== file.path || candidate.name !== file.name))
                     setComposerError(null)
                     promptRef.current?.focus()
                   }}
 	              />
-	            )}
+	            ))}
             <textarea
               ref={promptRef}
               rows={2}
               value={draftPrompt}
               disabled={submitting}
               aria-label={t('描述任务')}
-              aria-describedby={composerError || !attachmentCompatible || chatModelUnavailable ? 'agent-composer-status' : undefined}
-              aria-invalid={!attachmentCompatible}
+	              aria-describedby={composerError || chatModelUnavailable || hasModeSpecificAttachments ? 'agent-composer-status' : undefined}
+	              aria-invalid={Boolean(composerError)}
               placeholder={workspaceCanOperate ? t('继续补充要求、添加素材，或让 Agent 修改结果…') : inWorkspace ? t('继续补充任务要求，或与 Agent 讨论…') : t('描述你想完成的音视频任务，例如：把这个视频翻译成中文配音版，并保留原说话节奏')}
               onChange={(event) => onDraftPromptChange(event.target.value)}
               onKeyDown={(event) => {
@@ -733,10 +985,10 @@ export function AgentHomeView({
             />
             <div className="agent-home-composer-toolbar">
               {<button
-                type="button"
-                className="agent-attach-button"
-                disabled={submitting || choosingAttachment || selectedEntry === 'meeting-notes'}
-                aria-label={attachment ? t('更换文件') : t('添加文件')}
+	                type="button"
+	                className="agent-attach-button"
+	                disabled={submitting || choosingAttachment}
+                aria-label={t('添加文件')}
                 title={attachmentHelp}
                 onClick={() => void chooseAttachment()}
               >
@@ -777,23 +1029,27 @@ export function AgentHomeView({
                 </div>
               <button
                 className="agent-home-submit"
-                type="button"
-                disabled={!canSubmit && !acpRunning}
-                aria-label={acpRunning ? t('停止 Agent 回复') : submitting ? t('正在处理当前任务…') : t('发送给 Agent')}
-                title={submitting ? t('正在处理当前任务…') : !attachmentCompatible ? attachmentHelp : t('发送给 Agent')}
-                onClick={() => acpRunning ? onCancelAcp() : void submitPrompt()}
+	                type="button"
+	                disabled={!canSubmit && !acpRunning}
+	                aria-label={acpRunning ? t('停止 Agent 回复') : submitting ? t('正在处理当前任务…') : t('发送给 Agent')}
+	                title={submitting ? t('正在处理当前任务…') : hasModeSpecificAttachments ? attachmentHelp : t('发送给 Agent')}
+	                onClick={() => acpRunning ? onCancelAcp() : void submitPrompt()}
               >
                 {acpRunning ? <span aria-hidden="true">■</span> : submitting ? <LoaderCircle className="model-spin" size={17} /> : <ArrowUp size={18} strokeWidth={2.2} />}
               </button>
               </div>
             </div>
-            {(composerError || !attachmentCompatible || chatModelUnavailable) && (
-              <div className="agent-home-composer-footer">
-                <span id="agent-composer-status" className="agent-composer-status invalid" role="alert">
-                  {composerError ?? (chatModelUnavailable ? t('所选对话模型不可用，请到设置里的 Agent 设置重新选择。') : attachmentHelp)}
-                </span>
-              </div>
-            )}
+	            {(composerError || chatModelUnavailable || hasModeSpecificAttachments) && (
+	              <div className="agent-home-composer-footer">
+	                <span
+                    id="agent-composer-status"
+                    className={`agent-composer-status${composerError || chatModelUnavailable ? ' invalid' : ''}`}
+                    role={composerError || chatModelUnavailable ? 'alert' : 'status'}
+                  >
+	                  {composerError ?? (chatModelUnavailable ? t('所选对话模型不可用，请到设置里的 Agent 设置重新选择。') : attachmentHelp)}
+	                </span>
+	              </div>
+	            )}
           </div>
           {showSkillRow && (
             <div className="agent-context-row" aria-label={t('技能选择')}>

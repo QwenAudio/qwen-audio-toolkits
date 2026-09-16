@@ -8,6 +8,7 @@ import {
   planOnDemandModelAction,
   resolveOnDemandModelExecution,
   resolveOnDemandModelExecutions,
+  resolveOnDemandModelInstallCandidates,
   resolveOnDemandModelNeed,
   resolveOnDemandModelNeeds,
 } from '../src/domain/onDemandModels'
@@ -180,6 +181,53 @@ if (transcribe) {
   assert.equal(transcribePlan?.capability, 'speech.transcribe')
   assert.equal(transcribePlan?.parameters.language, 'auto')
 }
+const transcribeInstallResolution = resolveOnDemandModelNeed('帮我转写这段录音', [
+  model('funaudiollm.sensevoice-small-gguf', 'speech.transcribe', false, {
+    adapter: 'funasr-sensevoice-gguf',
+  }),
+  model('k2-fsa.funasr-nano', 'speech.transcribe', false, {
+    adapter: 'funasr-nano',
+  }),
+  model('funaudiollm.paraformer-gguf', 'speech.transcribe', false, {
+    adapter: 'funasr-paraformer-gguf',
+  }),
+])
+assert.equal(transcribeInstallResolution?.recommendedModel?.id, 'funaudiollm.sensevoice-small-gguf')
+if (transcribeInstallResolution?.recommendedModel) {
+  const installCandidates = resolveOnDemandModelInstallCandidates(transcribeInstallResolution, [
+    model('funaudiollm.sensevoice-small-gguf', 'speech.transcribe', false, {
+      adapter: 'funasr-sensevoice-gguf',
+    }),
+    model('k2-fsa.funasr-nano', 'speech.transcribe', false, {
+      adapter: 'funasr-nano',
+    }),
+    model('funaudiollm.paraformer-gguf', 'speech.transcribe', false, {
+      adapter: 'funasr-paraformer-gguf',
+    }),
+  ])
+  assert.deepEqual(installCandidates.map((candidate) => candidate.id), [
+    'funaudiollm.sensevoice-small-gguf',
+    'k2-fsa.funasr-nano',
+    'funaudiollm.paraformer-gguf',
+  ])
+  const installAction = createInstallModelAction(
+    transcribeInstallResolution,
+    transcribeInstallResolution.recommendedModel,
+    {
+      prompt: '帮我转写这段录音',
+      selectedModeName: null,
+      attachmentHint: '',
+      attachment: { path: '/tmp/demo.wav', name: 'demo.wav' },
+      modelCandidates: installCandidates,
+    },
+  )
+  assert.equal(installAction.question?.id, 'model:speech-transcribe')
+  assert.deepEqual(installAction.question?.options.map((option) => option.id), [
+    'funaudiollm.sensevoice-small-gguf',
+    'k2-fsa.funasr-nano',
+    'funaudiollm.paraformer-gguf',
+  ])
+}
 const transcribeExecution = resolveOnDemandModelExecution(
   '确认后用 SenseVoice 执行语音转写。',
   [
@@ -191,6 +239,18 @@ const transcribeExecution = resolveOnDemandModelExecution(
 )
 assert.equal(transcribeExecution?.model.id, 'funaudiollm.sensevoice-small-gguf')
 assert.equal(transcribeExecution?.plan.capability, 'speech.transcribe')
+assert.equal(
+  resolveOnDemandModelExecution(
+    '确认后执行语音转写。',
+    [
+      model('funaudiollm.sensevoice-small-gguf', 'speech.transcribe', true, {
+        adapter: 'funasr-sensevoice-gguf',
+      }),
+    ],
+    { path: '/tmp/demo.mov', name: 'demo.mov' },
+  ),
+  null,
+)
 const transcribeCandidates = resolveOnDemandModelExecution(
   '确认后执行语音转写。',
   [
@@ -276,4 +336,4 @@ assert.equal(planOnDemandModelAction('请降噪', [], 'ask').kind, 'unavailable'
 assert.equal(isInstallApproval('帮我安装'), true)
 assert.equal(isInstallApproval('先不用'), false)
 
-console.log(JSON.stringify({ status: 'passed', checks: 45 }, null, 2))
+console.log(JSON.stringify({ status: 'passed', checks: 46 }, null, 2))

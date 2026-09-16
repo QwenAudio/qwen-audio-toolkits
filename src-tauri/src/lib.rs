@@ -958,6 +958,8 @@ pub fn run() {
             acp::acp_send_prompt,
             acp::acp_cancel_turn,
             acp::acp_respond_permission,
+            acp::acp_respond_question,
+            acp::acp_respond_plan_approval,
             acp::acp_finish_session,
             agent_set_meeting_state,
             system_audio_start,
