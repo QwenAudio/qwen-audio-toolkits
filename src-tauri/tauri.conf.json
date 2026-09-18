@@ -56,6 +56,7 @@
       "csp": {
         "default-src": "'self' customprotocol: asset:",
         "connect-src": "ipc: http://ipc.localhost",
+        "frame-src": "https: http://127.0.0.1:* http://localhost:* http://[::1]:*",
         "img-src": "'self' asset: http://asset.localhost blob: data:",
         "media-src": "'self' asset: http://asset.localhost blob: data:",
         "style-src": "'self' 'unsafe-inline'",
@@ -64,6 +65,7 @@
       "devCsp": {
         "default-src": "'self' customprotocol: asset: http://localhost:1420",
         "connect-src": "ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1420",
+        "frame-src": "https: http://127.0.0.1:* http://localhost:* http://[::1]:*",
         "img-src": "'self' asset: http://asset.localhost blob: data:",
         "media-src": "'self' asset: http://asset.localhost blob: data:",
         "style-src": "'self' 'unsafe-inline'",

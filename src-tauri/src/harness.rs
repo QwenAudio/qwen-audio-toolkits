@@ -8180,3 +8180,16 @@ fn timestamp_millis() -> u64 {
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
 }
+
+// Share the configured provider only with the built-in independent Bailian projects.
+pub(crate) fn python_agent_provider_env(app: &AppHandle, id: &str) -> Result<Vec<(String, String)>, String> {
+    if !matches!(id, "bailian-cosyvoice-v2" | "bailian-cosyvoice-v3-plus" | "bailian-cosyvoice-v35-flash" | "bailian-cosyvoice-v35-plus" | "bailian-fun-audio-denoising" | "bailian-funasr-8k-realtime" | "bailian-funasr-realtime" | "bailian-paraformer-8k-realtime-v2" | "bailian-paraformer-realtime-v2" | "bailian-qwen-audio-asr-filetrans" | "bailian-qwen-audio-asr-flash" | "bailian-qwen-audio-tts" | "bailian-qwen-audio-tts-plus" | "bailian-qwen3-asr" | "bailian-qwen36-plus" | "bailian-qwen37-plus") { return Ok(vec![]); }
+    let config = read_bailian_provider_config(app)?;
+    if !config.configured() { return Ok(vec![]); }
+    let base = config.base_url.trim_end_matches('/');
+    Ok(vec![
+        ("DASHSCOPE_API_KEY".into(), config.api_key),
+        ("DASHSCOPE_HTTP_BASE_URL".into(), base.into()),
+        ("DASHSCOPE_WEBSOCKET_BASE_URL".into(), format!("{}/api-ws/v1/inference", base.replacen("https://", "wss://", 1))),
+    ])
+}

@@ -1,4 +1,6 @@
 mod advanced_models;
+mod agent_server;
+mod agent_ui;
 mod agents;
 mod asr;
 mod audio_io;
@@ -715,6 +717,7 @@ pub fn run() {
         .manage(harness_runtime)
         .manage(CloseBehavior(AtomicBool::new(false)))
         .manage(SystemAudioRuntime::new())
+        .manage(agent_ui::AgentUiRuntime::default())
         .setup(|app| {
             if let Err(error) = downloads::clear_completed_downloads(app.handle()) {
                 log::warn!("could not clear completed model downloads: {error}");
@@ -776,6 +779,12 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            agent_server::agent_server_status,
+            agent_ui::agent_ui_open,
+            agent_ui::agent_ui_install,
+            agent_ui::agent_ui_installed,
+            agent_ui::agent_ui_uninstall,
+            agent_ui::agent_ui_stop,
             runtime_status,
             set_close_behavior,
             app_data_directory,
@@ -840,6 +849,9 @@ pub fn run() {
         .expect("error while building tauri application");
 
     app.run(|app, event| {
+        if let RunEvent::Exit = event {
+            app.state::<agent_ui::AgentUiRuntime>().stop();
+        }
         #[cfg(target_os = "macos")]
         if let RunEvent::Reopen { .. } = event {
             restore_main_window(app);

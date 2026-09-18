@@ -7988,8 +7988,8 @@ mod tests {
     #[test]
     fn agent_examples_register_isolated_harness_contracts() {
         for raw in [
-            include_str!("../../examples/agents/3d-speaker/agent.json"),
-            include_str!("../../examples/agents/audio-to-text/agent.json"),
+            include_str!("../tests/fixtures/legacy-3d-speaker-agent.json"),
+            include_str!("../tests/fixtures/audio-to-text-agent.json"),
         ] {
             let manifest = parse_manifest_value(serde_json::from_str(raw).unwrap()).unwrap();
             let project = manifest.agent.as_ref().unwrap();
@@ -8013,7 +8013,7 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         fs::write(
             project.join("agent.json"),
-            include_str!("../../examples/agents/3d-speaker/agent.json"),
+            include_str!("../tests/fixtures/legacy-3d-speaker-agent.json"),
         )
         .unwrap();
         fs::write(project.join("README.md"), "Project-owned usage").unwrap();

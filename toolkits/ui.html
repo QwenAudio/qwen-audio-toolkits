@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  />
+  <title>Agent UI</title>
+  <link rel="stylesheet" href="ui.css" />
+  <header>
+    <div>
+      <h1 id="title">正在加载…</h1>
+      <p id="description"></p>
+    </div>
+    <button id="clear" disabled>清空对话</button>
+  </header>
+  <div class="agent-workspace">
+  <main>
+    <div id="history" aria-label="对话记录">
+      <div id="welcome">
+        <strong>开始一次对话</strong
+        ><span>在下方输入内容，处理结果将显示在这里。</span>
+      </div>
+    </div>
+    <footer>
+      <div class="composer-shell">
+      <fieldset id="inputs" aria-label="输入组"></fieldset>
+      <div class="composer-bar">
+        <p id="status" role="status" aria-live="polite"></p>
+        <button id="run" disabled aria-label="发送" title="发送 · Enter；Shift+Enter 换行"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 18V6m-5 5 5-5 5 5"/></svg></button>
+      </div>
+      </div>
+    </footer>
+  </main>
+  <aside id="result-detail" hidden aria-label="结果详情">
+    <div id="detail-resize" role="separator" tabindex="0" aria-label="调整详情宽度" aria-orientation="vertical"></div>
+    <div class="detail-heading"><strong>结果详情</strong><button id="close-detail" aria-label="关闭详情">×</button></div>
+    <div id="detail-content"></div>
+  </aside>
+  </div>
+  <script src="ui-content.js" defer></script>
+  <script src="ui-streaming.js" defer></script>
+  <script src="ui.js" defer></script>
+</html>

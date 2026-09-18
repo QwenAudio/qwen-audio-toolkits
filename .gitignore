@@ -10,6 +10,12 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+python/*/build/
+python/*/data/
 *.local
 # Editor directories and files
 .vscode/*
@@ -25,3 +31,5 @@ dist-ssr
 # Release staging (uploaded to ModelScope, not committed)
 .release/
 RELEASE.md
+
+/build/

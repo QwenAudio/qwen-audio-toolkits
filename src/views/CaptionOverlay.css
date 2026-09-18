@@ -147,3 +147,16 @@
   color: #ffffff;
   background: rgba(255, 255, 255, 0.2);
 }
+
+/* StreamingAudio: three lines of transcript with no diagnostic badges. */
+.caption-panel-streaming { background: rgba(24, 32, 28, .68); border-radius: 14px; padding: 10px 32px 10px 16px; }
+.caption-panel-streaming .caption-badge { display: none; }
+.caption-panel-streaming .caption-lines { height: 74px; max-height: 74px; overflow: hidden; }
+.caption-panel-streaming .caption-line p { font-size: 15px; line-height: 22px; color: rgba(255,255,255,.96); }
+
+.caption-overlay-root { user-select: none; -webkit-user-select: none; cursor: grab; touch-action: none; }
+.caption-overlay-root:active { cursor: grabbing; }
+.caption-close { cursor: pointer; }
+
+.caption-panel-streaming { width: 100%; }
+.caption-stream-text { width: 100%; height: 66px; overflow: hidden; font-size: 15px; line-height: 22px; font-weight: 400; white-space: normal; overflow-wrap: anywhere; word-break: normal; color: rgba(255,255,255,.96); }

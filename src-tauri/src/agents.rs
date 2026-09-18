@@ -131,7 +131,10 @@ mod tests {
     use super::*;
 
     fn project() -> Value {
-        serde_json::from_str(include_str!("../../examples/agents/3d-speaker/agent.json")).unwrap()
+        serde_json::from_str(include_str!(
+            "../tests/fixtures/legacy-3d-speaker-agent.json"
+        ))
+        .unwrap()
     }
 
     #[test]

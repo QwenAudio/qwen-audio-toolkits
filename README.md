@@ -205,3 +205,9 @@ The original project source is licensed under the
 [Apache License 2.0](LICENSE). Third-party runtimes, libraries, model weights,
 datasets, and hosted services retain their own licenses and terms. See
 [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Python Agent UI
+
+Python Agent 项目仅需在根目录提供 `agent_ui.py` / `create_ui()`，业务代码可自由组织，无需 `agent.json`。开发者通过 SDK 在浏览器体验标准音频和文本组件；桌面 Agents 页直接展示 Agent Server 网站，不提供 Python 开发入口、IDE 或 Git 编辑界面。参见 [Python UI SDK 与运行说明](docs/python-agent-ui.md)。
+
+Toolkits 本身提供可 pip 安装的 Python 包与桌面应用，共用同一份 UI 组件和运行时。参见 [Python SDK](docs/python-sdk.md) 与 [仓库结构](docs/repositories.md)。Agent 网站与示例在独立的 agent-server 仓库维护。

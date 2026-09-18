@@ -21,6 +21,7 @@ import {
   Headphones,
   LoaderCircle,
   Mic,
+  Menu,
   MonitorSpeaker,
   SquarePen,
   SlidersHorizontal,
@@ -2773,6 +2774,15 @@ export function ModelWorkspaceView({
                 <article
                   className={`model-result-message status-${run.status}${inlineAudioUrl && run.status === 'completed' ? ' audio-output-preview' : ''}${selectedRunId === run.id ? ' selected' : ''}`}
                 >
+                  {!(inlineAudioUrl && run.status === 'completed') && (
+                    <button
+                      className="message-detail-icon"
+                      type="button"
+                      title="查看详情"
+                      aria-label="查看详情"
+                      onClick={() => openRunDetail(run.id)}
+                    ><Menu size={15} /></button>
+                  )}
                   {!(inlineAudioUrl && run.status === 'completed') && (
                     <button
                       className="model-result-summary"

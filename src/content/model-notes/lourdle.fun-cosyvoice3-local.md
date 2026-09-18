@@ -11,7 +11,7 @@ Fun-CosyVoice3 0.5B 的本地版本，基于 CosyVoice.cpp 与 GGUF 在 CPU 上�
 - 音色克隆：参考音频 + 参考文本
 
 ## 使用建议
-- 推荐搭配 SenseVoice Small GGUF 自动识别参考音频文本
+- 填写参考音频中实际说出的文本，项目不调用其他 Agent 自动转写
 - Q5_K_M（约 970 MB）体积更小；Q8_0（约 1.2 GB）音质更稳
 - CPU 合成速度慢于云端 CosyVoice，长文本请耐心等待
 

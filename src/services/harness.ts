@@ -481,3 +481,26 @@ export function getModelPluginFiles(
 export function installAgentProject(path: string): Promise<ModelPlugin> {
   return invoke<ModelPlugin>('plugin_install_package', { request: { path } })
 }
+
+export interface AgentServerStatus {
+  url: string
+  available: boolean
+  error: string | null
+}
+
+export function getAgentServerStatus(): Promise<AgentServerStatus> {
+  return invoke<AgentServerStatus>('agent_server_status')
+}
+
+export function openAgentUi(id: string): Promise<{ url: string; title: string }> {
+  return invoke('agent_ui_open', { id })
+}
+export function stopAgentUi(url: string): Promise<void> {
+  return invoke('agent_ui_stop', { url })
+}
+
+export interface InstalledPythonAgent { revision?: string | null; id: string; title: string; status?: string; error?: string }
+export function installPythonAgent(id: string, update = false): Promise<InstalledPythonAgent> { return invoke('agent_ui_install', { id, update }) }
+export function listInstalledPythonAgents(): Promise<InstalledPythonAgent[]> { return invoke('agent_ui_installed') }
+
+export function uninstallPythonAgent(id: string): Promise<void> { return invoke("agent_ui_uninstall", { id }) }

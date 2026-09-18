@@ -1,3 +1,7 @@
+import { installationStates, installationListeners, installationChanged } from './services/agentInstallState'
+import { installCatalogModel, setModelPluginSidebarVisible, uninstallPythonAgent } from './services/harness'
+import { PythonAgentWorkspace } from './views/PythonAgentWorkspace'
+import { listInstalledPythonAgents, type InstalledPythonAgent } from './services/harness'
 import {
   lazy,
   Suspense,
@@ -37,7 +41,6 @@ import {
 } from 'lucide-react'
 import {
   ProviderSettings,
-  type ProviderSettingsKind,
 } from './components/ProviderSettings'
 import { initialPlugins, fallbackRuntime } from './data'
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
@@ -58,7 +61,6 @@ import {
   replaceModelDependencyBindings,
   revealInFileManager,
   setCloseBehavior,
-  setModelDependencyBinding,
   subscribeHarnessRuns,
   uninstallModelPlugin,
 } from './services/harness'
@@ -157,7 +159,7 @@ const WORKFLOWS_ENABLED = false
 const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000
 const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000
 const DEFAULT_SIDEBAR_WIDTH = 260
-const MIN_SIDEBAR_WIDTH = 200
+const MIN_SIDEBAR_WIDTH = 160
 const MAX_SIDEBAR_WIDTH = 520
 const MIN_WORKSPACE_WIDTH = 480
 
@@ -450,7 +452,7 @@ function summarizeRun(run: HarnessRun): HarnessRun {
 }
 
 type ShellPage = 'workspace' | 'extensions' | 'settings'
-type SettingsSection = 'general' | 'appearance' | 'storage'
+type SettingsSection = 'general' | 'appearance' | 'storage' | 'accounts'
 
 type AccentColor = 'mint' | 'indigo' | 'amber' | 'rose'
 
@@ -483,13 +485,42 @@ const SETTINGS_SECTIONS: {
   { id: 'general', label: '常规', Icon: Settings2 },
   { id: 'appearance', label: '外观', Icon: Palette },
   { id: 'storage', label: '模型与存储', Icon: HardDrive },
+  { id: 'accounts', label: '账号与服务', Icon: Settings2 },
 ]
 
 function App() {
   const [view, setView] = useState<AppView>('workspace')
   const [shellPage, setShellPage] = useState<ShellPage>('workspace')
-  const [extensionsNavHost, setExtensionsNavHost] =
-    useState<HTMLDivElement | null>(null)
+  const [agentCategory, setAgentCategory] = useState('all')
+  const [expandedAgentCategory, setExpandedAgentCategory] = useState<string | null>(null)
+  const [agentSecondary, setAgentSecondary] = useState('all')
+  const [pythonAgents, setPythonAgents] = useState<InstalledPythonAgent[]>([])
+  useEffect(() => {
+    const update = () => setPythonAgents(current => {
+      const next = new Map(current.map(agent => [agent.id, agent]))
+      for (const item of installationStates.values()) {
+        if (item.kind === "host") continue
+        if (item.status === 'uninstalled') { next.delete(item.id); continue }
+        next.set(item.id, { ...next.get(item.id), id: item.id, title: next.get(item.id)?.title ?? item.id, status: item.status, error: item.error })
+      }
+      return [...next.values()]
+    })
+    installationListeners.add(update)
+    return () => { installationListeners.delete(update) }
+  }, [])
+  const [selectedPythonAgent, setSelectedPythonAgent] = useState<string | null>(null)
+  useEffect(() => {
+    if (isTauriRuntime()) void listInstalledPythonAgents().then(agents => setPythonAgents(() => {
+      const merged = new Map(agents.map(agent => [agent.id, agent]))
+      for (const item of installationStates.values()) {
+        if (item.kind === "host") continue
+        if (item.status === 'uninstalled') merged.delete(item.id)
+        else merged.set(item.id, { ...merged.get(item.id), id: item.id, title: merged.get(item.id)?.title ?? item.id, status: item.status, error: item.error })
+      }
+      return [...merged.values()]
+    })).catch(console.error)
+  }, [])
+
   const [plugins, setPlugins] = useState<ModelPlugin[]>(initialPlugins)
   const [pluginsLoaded, setPluginsLoaded] = useState(() => !isTauriRuntime())
   const [runtime, setRuntime] = useState<RuntimeStatus>(fallbackRuntime)
@@ -552,16 +583,9 @@ function App() {
   >(null)
   const extensionsTriggerRef = useRef<HTMLButtonElement>(null)
   const extensionsReturnFocusRef = useRef<HTMLElement | null>(null)
-  const [providerDialogOpen, setProviderDialogOpen] = useState(false)
   const settingsTriggerRef = useRef<HTMLButtonElement>(null)
-  const settingsReturnFocusRef = useRef<HTMLElement | null>(null)
   const [settingsSection, setSettingsSection] =
-    useState<SettingsSection>('appearance')
-  const [settingsProvider, setSettingsProvider] =
-    useState<ProviderSettingsKind>('bailian')
-  const [settingsCustomProviderId, setSettingsCustomProviderId] = useState(
-    'api.openai-compatible',
-  )
+    useState<SettingsSection | 'all'>('all')
   const [clearingHistory, setClearingHistory] = useState(false)
   const [appUpdate, setAppUpdate] = useState<AppUpdateState>({ status: 'idle' })
   const appUpdateStatusRef = useRef<AppUpdateState['status']>('idle')
@@ -608,16 +632,6 @@ function App() {
       target?.focus()
     })
   }, [shellPage])
-  const closeProviderDialog = useCallback(() => {
-    setProviderDialogOpen(false)
-    const returnTarget = settingsReturnFocusRef.current
-    window.requestAnimationFrame(() => {
-      const target = returnTarget?.isConnected
-        ? returnTarget
-        : settingsTriggerRef.current
-      target?.focus()
-    })
-  }, [])
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-color-scheme: dark)')
@@ -633,20 +647,9 @@ function App() {
     return () => window.removeEventListener('resize', updateViewportWidth)
   }, [])
 
-  useEffect(() => {
-    if (!providerDialogOpen) return undefined
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopImmediatePropagation()
-      closeProviderDialog()
-    }
-    window.addEventListener('keydown', closeOnEscape, true)
-    return () => window.removeEventListener('keydown', closeOnEscape, true)
-  }, [closeProviderDialog, providerDialogOpen])
 
   useEffect(() => {
-    if (shellPage === 'workspace' || providerDialogOpen) return undefined
+    if (shellPage === 'workspace') return undefined
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') {
         return
@@ -657,7 +660,7 @@ function App() {
     }
     window.addEventListener('keydown', closeOnEscape, true)
     return () => window.removeEventListener('keydown', closeOnEscape, true)
-  }, [leaveShellPage, providerDialogOpen, shellPage])
+  }, [leaveShellPage, shellPage])
 
   useEffect(() => {
     document.documentElement.dataset.theme = resolvedTheme
@@ -804,23 +807,6 @@ function App() {
     })
   }
 
-  const saveModelBinding = (
-    pluginId: string,
-    role: string,
-    dependencyId: string,
-  ): Promise<void> => {
-    if (!isTauriRuntime()) {
-      setModelBindings((current) => ({
-        ...current,
-        [pluginId]: { ...current[pluginId], [role]: dependencyId },
-      }))
-      return Promise.resolve()
-    }
-    return setModelDependencyBinding(pluginId, role, dependencyId).then(
-      setModelBindings,
-    )
-  }
-
   const setCloudModelInstalled = (modelId: string, installed: boolean) => {
     if (!installed) removeModelBindings(modelId)
     setInstalledCloudModelIds((current) => {
@@ -896,6 +882,23 @@ function App() {
       })),
     ]
   }, [pinnedModelIds, orderedRunnablePlugins])
+  const sidebarAgentGroups = useMemo(() => {
+    const definitions = [...plugins, ...cloudModelsFromCatalog(catalog, installedCloudModelIds, apiModelCatalog, customApiModels)]
+    const groups = sidebarModelGroups.map(group => ({
+      ...group,
+      models: group.models.filter(model => !pythonAgents.some(agent => agent.id === model.id)),
+      agents: [] as InstalledPythonAgent[],
+    }))
+    for (const agent of pythonAgents) {
+      const definition = definitions.find(model => model.id === agent.id)
+      const label = definition ? modelTaxonomy(definition).secondaryCategory : '其他'
+      let group = groups.find(item => item.id === label)
+      if (!group) { group = { id: label, label, models: [], agents: [] }; groups.push(group) }
+      group.agents.push({ ...agent, title: definition?.name ?? agent.title })
+    }
+    const rank = (id: string) => id === 'pinned' ? -1 : SIDEBAR_TAXONOMY_GROUP_ORDER.includes(id) ? SIDEBAR_TAXONOMY_GROUP_ORDER.indexOf(id) : SIDEBAR_TAXONOMY_GROUP_ORDER.length
+    return groups.filter(group => group.models.length + group.agents.length > 0).sort((a, b) => rank(a.id) - rank(b.id))
+  }, [sidebarModelGroups, pythonAgents, plugins, catalog, installedCloudModelIds, apiModelCatalog, customApiModels])
   const responsiveSidebarMaxWidth = Math.max(
     MIN_SIDEBAR_WIDTH,
     Math.min(
@@ -1318,7 +1321,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (shellPage !== 'settings' || settingsSection !== 'storage') return
+    if (shellPage !== 'settings' || (settingsSection !== 'storage' && settingsSection !== 'all')) return
     if (!isTauriRuntime() || dataDirectory !== null) return
     let disposed = false
     void appDataDirectory()
@@ -1429,30 +1432,21 @@ function App() {
   }
   const openExtensions = () => openShellPage('extensions')
   const openSettings = () => {
-    setSettingsSection('general')
+    setSettingsSection('all')
     openShellPage('settings')
   }
 
   const openProviderSettings = (providerId: string) => {
-    if (
-      providerId === 'api.openai-compatible' ||
-      providerId.startsWith('api.custom.')
-    ) {
-      setSettingsCustomProviderId(providerId)
+    if (providerId === 'api.openai-compatible' || providerId.startsWith('api.custom.')) {
+      notify('通用自定义服务配置已移除，请在对应 Agent 中配置账号。')
+      return
     }
-    setSettingsProvider(
-      providerId === 'api.openai-compatible' ||
-        providerId.startsWith('api.custom.')
-        ? 'custom'
-        : 'bailian',
-    )
-    if (!providerDialogOpen && document.activeElement instanceof HTMLElement) {
-      settingsReturnFocusRef.current = document.activeElement
-    }
-    setProviderDialogOpen(true)
+    setSettingsSection('accounts')
+    openShellPage('settings')
   }
 
   const selectPlugin = (pluginId: string) => {
+    setSelectedPythonAgent(null)
     setSelectedPluginId(pluginId)
     setWorkflowSelected(false)
     changeView('workspace')
@@ -1776,6 +1770,7 @@ function App() {
     const active =
       view === 'workspace' &&
       !workflowSelected &&
+      !selectedPythonAgent &&
       selectedPlugin.id === plugin.id
     const apiPlugin = plugin.providerId?.startsWith('api.') === true
     const pinned = pinnedModelIds.includes(plugin.id)
@@ -1844,6 +1839,7 @@ function App() {
             stopModelNameScroll(event.currentTarget)
           }}
           onClick={() => {
+            setSelectedPythonAgent(null)
             selectPlugin(plugin.id)
           }}
         >
@@ -1947,6 +1943,10 @@ function App() {
   }
 
   const settingsRows: Record<SettingsSection, ReactNode> = {
+    accounts: <div className="provider-account-dialog provider-account-page">
+      <p className="account-dialog-description">管理 Agent 使用的云端服务账号。配置后返回 Agent 即可使用。</p>
+      <ProviderSettings onCatalogChanged={setCatalog} onAction={notify} />
+    </div>,
     general: (
       <>
         <div className="settings-card">
@@ -2123,6 +2123,7 @@ function App() {
               onClick={() => selectTheme(theme)}
             >
               <Icon size={14} />
+              <span>{label}</span>
             </button>
           ))}
         </div>
@@ -2215,7 +2216,7 @@ function App() {
   }
   const activeSettingsSection =
     SETTINGS_SECTIONS.find((section) => section.id === settingsSection) ??
-    SETTINGS_SECTIONS[0]
+    { label: '全部' }
 
   return (
     <div
@@ -2251,24 +2252,32 @@ function App() {
               <ArrowLeft size={15} />
               <span>返回</span>
             </button>
-            <div className="sidebar-page-title">
-              {shellPage === 'extensions' ? (
-                <ShoppingBag size={15} />
-              ) : (
-                <Settings size={15} />
-              )}
-              <span>{shellPage === 'extensions' ? 'Agents' : '设置'}</span>
-            </div>
             {shellPage === 'extensions' ? (
-              <div
-                ref={setExtensionsNavHost}
-                className="sidebar-page-nav-body"
-              />
+              <nav className="sidebar-page-nav-body settings-nav" aria-label="Agent 分类">
+                {[['all', '全部'], ['Audio', '音频'], ['Text', '文本'], ['Vision', '视觉'], ['Multimodal', '多模态']].map(([id, label]) => {
+                  const selected = agentCategory === id
+                  const expanded = expandedAgentCategory === id
+                  const models = [...new Map([...plugins, ...cloudModelsFromCatalog(catalog, installedCloudModelIds, apiModelCatalog, customApiModels)].map(p => [p.id, p])).values()]
+                  const children = [...new Set(models.filter(p => modelTaxonomy(p).primaryCategory === id.toLowerCase()).map(p => modelTaxonomy(p).secondaryCategory))].sort()
+                  return <div key={id}>
+                    <button className={selected ? 'active' : ''} aria-expanded={id === 'all' ? undefined : expanded} onClick={() => { setExpandedAgentCategory(current => id === 'all' || current === id ? null : id); setAgentCategory(id); setAgentSecondary('all') }} aria-current={selected && agentSecondary === 'all' ? 'page' : undefined}><span aria-hidden="true">{id === 'all' ? '' : expanded ? '⌄' : '›'}</span><span>{label}</span></button>
+                    {expanded && id !== 'all' && <div className="taxonomy-secondary-group">{children.map(child => <button key={child} className={agentSecondary === child ? 'active' : ''} aria-current={agentSecondary === child ? 'page' : undefined} onClick={() => setAgentSecondary(child)}>{child}</button>)}</div>}
+                  </div>
+                })}
+              </nav>
             ) : (
               <nav
                 className="sidebar-page-nav-body settings-nav"
                 aria-label="设置分类"
               >
+                <button
+                  className={settingsSection === 'all' ? 'active' : ''}
+                  type="button"
+                  aria-current={settingsSection === 'all' ? 'page' : undefined}
+                  onClick={() => setSettingsSection('all')}
+                >
+                  <span>全部</span>
+                </button>
                 {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
                   <button
                     key={id}
@@ -2289,9 +2298,8 @@ function App() {
 
         {shellPage === 'workspace' && (
         <nav className="installed-models" aria-label="已安装 Agents">
-          {sidebarModelGroups.map((group) => {
+          {sidebarAgentGroups.map((group) => {
             const models = group.models
-            if (!models.length) return null
             const collapsed = collapsedSidebarGroups.has(group.id)
             return (
               <section
@@ -2306,11 +2314,22 @@ function App() {
                   onClick={() => toggleSidebarGroup(group.id)}
                 >
                   <span>{group.label}</span>
-                  <span className="sidebar-group-count">{models.length}</span>
+                  <span className="sidebar-group-count">{models.length + group.agents.length}</span>
                 </button>
                 {!collapsed && (
                   <div className="sidebar-model-group-items">
                     {models.map(renderPluginSidebarEntry)}
+                    {group.agents.map(agent => <div key={agent.id} className="installed-model-entry python-agent-entry">
+                      <button className={`installed-model-button${selectedPythonAgent === agent.id ? ' active' : ''}`} title={agent.error ?? agent.title} disabled={agent.status === 'installing' || agent.status === 'updating' || agent.status === 'uninstalling'} aria-current={selectedPythonAgent === agent.id ? 'page' : undefined} onClick={() => { if (agent.status === 'failed') { openExtensions(); return }; setSelectedPythonAgent(agent.id); setView('workspace'); setWorkflowSelected(false) }}><span className="activity-model-name"><span className="activity-model-name-text">{agent.title}</span></span></button>
+                      <span className="python-agent-action">{agent.status === 'installing' ? <span className="python-agent-progress" title="安装中"><LoaderCircle size={14} className="model-spin" /><span className="agent-install-label">安装中</span></span> : agent.status === 'failed' ? <span className="agent-install-label" title={agent.error}>安装失败</span> : <button className="installed-model-pin" aria-label={`卸载 ${agent.title}`} title="卸载" disabled={agent.status === 'uninstalling'} onClick={() => {
+                        installationChanged(agent.id, 'uninstalling')
+                        void uninstallPythonAgent(agent.id).then(() => {
+                          installationChanged(agent.id, 'uninstalled')
+                          if (selectedPythonAgent === agent.id) setSelectedPythonAgent(null)
+                          notify(`${agent.title} 已卸载`)
+                        }).catch(error => { installationChanged(agent.id, 'installed'); notify(`卸载失败：${String(error)}`) })
+                      }}>{agent.status === 'uninstalling' ? <LoaderCircle size={14} className="model-spin" /> : <Trash2 size={14} />}</button>}</span>
+                    </div>)}
                   </div>
                 )}
               </section>
@@ -2322,22 +2341,6 @@ function App() {
         {shellPage === 'workspace' && <div className="sidebar-spacer" />}
 
         <nav className="sidebar-dock" aria-label="资源与设置">
-          {WORKFLOWS_ENABLED && (
-            <button
-              className={`sidebar-dock-button${
-                shellPage === 'workspace' && view === 'workflows' ? ' active' : ''
-              }`}
-              type="button"
-              aria-label="流程编排"
-              data-tooltip="流程编排"
-              onClick={() => {
-                setEditingWorkflowId(null)
-                changeView('workflows')
-              }}
-            >
-              <GitBranch size={18} />
-            </button>
-          )}
           <button
             ref={extensionsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'extensions' ? ' active' : ''}`}
@@ -2360,6 +2363,22 @@ function App() {
           >
             <Settings size={18} />
           </button>
+          {WORKFLOWS_ENABLED && (
+            <button
+              className={`sidebar-dock-button${
+                shellPage === 'workspace' && view === 'workflows' ? ' active' : ''
+              }`}
+              type="button"
+              aria-label="流程编排"
+              data-tooltip="流程编排"
+              onClick={() => {
+                setEditingWorkflowId(null)
+                changeView('workflows')
+              }}
+            >
+              <GitBranch size={18} />
+            </button>
+          )}
           {(appUpdate.status === 'available' ||
             appUpdate.status === 'downloading' ||
             appUpdate.status === 'downloaded' ||
@@ -2468,7 +2487,7 @@ function App() {
                   ? workflows.find(
                       (workflow) => workflow.id === selectedWorkflowId,
                     )?.name ?? '虚拟模型'
-                  : selectedPlugin.name
+                  : pythonAgents.find(agent => agent.id === selectedPythonAgent)?.title ?? selectedPlugin.name
                 : '流程编排'}
             </span>
           </div>
@@ -2491,38 +2510,57 @@ function App() {
             }
           >
           {shellPage === 'extensions' && (
-            <PluginsView
-              plugins={plugins}
-              modelBindings={modelBindings}
-              runtime={runtime}
-              catalog={catalog}
-              apiModelCatalog={apiModelCatalog}
-              customApiModels={customApiModels}
-              installedCloudModelIds={installedCloudModelIds}
-              onConfigureProvider={openProviderSettings}
-              onPluginsChanged={setPlugins}
-              onModelBindingsChanged={setModelBindings}
-              onRemoveModelBindings={removeModelBindings}
-              onSetModelBinding={saveModelBinding}
-              onCatalogChanged={setCatalog}
-              onCloudModelInstalled={setCloudModelInstalled}
-              onAction={notify}
-              taxonomyHost={extensionsNavHost}
-            />
+            <PluginsView installedAgents={pythonAgents} onUninstalled={id => {
+              setPythonAgents(current => current.filter(agent => agent.id !== id))
+              if (selectedPythonAgent === id) setSelectedPythonAgent(null)
+            }} onUninstallHost={async id => {
+              if (plugins.some(p => p.id === id)) {
+                await uninstallModelPlugin(id)
+                setPlugins(await listModelPlugins())
+              } else setCloudModelInstalled(id, false)
+              setCatalog(await getHarnessCatalog())
+            }} hostInstalledIds={[...plugins.filter(p => p.installed && p.sidebarVisible !== false).map(p => p.id), ...installedCloudModelIds]} onInstallHost={async id => {
+              const local = plugins.find(p => p.id === id)
+              const cloud = cloudModelsFromCatalog(catalog, installedCloudModelIds, apiModelCatalog, customApiModels).find(p => p.id === id)
+              const agent = local ?? cloud
+              if (!agent) throw new Error('当前 Toolkits 不支持此 Agent')
+              if (local && !local.installed) await installCatalogModel(id)
+              for (const dependency of recommendedDependencies(agent)) {
+                await installRecommendedModelDependency(dependency.pluginId)
+              }
+              if (local) setPlugins(await setModelPluginSidebarVisible(id, true))
+              else setCloudModelInstalled(id, true)
+              setCatalog(await getHarnessCatalog())
+            }} category={agentCategory} secondary={agentSecondary} onBack={leaveShellPage} installedIds={pythonAgents.filter(agent => !agent.status || agent.status === "installed").map(agent => agent.id)} onInstalled={agent => {
+              setPythonAgents(current => [...current.filter(item => item.id !== agent.id), agent])
+              // A migrated project replaces the old sidebar entry while retaining its cached weights.
+              const legacy = plugins.find(plugin => plugin.id === agent.id)
+              if (legacy?.installed && legacy.sidebarVisible !== false) {
+                void setModelPluginSidebarVisible(agent.id, false).then(setPlugins).catch(error => notify(String(error)))
+              }
+              if (installedCloudModelIds.includes(agent.id)) setCloudModelInstalled(agent.id, false)
+            }} />
           )}
           {shellPage === 'settings' && (
             <section
               className="settings-page"
-              aria-labelledby="settings-page-title"
+              aria-labelledby="settings-title"
             >
-              <header className="settings-page-heading">
-                <h2 id="settings-page-title">{activeSettingsSection.label}</h2>
+              <header className="settings-overview-heading">
+                <h1 id="settings-title">设置</h1>
               </header>
-              {settingsRows[settingsSection]}
+              {SETTINGS_SECTIONS.map(({ id, label }) => (
+                <section key={id} className="settings-category" hidden={settingsSection !== 'all' && settingsSection !== id} aria-labelledby={`settings-heading-${id}`}>
+                  <header className="settings-page-heading">
+                    <h2 id={`settings-heading-${id}`}>{label}</h2>
+                  </header>
+                  {settingsRows[id]}
+                </section>
+              ))}
             </section>
           )}
           {shellPage === 'workspace' && view === 'workspace' && (
-            WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
+            selectedPythonAgent ? <PythonAgentWorkspace key={selectedPythonAgent} id={selectedPythonAgent} title={pythonAgents.find(agent => agent.id === selectedPythonAgent)?.title ?? selectedPythonAgent} onConfigureAccount={() => openProviderSettings("api.bailian")} /> : WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
               <WorkflowChatView
                 workflowId={selectedWorkflowId}
                 turns={workflowTurns[selectedWorkflowId] ?? []}
@@ -2590,51 +2628,7 @@ function App() {
         </div>
       )}
 
-      {providerDialogOpen && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeProviderDialog()
-          }}
-        >
-          <section
-            className="settings-dialog application-settings-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="provider-dialog-title"
-          >
-            <div className="dialog-heading">
-              <div>
-                <span className="section-kicker">PROVIDER</span>
-                <h2 id="provider-dialog-title">Provider 配置</h2>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                autoFocus
-                aria-label="关闭 Provider 配置"
-                onClick={closeProviderDialog}
-              >
-                <X size={17} />
-              </button>
-            </div>
-            <div className="settings-layout single">
-              <div className="settings-content provider-settings-content">
-                <ProviderSettings
-                  provider={settingsProvider}
-                  onProviderChange={setSettingsProvider}
-                  runtime={runtime}
-                  catalog={catalog}
-                  onCatalogChanged={setCatalog}
-                  onAction={notify}
-                  customProviderId={settingsCustomProviderId}
-                />
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
+
     </div>
   )
 }
