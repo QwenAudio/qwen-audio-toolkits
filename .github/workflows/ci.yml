@@ -43,8 +43,6 @@ jobs:
         run: npm run lint
       - name: Check open-source package
         run: npm run open-source:check
-      - name: Check Agent Server migration catalog
-        run: npm run agents:check
       - name: Build frontend
         run: npm run build
       - name: Test frontend contracts

@@ -55,7 +55,6 @@ for (const model of api) {
 }
 assert.equal(new Set(entries.map(p => p.id)).size, entries.length)
 assert.equal(manifests.length, 34)
-assert.equal(entries.length, 51)
 entries.sort((a, b) => a.id.localeCompare(b.id, 'en'))
 const output = process.argv.slice(2).find(arg => !arg.startsWith('--'))
 if (!output) throw new Error('请传入 agent-server 仓库的 agent_server/builtin-agents.json 输出路径')

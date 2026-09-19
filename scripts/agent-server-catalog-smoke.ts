@@ -6,10 +6,34 @@ import {
 } from '../src/services/agentServerCatalogBridge.ts'
 import { createAgentInstallRegistry } from '../src/services/agentInstallState.ts'
 
-const [appSource, pluginsViewSource] = await Promise.all([
+const [appSource, pluginsViewSource, packageSource, workflowSource, exporterSource] = await Promise.all([
   readFile(new URL('../src/App.tsx', import.meta.url), 'utf8'),
   readFile(new URL('../src/views/PluginsView.tsx', import.meta.url), 'utf8'),
+  readFile(new URL('../package.json', import.meta.url), 'utf8'),
+  readFile(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8'),
+  readFile(new URL('./export-agent-server-catalog.mjs', import.meta.url), 'utf8'),
 ])
+
+assert.match(
+  packageSource,
+  /"agents:export": "tsx scripts\/export-agent-server-catalog\.mjs"/u,
+  'the Agent Server catalog export must remain available for the sibling repository',
+)
+assert.doesNotMatch(
+  packageSource,
+  /"agents:check":/u,
+  'a cross-repository catalog comparison must not be exposed as a local package check',
+)
+assert.doesNotMatch(
+  workflowSource,
+  /agents:check/u,
+  'CI must not depend on an Agent Server checkout that this repository does not provide',
+)
+assert.doesNotMatch(
+  exporterSource,
+  /assert\.equal\(entries\.length,\s*\d+\)/u,
+  'the exported catalog total must derive from the current supported model sources',
+)
 
 assert.match(
   appSource,

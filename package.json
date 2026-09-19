@@ -31,7 +31,6 @@
     "version:set": "node scripts/set-version.mjs",
     "catalog:export": "node scripts/export-model-catalog.mjs",
     "agents:export": "tsx scripts/export-agent-server-catalog.mjs",
-    "agents:check": "tsx scripts/export-agent-server-catalog.mjs --check",
     "catalog:repository": "node scripts/export-model-repository-catalog.mjs",
     "open-source:check": "node scripts/open-source-check.mjs && node scripts/export-model-catalog.mjs --check",
     "models:smoke": "node scripts/smoke-local-models.mjs",
