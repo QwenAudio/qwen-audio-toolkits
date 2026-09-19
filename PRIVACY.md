@@ -30,6 +30,14 @@ processed audio, recordings, downloaded catalog metadata, model dependency
 bindings, and provider configuration. Uninstalling the app does not remove this
 directory automatically.
 
+Task conversations, draft prompts, document text, transcripts, meeting notes,
+editing decisions, and generated-media references are also saved locally in
+`workspace/workspace-v1.json`. Provider configuration is stored separately, and
+workspace snapshots omit embedded audio. Meeting snapshots preserve text and
+notes rather than the live audio buffer. Restoring tasks does not start recording or rerun models.
+The browser preview stores tasks in local storage for its origin; demo mode
+does not save tasks.
+
 Provider credentials are stored in the application's private configuration
 directory. They are not intentionally written to logs or exported with model
 artifacts. Native Keychain / credential-vault storage is planned; until then,
@@ -54,4 +62,3 @@ Run errors and exported artifacts may include local file names, model names,
 timestamps, transcripts, or generated audio. Review them before attaching them
 to a public issue. Never publish API keys, access tokens, private recordings,
 or the application configuration directory.
-

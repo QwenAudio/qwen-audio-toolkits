@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n"
 import {
   useCallback,
   useEffect,
@@ -55,6 +56,8 @@ export function AudioFileDropZone({
   onFile,
   onInvalidFile,
 }: AudioFileDropZoneProps) {
+  useLocale()
+
   const dragDepthRef = useRef(0)
   const lastDropAtRef = useRef(0)
   const lastDeliveredFileRef = useRef<{ key: string; at: number } | null>(null)
@@ -82,7 +85,7 @@ export function AudioFileDropZone({
   const deliverFile = useCallback((file: File) => {
     if (disabledRef.current) return
     if (!isAudioFile(file)) {
-      onInvalidFileRef.current?.('请拖入音频文件')
+      onInvalidFileRef.current?.(t("请拖入音频文件"))
       return
     }
     const now = Date.now()
@@ -211,7 +214,7 @@ export function AudioFileDropZone({
       {dragging && (
         <div className="audio-file-drop-overlay" aria-hidden="true">
           <Upload size={18} />
-          <strong>松开即可上传音频</strong>
+          <strong>{t("松开即可上传音频")}</strong>
         </div>
       )}
     </div>

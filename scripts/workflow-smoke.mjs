@@ -285,9 +285,34 @@ const cloudCatalog = {
     },
   ],
 }
-const streamingCloudModel = cloudModelsFromCatalog(cloudCatalog, [
-  'bailian-funasr-realtime',
-]).find((entry) => entry.id === 'bailian-funasr-realtime')
+const unsupportedRemoteModel = {
+  id: 'unsupported-realtime',
+  name: 'Unsupported Realtime',
+  author: 'Remote provider',
+  description: '',
+  capabilities: [],
+  harnessCapability: 'speech.converse',
+  providerId: 'api.bailian',
+  adapter: 'bailian-realtime',
+  modelId: 'realtime-model',
+  aliases: [],
+  streamingMode: 'streaming',
+  featured: false,
+  visible: true,
+}
+const cloudModels = cloudModelsFromCatalog(
+  cloudCatalog,
+  ['bailian-funasr-realtime'],
+  [unsupportedRemoteModel],
+)
+assert.equal(
+  cloudModels.some((entry) => entry.id === unsupportedRemoteModel.id),
+  false,
+  'catalog entries for unsupported capabilities must be omitted',
+)
+const streamingCloudModel = cloudModels.find(
+  (entry) => entry.id === 'bailian-funasr-realtime',
+)
 assert.equal(
   streamingCloudModel?.name,
   'Qwen-Audio-3.0-ASR-Flash-Streaming',

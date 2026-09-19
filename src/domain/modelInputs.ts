@@ -15,10 +15,17 @@ const CUSTOM_COSYVOICE_MODELS = new Set([
   'cosyvoice-v3.5-flash',
   'cosyvoice-v3.5-plus',
 ])
+const QWEN3_TTS_MODELS = new Set([
+  'qwen3-tts-instruct-flash',
+  'qwen3-tts-vc-2026-01-22',
+  'qwen3-tts-vd-2026-01-26',
+])
 const CLOUD_VOICE_CREATION_MODELS = new Set([
   'qwen-audio-3.0-tts-flash',
   'qwen-audio-3.0-tts-plus',
   'cosyvoice-v3-plus',
+  'qwen3-tts-vc-2026-01-22',
+  'qwen3-tts-vd-2026-01-26',
   ...CUSTOM_COSYVOICE_MODELS,
 ])
 
@@ -35,6 +42,7 @@ export function modelInputProfile(model: InputAwareModel) {
     (port) => port.type === 'audio',
   )
   const ttsSpeakerCount = speakerCount(model) ?? 0
+  const isQwen3Tts = QWEN3_TTS_MODELS.has(model.version)
 
   return {
     apiModel,
@@ -42,11 +50,14 @@ export function modelInputProfile(model: InputAwareModel) {
     supportsCloudVoiceCreation:
       model.providerId === 'api.bailian' &&
       CLOUD_VOICE_CREATION_MODELS.has(model.version),
-    supportsVoiceDesign: model.version.startsWith('cosyvoice-v3.5-'),
+    supportsVoiceDesign:
+      model.version.startsWith('cosyvoice-v3.5-') ||
+      model.version === 'qwen3-tts-vd-2026-01-26',
     supportsTtsInstruction:
       model.adapter === 'compatible-tts' ||
       (model.providerId === 'api.bailian' &&
         (model.version.startsWith('qwen-audio-3.0-tts-') ||
+          isQwen3Tts ||
           CUSTOM_COSYVOICE_MODELS.has(model.version))),
     requiresTtsReferenceAudio:
       Boolean(declaredReferenceAudio) ||

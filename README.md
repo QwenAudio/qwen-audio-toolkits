@@ -83,7 +83,7 @@ model installation, cloud configuration, and local data locations.
 
 ## Use a model
 
-1. Open **Model Store**.
+1. Open **更多 / More**, enable **Extension Workbench**, then choose **Model Store**.
 2. Choose an **Offline** model, a bundled cloud model, or configure a custom
    REST LLM, ASR, or TTS model.
 3. Select a model variant when available and start the installation.

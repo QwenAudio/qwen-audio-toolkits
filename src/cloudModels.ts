@@ -1,5 +1,6 @@
 import { apiAgentContract } from './agentProjects'
 import builtinApiModels from '../catalog/api-models.json'
+import { capabilityDefinition } from './domain/capabilities'
 import type {
   ApiModelCatalogEntry,
   CustomApiModelDefinition,
@@ -20,7 +21,8 @@ function supportedEntry(entry: ApiModelCatalogEntry): boolean {
   return (
     entry.visible !== false &&
     !isRetiredCloudModelId(entry.id) &&
-    !isRetiredCloudModelId(entry.modelId)
+    !isRetiredCloudModelId(entry.modelId) &&
+    capabilityDefinition(entry.harnessCapability) !== undefined
   )
 }
 

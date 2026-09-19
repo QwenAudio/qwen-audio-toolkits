@@ -56,7 +56,7 @@ Signed updater artifacts are created separately by the GitHub release workflow.
 
 ## Install and run a local model
 
-1. Open **模型商店 / Model Store**.
+1. Open **更多 / More**, enable **Extension Workbench**, then choose **模型商店 / Model Store**.
 2. Select **离线 / Offline** and choose a model.
 3. Select a precision variant when available, then install it.
 4. Return to the model in the left sidebar.

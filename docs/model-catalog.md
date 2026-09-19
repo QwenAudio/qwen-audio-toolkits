@@ -29,8 +29,9 @@ an already supported cloud provider. Bundled API metadata is maintained in
 overrides it. Adding metadata or another model using a reviewed adapter does
 not require frontend code.
 
-Users can configure multiple custom REST providers in Settings and attach custom
-LLM, ASR, and TTS definitions to them from the model store. Provider connection,
+Users can configure multiple custom REST providers from the API model
+configuration flow in the optional Extension Workbench model store, then attach
+custom LLM, ASR, and TTS definitions to them. Provider connection,
 authentication, capability paths, request profiles, and response decoding are
 persisted separately from model capability/display name/ID. The generic adapter
 supports Chat Completions; multipart, binary, or Base64 JSON ASR; configurable

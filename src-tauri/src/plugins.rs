@@ -8615,7 +8615,7 @@ mod tests {
     fn exported_catalog_matches_the_runtime_schema() {
         let catalog = parse_remote_catalog(include_bytes!("../../catalog/model-catalog.json"))
             .expect("parse exported model catalog");
-        assert_eq!(catalog.api_models.len(), 16);
+        assert_eq!(catalog.api_models.len(), 19);
         assert!(catalog.api_models.iter().any(|model| model
             .aliases
             .iter()

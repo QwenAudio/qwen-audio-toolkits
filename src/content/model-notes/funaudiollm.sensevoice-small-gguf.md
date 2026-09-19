@@ -12,7 +12,7 @@ SenseVoice Small 的官方 GGUF 运行时，在识别文字的同时输出语种
 
 ## 使用建议
 - 默认 Q8（约 243 MB）即可满足大多数场景；F16 / F32 精度更高但更大
-- 项目自带 FSMN-VAD GGUF 分段资源，无需安装其他 Agent
+- 项目自带 FSMN-VAD GGUF 分段资源，无需安装额外 VAD 模型
 
 ## 来源与许可
 - 发布方：FunAudioLLM · 许可：Apache-2.0

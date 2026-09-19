@@ -79,6 +79,10 @@ const server = http.createServer((request, response) => {
       }))
       return
     }
+    if (request.url === '/template-chat') {
+      response.end(JSON.stringify({ result: { text: 'template provider smoke passed' } }))
+      return
+    }
     if (request.url === '/speech-to-text') {
       response.end(JSON.stringify({
         result: { text: 'transcription passed' },
@@ -173,6 +177,12 @@ try {
   })
   runIds.push(llm.runId)
   assert.equal(llm.output.output.text, 'provider smoke passed')
+  assert.deepEqual(JSON.parse(requests[0].body.toString('utf8')), {
+    model: 'chat-model',
+    messages: [{ role: 'user', content: 'hello' }],
+    temperature: 0.7,
+    max_tokens: 512,
+  })
 
   const asr = await execute({
     capability: 'speech.transcribe',
@@ -372,10 +382,46 @@ try {
   assert.equal(streamTtsBody.req_params.audio_params.sample_rate, 24000)
   assert.equal(streamTtsBody.req_params.audio_params.speech_rate, 50)
 
+  await json(`${appApi}/providers/openai-compatible`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      ...provider,
+      id: providerId,
+      apiKey: 'test-key',
+      authType: 'bearer',
+      extraHeaders: {},
+      llmProfile: 'template-json',
+      llmPath: '/template-chat',
+      llmBodyTemplate: JSON.stringify({
+        service_model: '{model}',
+        turns: '{messages}',
+        options: { temperature: '{temperature}', limit: '{maxTokens}' },
+        request_id: '{uuid}',
+      }),
+      llmTextPointer: '/result/text',
+    }),
+  })
+  const templateLlm = await execute({
+    capability: 'text.generate',
+    providerId,
+    input: { messages: [{ role: 'user', content: 'template hello' }] },
+    parameters: { modelId: 'template-model', temperature: 0.25, maxTokens: 99 },
+  })
+  runIds.push(templateLlm.runId)
+  assert.equal(templateLlm.output.output.text, 'template provider smoke passed')
+  const templateLlmBody = JSON.parse(requests[8].body.toString('utf8'))
+  assert.equal(templateLlmBody.service_model, 'template-model')
+  assert.deepEqual(templateLlmBody.turns, [{ role: 'user', content: 'template hello' }])
+  assert.deepEqual(templateLlmBody.options, { temperature: 0.25, limit: 99 })
+  assert.match(templateLlmBody.request_id, /^[0-9a-f-]{36}$/)
+  assert.equal(requests[8].auth, 'Bearer test-key')
+
   process.stdout.write(JSON.stringify({
     providerId,
     paths: requests.map(({ path }) => path),
     auth: ['bearer', 'token', 'custom-header'],
+    llm: ['openai-chat', 'template-json'],
     asr: ['multipart', 'binary', 'template-json+base64'],
     tts: ['nested-json+hex', 'query-json+pcm16', 'voice-path-json+pcm16', 'template-json+sse'],
     status: 'passed',

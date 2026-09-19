@@ -90,3 +90,26 @@ The smoke check sends actual close/minimize requests and Launch Services reopen
 Apple events, tests missing-window recovery, and verifies full process exit with
 the captions window present. It never runs against the normal app identifier or
 its settings/model data. The in-app hook is excluded from release builds.
+
+## Interface languages
+
+The interface defaults to Simplified Chinese. Users can switch to English in
+Settings → General; the preference is stored under
+`qwen-audio-toolkits.language-v1`. Switching updates React subscribers without
+remounting the app, and storage events synchronize other app windows. The main
+window also updates the native macOS menu.
+
+Use `t('中文文案')` from `src/i18n` for UI messages and add the English text to
+`src/i18n/en.json`. For dynamic text use numbered placeholders, for example
+`t('版本 {0} 已可用', [version])`. Components displaying translations subscribe
+with `useLocale()`. Module-level display metadata uses getters so labels do not
+freeze at the language selected during import. Keep identifiers, model names,
+model-input language values, taxonomy labels such as `Audio-to-Text`, user text,
+and model outputs unchanged. Bundled model notes have matching English files under `src/content/model-notes/en`.
+Imported project documents and external error details retain
+their source language unless an explicit translation is available.
+
+`npm test` includes translation coverage, placeholder parity, default/fallback
+behavior, persistence, cross-window updates, and model-parameter invariance.
+When changing language-sensitive UI, also verify both languages visually and
+confirm switching preserves unsaved input, selection, and playback/task state.

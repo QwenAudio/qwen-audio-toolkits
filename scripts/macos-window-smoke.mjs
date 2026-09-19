@@ -33,9 +33,9 @@ child.on('exit', (code, signal) => {
     try { output += readFileSync(join(logs, file), 'utf8') } catch { /* launch failure */ }
   }
   process.stdout.write(output)
-  const checks = ['close/reopen cycle 3 passed', 'minimize/reopen passed', 'missing-window recovery passed', 'requesting full exit with captions still present']
+  const checks = ['native menu language switching passed', 'close/reopen cycle 3 passed', 'minimize/reopen passed', 'missing-window recovery passed', 'requesting full exit with captions still present']
   if (timedOut || code !== 0 || signal || checks.some(check => !output.includes(`WINDOW_SMOKE: ${check}`)) || output.includes('WINDOW_SMOKE: FAIL:')) {
     console.error('Native window lifecycle test failed', { code, signal, logs })
     process.exitCode = 1
-  } else console.log('PASS: native close, Dock reopen event, minimize, missing-window recovery, and full process exit')
+  } else console.log('PASS: native menu languages, close, Dock reopen event, minimize, missing-window recovery, and full process exit')
 })

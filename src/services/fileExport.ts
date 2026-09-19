@@ -1,4 +1,5 @@
-import { invoke } from '@tauri-apps/api/core'
+import { t } from "../i18n"
+import { invoke } from './trace/ipcBridge'
 import { save } from '@tauri-apps/plugin-dialog'
 
 interface ExportableAudioFile {
@@ -34,10 +35,10 @@ export async function exportAudioFile(
 
   const extension = fileExtension(audio.fileName)
   const destinationPath = await save({
-    title: '导出音频',
+    get title() { return t("导出音频") },
     defaultPath: audio.fileName,
     canCreateDirectories: true,
-    filters: [{ name: '音频文件', extensions: [extension] }],
+    filters: [{ name: t("音频文件"), extensions: [extension] }],
   })
   if (!destinationPath) return null
 

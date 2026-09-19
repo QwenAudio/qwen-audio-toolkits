@@ -117,7 +117,19 @@ pub(crate) fn run_audio_tagging(model_dir: &Path, audio_data_url: &str) -> Resul
         AudioTagging::create(&config).ok_or_else(|| "无法加载 Audio Tagging 模型".to_string())?;
     let stream = tagger.create_stream();
     let (samples, sample_rate) = audio(audio_data_url)?;
-    stream.accept_waveform(sample_rate, &samples);
+    // CED models are exported for a fixed-size analysis window. Passing a
+    // long recording through ONNX Runtime can throw a foreign broadcast
+    // exception, which aborts the whole Rust process before Result handling.
+    // Keep a representative center window here as a hard safety boundary for
+    // every caller, not only the video-translation workflow.
+    let maximum_samples = (sample_rate as usize).saturating_mul(10);
+    let analysis_samples = if samples.len() > maximum_samples {
+        let start = (samples.len() - maximum_samples) / 2;
+        &samples[start..start + maximum_samples]
+    } else {
+        samples.as_slice()
+    };
+    stream.accept_waveform(sample_rate, analysis_samples);
     let tags = tagger
         .compute(&stream, 10)
         .into_iter()
