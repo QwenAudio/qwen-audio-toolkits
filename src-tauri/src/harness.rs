@@ -1,6 +1,7 @@
 use crate::{
     advanced_models::{
-        run_keyword_spotting, run_language_id, run_punctuation, run_speaker_embedding,
+        run_audio_tagging, run_diarization, run_keyword_spotting, run_language_id, run_punctuation,
+        run_source_separation, run_speaker_embedding,
     },
     asr::{
         create_streaming_asr_recognizer, transcribe_audio_with_runtime, transcribe_streaming_audio,
@@ -14,7 +15,7 @@ use crate::{
         process_audio_with_runtime, AudioProcessRequest, AudioProcessingRuntime, StreamingEnhancer,
         RNNOISE_SAMPLE_RATE,
     },
-    native_worker::run_isolated_audio_model,
+    onnx_audio::separate_mossformer2,
     plugins,
     tts::{generate_speech_with_runtime, TtsGenerateRequest, TtsRuntime},
     vad::{
@@ -29,7 +30,7 @@ use reqwest::multipart::{Form, Part};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     env, fs,
     io::{BufRead, BufReader, Write},
     path::{Path, PathBuf},
@@ -42,7 +43,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
-use tokio::sync::{mpsc, oneshot, Semaphore};
+use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message},
@@ -55,7 +56,6 @@ pub const CAPABILITY_VAD: &str = "speech.detect";
 pub const CAPABILITY_TEXT: &str = "text.generate";
 pub const CAPABILITY_ENHANCE: &str = "audio.enhance";
 pub const CAPABILITY_LIVE: &str = "audio.live";
-pub const CAPABILITY_CONVERSATION: &str = "speech.converse";
 pub const CAPABILITY_AUDIO_TAGGING: &str = "audio.classify";
 pub const CAPABILITY_KWS: &str = "speech.keyword";
 pub const CAPABILITY_LANGUAGE_ID: &str = "speech.language";
@@ -67,15 +67,9 @@ pub const CAPABILITY_SOURCE_SEPARATION: &str = "audio.separate";
 
 const API_PROVIDER_ID: &str = "api.openai-compatible";
 const BAILIAN_PROVIDER_ID: &str = "api.bailian";
-const BAILIAN_OPENCODE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-const OPENCODE_MODEL_RESPONSE_MAX_BYTES: usize = 1024 * 1024;
-const OPENCODE_MODEL_LIMIT: usize = 500;
 const SENSEVOICE_GGUF_PROVIDER_ID: &str = "plugin.funaudiollm.sensevoice-small-gguf";
 const BAILIAN_TTS_MODEL: &str = "qwen-audio-3.0-tts-flash";
 const BAILIAN_TTS_PLUS_MODEL: &str = "qwen-audio-3.0-tts-plus";
-const BAILIAN_QWEN3_TTS_INSTRUCT_FLASH_MODEL: &str = "qwen3-tts-instruct-flash";
-const BAILIAN_QWEN3_TTS_VC_MODEL: &str = "qwen3-tts-vc-2026-01-22";
-const BAILIAN_QWEN3_TTS_VD_MODEL: &str = "qwen3-tts-vd-2026-01-26";
 const BAILIAN_QWEN_ASR_MODEL: &str = "qwen3-asr-flash";
 const BAILIAN_QWEN_AUDIO_ASR_FILETRANS_MODEL: &str = "qwen-audio-3.0-asr-flash-filetrans";
 const BAILIAN_QWEN_AUDIO_ASR_FLASH_MODEL: &str = "qwen-audio-3.0-asr-flash";
@@ -88,8 +82,6 @@ const BAILIAN_PARAFORMER_MODEL: &str = "paraformer-realtime-v2";
 const BAILIAN_PARAFORMER_8K_MODEL: &str = "paraformer-realtime-8k-v2";
 const BAILIAN_QWEN_36_PLUS_MODEL: &str = "qwen3.6-plus";
 const BAILIAN_QWEN_37_PLUS_MODEL: &str = "qwen3.7-plus";
-const BAILIAN_QWEN_AUDIO_REALTIME_MODEL: &str = "qwen-audio-3.0-realtime-plus";
-const BAILIAN_REALTIME_WEBSOCKET_PATH: &str = "/api-ws/v1/realtime";
 const BAILIAN_COSYVOICE_MODEL: &str = "cosyvoice-v2";
 const BAILIAN_COSYVOICE_3_PLUS_MODEL: &str = "cosyvoice-v3-plus";
 const BAILIAN_COSYVOICE_35_PLUS_MODEL: &str = "cosyvoice-v3.5-plus";
@@ -117,11 +109,7 @@ enum BailianModelKind {
 
 fn bailian_model_kind(model: &str) -> Option<BailianModelKind> {
     match model {
-        BAILIAN_TTS_MODEL
-        | BAILIAN_TTS_PLUS_MODEL
-        | BAILIAN_QWEN3_TTS_INSTRUCT_FLASH_MODEL
-        | BAILIAN_QWEN3_TTS_VC_MODEL
-        | BAILIAN_QWEN3_TTS_VD_MODEL => Some(BailianModelKind::Tts),
+        BAILIAN_TTS_MODEL | BAILIAN_TTS_PLUS_MODEL => Some(BailianModelKind::Tts),
         BAILIAN_COSYVOICE_MODEL
         | BAILIAN_COSYVOICE_3_PLUS_MODEL
         | BAILIAN_COSYVOICE_35_PLUS_MODEL
@@ -388,12 +376,6 @@ struct ApiProviderConfig {
     #[serde(default)]
     extra_headers: HashMap<String, String>,
     llm_path: String,
-    #[serde(default = "default_llm_profile")]
-    llm_profile: String,
-    #[serde(default)]
-    llm_body_template: String,
-    #[serde(default = "default_llm_text_pointer")]
-    llm_text_pointer: String,
     asr_mode: String,
     asr_path: String,
     #[serde(default)]
@@ -416,14 +398,6 @@ fn default_llm_model() -> String {
     "qwen-plus".to_string()
 }
 
-fn default_llm_profile() -> String {
-    "openai-chat".to_string()
-}
-
-fn default_llm_text_pointer() -> String {
-    "/choices/0/message/content".to_string()
-}
-
 impl Default for ApiProviderConfig {
     fn default() -> Self {
         Self {
@@ -443,9 +417,6 @@ impl Default for ApiProviderConfig {
             auth_header: "x-api-key".to_string(),
             extra_headers: HashMap::new(),
             llm_path: "/chat/completions".to_string(),
-            llm_profile: default_llm_profile(),
-            llm_body_template: String::new(),
-            llm_text_pointer: default_llm_text_pointer(),
             asr_mode: "multipart".to_string(),
             asr_path: "/audio/transcriptions".to_string(),
             asr_body_template: String::new(),
@@ -470,156 +441,6 @@ impl ApiProviderConfig {
         self.enabled
             && api_provider_endpoint_is_valid(&self.base_url)
             && (local || self.auth_type == "none" || !self.api_key.trim().is_empty())
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CustomApiAdapter {
-    OpenAiChat,
-    TemplateJson,
-    GenericAsr,
-    GenericTts,
-}
-
-impl CustomApiAdapter {
-    fn id(self) -> &'static str {
-        match self {
-            Self::OpenAiChat => "custom-openai-chat",
-            Self::TemplateJson => "custom-template-json",
-            Self::GenericAsr => "custom-asr",
-            Self::GenericTts => "custom-tts",
-        }
-    }
-}
-
-fn custom_api_adapter(
-    capability: &str,
-    config: &ApiProviderConfig,
-) -> Result<CustomApiAdapter, String> {
-    match capability {
-        CAPABILITY_TEXT => match config.llm_profile.as_str() {
-            "openai-chat" => Ok(CustomApiAdapter::OpenAiChat),
-            "template-json" => Ok(CustomApiAdapter::TemplateJson),
-            _ => Err("LLM request profile is unsupported".to_string()),
-        },
-        CAPABILITY_ASR => Ok(CustomApiAdapter::GenericAsr),
-        CAPABILITY_TTS => Ok(CustomApiAdapter::GenericTts),
-        _ => Err("该 API Provider 不支持所选能力".to_string()),
-    }
-}
-
-impl OpenCodeLaunchConfig {
-    fn api_provider_request_config(&self) -> ApiProviderConfig {
-        ApiProviderConfig {
-            id: self.id.clone(),
-            base_url: self.base_url.clone(),
-            api_key: self.api_key.clone(),
-            auth_type: self.auth_type.clone(),
-            ..Default::default()
-        }
-    }
-}
-
-fn is_saved_custom_api_provider(config: &ApiProviderConfig) -> bool {
-    config.id.starts_with("api.custom.")
-}
-
-fn opencode_provider_slug(provider_id: &str) -> String {
-    let mut sanitized = String::new();
-    let mut previous_was_separator = false;
-    for character in provider_id.chars() {
-        if character.is_ascii_alphanumeric() {
-            sanitized.push(character.to_ascii_lowercase());
-            previous_was_separator = false;
-        } else if !sanitized.is_empty() && !previous_was_separator {
-            sanitized.push('-');
-            previous_was_separator = true;
-        }
-    }
-    let sanitized = sanitized.trim_matches('-');
-    if sanitized.is_empty() {
-        "qwenaudio-provider".to_string()
-    } else {
-        format!("qwenaudio-{sanitized}")
-    }
-}
-
-fn opencode_connection_reason(config: &ApiProviderConfig) -> Option<&'static str> {
-    if !is_saved_custom_api_provider(config) {
-        return Some("Only saved custom providers are supported");
-    }
-    if !config.enabled {
-        return Some("Provider is disabled");
-    }
-    if !config.llm_enabled {
-        return Some("LLM is disabled");
-    }
-    if config.llm_profile != "openai-chat" {
-        return Some("LLM request profile is unsupported");
-    }
-    if !matches!(config.auth_type.as_str(), "bearer" | "none") {
-        return Some("Custom authentication is unsupported");
-    }
-    if !config.extra_headers.is_empty() {
-        return Some("Extra headers are unsupported");
-    }
-    if !api_provider_endpoint_is_valid(&config.base_url) {
-        return Some("Provider base URL is invalid");
-    }
-    if opencode_base_url_has_query_or_fragment(&config.base_url) {
-        return Some("Provider base URL must not contain a query or fragment");
-    }
-    if !config.configured() {
-        return Some("Provider is not configured");
-    }
-    None
-}
-
-fn opencode_base_url_has_query_or_fragment(value: &str) -> bool {
-    reqwest::Url::parse(value)
-        .ok()
-        .is_some_and(|url| url.query().is_some() || url.fragment().is_some())
-}
-
-fn opencode_connection(config: &ApiProviderConfig) -> OpenCodeConnection {
-    let reason = opencode_connection_reason(config).map(str::to_string);
-    OpenCodeConnection {
-        id: config.id.clone(),
-        name: config.name.clone(),
-        provider_slug: opencode_provider_slug(&config.id),
-        eligible: reason.is_none(),
-        reason,
-    }
-}
-
-fn custom_opencode_launch_config(
-    config: &ApiProviderConfig,
-) -> Result<OpenCodeLaunchConfig, String> {
-    if let Some(reason) = opencode_connection_reason(config) {
-        return Err(format!("OpenCode connection is not eligible: {reason}"));
-    }
-    Ok(OpenCodeLaunchConfig {
-        id: config.id.clone(),
-        base_url: config.base_url.clone(),
-        api_key: config.api_key.clone(),
-        provider_slug: opencode_provider_slug(&config.id),
-        auth_type: config.auth_type.clone(),
-    })
-}
-
-/// Resolve an eligible provider connection for native OpenCode launch code.
-pub(crate) fn opencode_launch_config(
-    app: &AppHandle,
-    provider_id: &str,
-) -> Result<OpenCodeLaunchConfig, String> {
-    if provider_id == BAILIAN_PROVIDER_ID {
-        let bailian = read_bailian_provider_config(app)
-            .map_err(|_| "OpenCode connection is unavailable".to_string())?;
-        resolve_opencode_launch_config(provider_id, Some(&bailian), &[])
-    } else {
-        let custom = read_api_provider_configs(app)
-            .map_err(|_| "OpenCode connection is unavailable".to_string())?;
-        resolve_opencode_launch_config(provider_id, None, &custom)
     }
 }
 
@@ -657,12 +478,6 @@ pub struct ApiProviderUpdate {
     #[serde(default)]
     extra_headers: HashMap<String, String>,
     llm_path: String,
-    #[serde(default = "default_llm_profile")]
-    llm_profile: String,
-    #[serde(default)]
-    llm_body_template: String,
-    #[serde(default = "default_llm_text_pointer")]
-    llm_text_pointer: String,
     asr_mode: String,
     asr_path: String,
     #[serde(default)]
@@ -701,9 +516,6 @@ pub struct ApiProviderSettings {
     auth_header: String,
     extra_headers: HashMap<String, String>,
     llm_path: String,
-    llm_profile: String,
-    llm_body_template: String,
-    llm_text_pointer: String,
     asr_mode: String,
     asr_path: String,
     asr_body_template: String,
@@ -718,27 +530,6 @@ pub struct ApiProviderSettings {
     tts_audio_pointer: String,
     tts_audio_format: String,
     tts_sample_rate: u32,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenCodeConnection {
-    pub id: String,
-    pub name: String,
-    pub provider_slug: String,
-    pub eligible: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-}
-
-/// Native-only credentials for configuring a future bundled OpenCode process.
-/// This type deliberately does not implement `Serialize`.
-pub(crate) struct OpenCodeLaunchConfig {
-    pub(crate) id: String,
-    pub(crate) base_url: String,
-    pub(crate) api_key: String,
-    pub(crate) provider_slug: String,
-    pub(crate) auth_type: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -771,83 +562,6 @@ impl BailianProviderConfig {
     fn configured(&self) -> bool {
         self.enabled && !self.api_key.trim().is_empty()
     }
-}
-
-fn bailian_opencode_connection_reason(config: &BailianProviderConfig) -> Option<&'static str> {
-    if !config.enabled {
-        return Some("Provider is disabled");
-    }
-    if !config.configured() {
-        return Some("Provider is not configured");
-    }
-    None
-}
-
-fn bailian_opencode_connection(config: &BailianProviderConfig) -> OpenCodeConnection {
-    let reason = bailian_opencode_connection_reason(config).map(str::to_string);
-    OpenCodeConnection {
-        id: BAILIAN_PROVIDER_ID.to_string(),
-        name: config.name.clone(),
-        provider_slug: opencode_provider_slug(BAILIAN_PROVIDER_ID),
-        eligible: reason.is_none(),
-        reason,
-    }
-}
-
-fn bailian_opencode_launch_config(
-    config: &BailianProviderConfig,
-) -> Result<OpenCodeLaunchConfig, String> {
-    if let Some(reason) = bailian_opencode_connection_reason(config) {
-        return Err(format!("OpenCode connection is not eligible: {reason}"));
-    }
-    Ok(OpenCodeLaunchConfig {
-        id: BAILIAN_PROVIDER_ID.to_string(),
-        base_url: BAILIAN_OPENCODE_BASE_URL.to_string(),
-        api_key: config.api_key.clone(),
-        provider_slug: opencode_provider_slug(BAILIAN_PROVIDER_ID),
-        auth_type: "bearer".to_string(),
-    })
-}
-
-fn collect_opencode_connections(
-    bailian: Option<&BailianProviderConfig>,
-    custom: &[ApiProviderConfig],
-) -> Vec<OpenCodeConnection> {
-    let mut connections = Vec::with_capacity(custom.len() + usize::from(bailian.is_some()));
-    if let Some(bailian) = bailian {
-        connections.push(bailian_opencode_connection(bailian));
-    }
-    connections.extend(custom.iter().map(opencode_connection));
-    connections
-}
-
-fn collect_available_opencode_connections(
-    bailian: Result<BailianProviderConfig, String>,
-    custom: Result<Vec<ApiProviderConfig>, String>,
-) -> Result<Vec<OpenCodeConnection>, String> {
-    if bailian.is_err() && custom.is_err() {
-        return Err("Unable to load OpenCode connections".to_string());
-    }
-    let bailian = bailian.ok();
-    let custom = custom.unwrap_or_default();
-    Ok(collect_opencode_connections(bailian.as_ref(), &custom))
-}
-
-fn resolve_opencode_launch_config(
-    provider_id: &str,
-    bailian: Option<&BailianProviderConfig>,
-    custom: &[ApiProviderConfig],
-) -> Result<OpenCodeLaunchConfig, String> {
-    if provider_id == BAILIAN_PROVIDER_ID {
-        return bailian
-            .ok_or_else(|| "OpenCode connection is unavailable".to_string())
-            .and_then(bailian_opencode_launch_config);
-    }
-    custom
-        .iter()
-        .find(|config| config.id == provider_id)
-        .ok_or_else(|| "OpenCode connection is unavailable".to_string())
-        .and_then(custom_opencode_launch_config)
 }
 
 #[derive(Clone, Deserialize)]
@@ -887,40 +601,18 @@ pub struct BailianProviderSettings {
     status: &'static str,
 }
 
+#[derive(Default)]
 pub struct HarnessRuntime {
     runs: Mutex<Vec<HarnessRun>>,
     persistence: Mutex<()>,
     active: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    native_execution_gate: Arc<Semaphore>,
     funasr_streams: Mutex<HashMap<String, mpsc::Sender<FunAsrStreamCommand>>>,
     vad_streams: Mutex<HashMap<String, StreamingVad>>,
     enhancement_streams: Mutex<HashMap<String, EnhancementStreamHandle>>,
-    realtime_streams: Mutex<HashMap<String, mpsc::Sender<RealtimeStreamCommand>>>,
     initialized: Mutex<bool>,
 }
 
-impl Default for HarnessRuntime {
-    fn default() -> Self {
-        Self {
-            runs: Mutex::new(Vec::new()),
-            persistence: Mutex::new(()),
-            active: Mutex::new(HashMap::new()),
-            native_execution_gate: Arc::new(Semaphore::new(1)),
-            funasr_streams: Mutex::new(HashMap::new()),
-            vad_streams: Mutex::new(HashMap::new()),
-            enhancement_streams: Mutex::new(HashMap::new()),
-            realtime_streams: Mutex::new(HashMap::new()),
-            initialized: Mutex::new(false),
-        }
-    }
-}
-
 enum FunAsrStreamCommand {
-    Audio(Vec<u8>),
-    Finish,
-}
-
-enum RealtimeStreamCommand {
     Audio(Vec<u8>),
     Finish,
 }
@@ -1032,35 +724,6 @@ struct CosyVoiceStreamEvent {
     pcm_base64: Option<String>,
     sample_rate: u32,
     chunk_index: Option<u64>,
-    error: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RealtimeStreamStartRequest {
-    clip_name: String,
-    model_id: Option<String>,
-    sample_rate: u32,
-    system_prompt: Option<String>,
-    voice: Option<String>,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RealtimeStreamStartResponse {
-    session_id: String,
-    run: HarnessRun,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RealtimeStreamEvent {
-    session_id: String,
-    run_id: String,
-    kind: &'static str,
-    text: Option<String>,
-    pcm_base64: Option<String>,
-    sample_rate: u32,
     error: Option<String>,
 }
 
@@ -1351,15 +1014,6 @@ pub(crate) fn catalog_for_app(app: &AppHandle) -> HarnessCatalog {
                 id: CAPABILITY_LIVE,
                 name: "实时音频",
                 description: "连接麦克风、监控并录制音频流",
-                input: "stream",
-                output: "stream",
-                supports_batch: false,
-                supports_streaming: true,
-            },
-            CapabilityDescriptor {
-                id: CAPABILITY_CONVERSATION,
-                name: "语音对话",
-                description: "与模型进行实时双向语音对话",
                 input: "stream",
                 output: "stream",
                 supports_batch: false,
@@ -1820,28 +1474,6 @@ pub(crate) fn start_run(
 
     let task_app = app.clone();
     tauri::async_runtime::spawn(async move {
-        let native_permit = if provider.is_api {
-            None
-        } else {
-            log::info!("run {run_id} waiting for the native inference gate");
-            if let Ok(waiting) = harness_runtime.update(&task_app, &run_id, |run| {
-                run.activity = Some("等待本地推理资源".to_string());
-            }) {
-                emit_run(&task_app, &waiting);
-            }
-            match harness_runtime
-                .native_execution_gate
-                .clone()
-                .acquire_owned()
-                .await
-            {
-                Ok(permit) => {
-                    log::info!("run {run_id} acquired the native inference gate");
-                    Some(permit)
-                }
-                Err(_) => return,
-            }
-        };
         let started = timestamp_millis();
         if let Ok(running) = harness_runtime.update(&task_app, &run_id, |run| {
             run.status = "running".to_string();
@@ -1909,9 +1541,6 @@ pub(crate) fn start_run(
         }
         if let Ok(mut active) = harness_runtime.active.lock() {
             active.remove(&run_id);
-        }
-        if native_permit.is_some() {
-            log::info!("run {run_id} released the native inference gate");
         }
     });
 
@@ -2020,9 +1649,6 @@ fn api_provider_settings(config: ApiProviderConfig) -> ApiProviderSettings {
         auth_header: config.auth_header,
         extra_headers: config.extra_headers,
         llm_path: config.llm_path,
-        llm_profile: config.llm_profile,
-        llm_body_template: config.llm_body_template,
-        llm_text_pointer: config.llm_text_pointer,
         asr_mode: config.asr_mode,
         asr_path: config.asr_path,
         asr_body_template: config.asr_body_template,
@@ -2043,24 +1669,6 @@ fn api_provider_settings(config: ApiProviderConfig) -> ApiProviderSettings {
 pub(crate) fn provider_settings(app: &AppHandle) -> Result<Vec<ApiProviderSettings>, String> {
     read_api_provider_configs(app)
         .map(|configs| configs.into_iter().map(api_provider_settings).collect())
-}
-
-#[tauri::command]
-pub fn harness_list_opencode_connections(
-    app: AppHandle,
-) -> Result<Vec<OpenCodeConnection>, String> {
-    let bailian = read_bailian_provider_config(&app);
-    let custom = read_api_provider_configs(&app);
-    collect_available_opencode_connections(bailian, custom)
-}
-
-#[tauri::command]
-pub async fn harness_list_opencode_models(
-    app: AppHandle,
-    provider_id: String,
-) -> Result<Vec<String>, String> {
-    let launch = opencode_launch_config(&app, &provider_id)?;
-    discover_opencode_models(&launch).await
 }
 
 #[tauri::command]
@@ -2109,9 +1717,6 @@ pub fn harness_save_api_provider(
     current.auth_header = update.auth_header.trim().to_string();
     current.extra_headers = update.extra_headers;
     current.llm_path = normalize_api_path(&update.llm_path)?;
-    current.llm_profile = update.llm_profile;
-    current.llm_body_template = update.llm_body_template.trim().to_string();
-    current.llm_text_pointer = normalize_json_pointer(&update.llm_text_pointer)?;
     current.asr_mode = update.asr_mode;
     current.asr_path = normalize_api_path(&update.asr_path)?;
     current.asr_body_template = update.asr_body_template.trim().to_string();
@@ -2197,13 +1802,31 @@ pub async fn harness_list_bailian_voices(
     target_model: String,
 ) -> Result<Vec<BailianVoice>, String> {
     let config = configured_bailian_provider(&app)?;
+    let response = api_client()?
+        .post(format!(
+            "{}/api/v1/services/audio/tts/customization",
+            config.base_url
+        ))
+        .bearer_auth(&config.api_key)
+        .json(&json!({
+            "model": "voice-enrollment",
+            "input": { "action": "list_voice", "page_size": 100, "page_index": 0 }
+        }))
+        .send()
+        .await
+        .map_err(|error| format!("无法读取百炼音色: {error}"))?;
+    let raw = checked_response(response, "百炼音色列表")
+        .await?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("百炼音色列表返回无效 JSON: {error}"))?;
+    let total = raw
+        .pointer("/output/total_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let last_page = total.saturating_sub(1) / 100;
     let mut registry = read_bailian_voice_registry(&app)?;
-    let models: Vec<&str> = if target_model.starts_with("qwen3-tts-") {
-        vec!["qwen-voice-enrollment", "qwen-voice-design"]
-    } else {
-        vec!["voice-enrollment"]
-    };
-    for model in models {
+    for page_index in last_page.saturating_sub(2)..=last_page {
         let response = api_client()?
             .post(format!(
                 "{}/api/v1/services/audio/tts/customization",
@@ -2211,74 +1834,45 @@ pub async fn harness_list_bailian_voices(
             ))
             .bearer_auth(&config.api_key)
             .json(&json!({
-                "model": model,
-                "input": { "action": "list_voice", "page_size": 100, "page_index": 0 }
+                "model": "voice-enrollment",
+                "input": {
+                    "action": "list_voice",
+                    "page_size": 100,
+                    "page_index": page_index
+                }
             }))
             .send()
             .await
             .map_err(|error| format!("无法读取百炼音色: {error}"))?;
-        let raw = checked_response(response, "百炼音色列表")
+        let page = checked_response(response, "百炼音色列表")
             .await?
             .json::<Value>()
             .await
             .map_err(|error| format!("百炼音色列表返回无效 JSON: {error}"))?;
-        let total = raw
-            .pointer("/output/total_count")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        let last_page = total.saturating_sub(1) / 100;
-        for page_index in last_page.saturating_sub(2)..=last_page {
-            let response = api_client()?
-                .post(format!(
-                    "{}/api/v1/services/audio/tts/customization",
-                    config.base_url
-                ))
-                .bearer_auth(&config.api_key)
-                .json(&json!({
-                    "model": model,
-                    "input": {
-                        "action": "list_voice",
-                        "page_size": 100,
-                        "page_index": page_index
-                    }
-                }))
-                .send()
-                .await
-                .map_err(|error| format!("无法读取百炼音色: {error}"))?;
-            let page = checked_response(response, "百炼音色列表")
-                .await?
-                .json::<Value>()
-                .await
-                .map_err(|error| format!("百炼音色列表返回无效 JSON: {error}"))?;
-            for voice in page
-                .pointer("/output/voice_list")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-            {
-                let Some(id) = voice
-                    .get("voice_id")
-                    .or_else(|| voice.get("voice"))
-                    .and_then(Value::as_str)
-                else {
-                    continue;
-                };
-                let Some(model) = voice.get("target_model").and_then(Value::as_str) else {
-                    continue;
-                };
-                if voice.get("status").and_then(Value::as_str) != Some("OK") {
-                    continue;
-                }
-                registry.push(BailianVoice {
-                    id: id.to_string(),
-                    target_model: model.to_string(),
-                    status: "OK".to_string(),
-                    created_at: voice
-                        .get("gmt_create")
-                        .and_then(Value::as_str)
-                        .map(str::to_string),
-                });
+        for voice in page
+            .pointer("/output/voice_list")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            let Some(id) = voice.get("voice_id").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(model) = voice.get("target_model").and_then(Value::as_str) else {
+                continue;
+            };
+            if voice.get("status").and_then(Value::as_str) != Some("OK") {
+                continue;
             }
+            registry.push(BailianVoice {
+                id: id.to_string(),
+                target_model: model.to_string(),
+                status: "OK".to_string(),
+                created_at: voice
+                    .get("gmt_create")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            });
         }
     }
     let mut unique = HashMap::new();
@@ -2297,18 +1891,8 @@ pub async fn harness_create_bailian_voice(
     request: BailianVoiceCreateRequest,
 ) -> Result<BailianVoice, String> {
     let config = configured_bailian_provider(&app)?;
-    let is_qwen3_tts = request.target_model.starts_with("qwen3-tts-");
     let prefix = request.prefix.trim();
-    if is_qwen3_tts {
-        if prefix.is_empty()
-            || prefix.len() > 16
-            || !prefix
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || character == '_')
-        {
-            return Err("音色名称只能使用 1-16 个英文字母、数字或下划线".to_string());
-        }
-    } else if prefix.is_empty()
+    if prefix.is_empty()
         || prefix.len() > 10
         || !prefix
             .chars()
@@ -2316,104 +1900,49 @@ pub async fn harness_create_bailian_voice(
     {
         return Err("音色名称只能使用 1-10 个英文字母或数字".to_string());
     }
-    let (model, input, voice_id_path): (String, Value, &str) = if is_qwen3_tts {
-        let mut input = json!({
-            "action": "create",
-            "target_model": request.target_model,
-            "preferred_name": prefix,
-        });
-        match request.mode.as_str() {
-            "clone" => {
-                let audio = request
-                    .audio_data_url
-                    .as_deref()
-                    .filter(|value| value.starts_with("data:audio/"))
-                    .ok_or_else(|| "请上传或录制参考音频".to_string())?;
-                input["audio"] = json!({ "data": audio });
-            }
-            "design" => {
-                let prompt = request
-                    .voice_prompt
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| "请描述需要设计的声音".to_string())?;
-                let preview = request
-                    .preview_text
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| "请输入试听文本".to_string())?;
-                input["voice_prompt"] = Value::String(prompt.chars().take(2048).collect());
-                input["preview_text"] = Value::String(preview.chars().take(200).collect());
-            }
-            _ => return Err("未知的音色创建方式".to_string()),
+    let mut input = json!({
+        "action": "create_voice",
+        "target_model": request.target_model,
+        "prefix": prefix,
+        "language_hints": [request.language.as_deref().unwrap_or("zh")]
+    });
+    match request.mode.as_str() {
+        "clone" => {
+            let audio = request
+                .audio_data_url
+                .as_deref()
+                .filter(|value| value.starts_with("data:audio/"))
+                .ok_or_else(|| "请上传或录制参考音频".to_string())?;
+            input["url"] = Value::String(audio.to_string());
+            input["enable_preprocess"] = Value::Bool(true);
+            input["max_prompt_audio_length"] = json!(20.0);
         }
-        let model = if request.mode == "design" {
-            "qwen-voice-design"
-        } else {
-            "qwen-voice-enrollment"
+        "design" if request.target_model.starts_with("cosyvoice-v3.5-") => {
+            let prompt = request
+                .voice_prompt
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "请描述需要设计的声音".to_string())?;
+            let preview = request
+                .preview_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| "请输入试听文本".to_string())?;
+            input["voice_prompt"] = Value::String(prompt.chars().take(500).collect());
+            input["preview_text"] = Value::String(preview.chars().take(200).collect());
         }
-        .to_string();
-        (model, input, "/output/voice")
-    } else {
-        let mut input = json!({
-            "action": "create_voice",
-            "target_model": request.target_model,
-            "prefix": prefix,
-            "language_hints": [request.language.as_deref().unwrap_or("zh")]
-        });
-        match request.mode.as_str() {
-            "clone" => {
-                let audio = request
-                    .audio_data_url
-                    .as_deref()
-                    .filter(|value| value.starts_with("data:audio/"))
-                    .ok_or_else(|| "请上传或录制参考音频".to_string())?;
-                input["url"] = Value::String(audio.to_string());
-                input["enable_preprocess"] = Value::Bool(true);
-                input["max_prompt_audio_length"] = json!(20.0);
-            }
-            "design" if request.target_model.starts_with("cosyvoice-v3.5-") => {
-                let prompt = request
-                    .voice_prompt
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| "请描述需要设计的声音".to_string())?;
-                let preview = request
-                    .preview_text
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| "请输入试听文本".to_string())?;
-                input["voice_prompt"] = Value::String(prompt.chars().take(500).collect());
-                input["preview_text"] = Value::String(preview.chars().take(200).collect());
-            }
-            "design" => return Err("当前模型不支持声音设计".to_string()),
-            _ => return Err("未知的音色创建方式".to_string()),
-        }
-        ("voice-enrollment".to_string(), input, "/output/voice_id")
-    };
-    let body = if request.mode == "design" && is_qwen3_tts {
-        json!({
-            "model": model,
-            "input": input,
-            "parameters": {
-                "sample_rate": 24000,
-                "response_format": "wav"
-            }
-        })
-    } else {
-        json!({ "model": model, "input": input })
-    };
+        "design" => return Err("当前模型不支持声音设计".to_string()),
+        _ => return Err("未知的音色创建方式".to_string()),
+    }
     let response = api_client()?
         .post(format!(
             "{}/api/v1/services/audio/tts/customization",
             config.base_url
         ))
         .bearer_auth(&config.api_key)
-        .json(&body)
+        .json(&json!({ "model": "voice-enrollment", "input": input }))
         .send()
         .await
         .map_err(|error| format!("创建百炼音色失败: {error}"))?;
@@ -2423,7 +1952,7 @@ pub async fn harness_create_bailian_voice(
         .await
         .map_err(|error| format!("创建百炼音色返回无效 JSON: {error}"))?;
     let voice_id = raw
-        .pointer(voice_id_path)
+        .pointer("/output/voice_id")
         .and_then(Value::as_str)
         .ok_or_else(|| bailian_response_error("创建百炼音色", &raw))?;
     let created = BailianVoice {
@@ -2446,18 +1975,6 @@ pub async fn harness_delete_bailian_voice(app: AppHandle, voice_id: String) -> R
     if voice_id.is_empty() {
         return Err("音色 ID 不能为空".to_string());
     }
-    let registry = read_bailian_voice_registry(&app)?;
-    let target_model = registry
-        .iter()
-        .find(|voice| voice.id == voice_id)
-        .map(|voice| voice.target_model.as_str());
-    let model = match target_model {
-        Some(model) if model.starts_with("qwen3-tts-") && model.contains("-vd-") => {
-            "qwen-voice-design"
-        }
-        Some(model) if model.starts_with("qwen3-tts-") => "qwen-voice-enrollment",
-        _ => "voice-enrollment",
-    };
     let response = api_client()?
         .post(format!(
             "{}/api/v1/services/audio/tts/customization",
@@ -2465,7 +1982,7 @@ pub async fn harness_delete_bailian_voice(app: AppHandle, voice_id: String) -> R
         ))
         .bearer_auth(&config.api_key)
         .json(&json!({
-            "model": model,
+            "model": "voice-enrollment",
             "input": { "action": "delete_voice", "voice_id": voice_id }
         }))
         .send()
@@ -3265,467 +2782,6 @@ async fn run_cosyvoice_stream(
         &format!("百炼 · {BAILIAN_COSYVOICE_MODEL}"),
         "cosyvoice-stream",
     )
-}
-
-#[tauri::command]
-pub fn harness_start_realtime_stream(
-    app: AppHandle,
-    runtime: State<'_, Arc<HarnessRuntime>>,
-    request: RealtimeStreamStartRequest,
-) -> Result<RealtimeStreamStartResponse, String> {
-    if !(8_000..=48_000).contains(&request.sample_rate) {
-        return Err("实时语音对话输入采样率必须在 8 kHz 到 48 kHz 之间".to_string());
-    }
-    let config = configured_bailian_provider(&app)?;
-    let model_id = request
-        .model_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
-        .unwrap_or(BAILIAN_QWEN_AUDIO_REALTIME_MODEL)
-        .to_string();
-    let session_id = Uuid::new_v4().to_string();
-    let run_id = new_run_id();
-    let now = timestamp_millis();
-    let clip_name = request.clip_name.trim();
-    let run = HarnessRun {
-        id: run_id.clone(),
-        conversation_provider_id: None,
-        conversation_visible: true,
-        dependency_run_ids: Vec::new(),
-        capability: CAPABILITY_CONVERSATION.to_string(),
-        title: "实时语音对话".to_string(),
-        input_summary: if clip_name.is_empty() {
-            "实时麦克风".to_string()
-        } else {
-            clip_name.to_string()
-        },
-        provider_id: BAILIAN_PROVIDER_ID.to_string(),
-        provider_name: config.name.clone(),
-        model_id: model_id.clone(),
-        status: "running".to_string(),
-        progress: 12,
-        activity: Some("正在建立实时语音对话连接".to_string()),
-        created_at: now,
-        started_at: Some(now),
-        completed_at: None,
-        duration_ms: None,
-        artifacts: Vec::new(),
-        error: None,
-        retryable: false,
-    };
-    runtime.insert(&app, run.clone())?;
-
-    let (sender, receiver) = mpsc::channel(64);
-    runtime
-        .realtime_streams
-        .lock()
-        .map_err(|_| "实时语音对话会话状态不可用".to_string())?
-        .insert(session_id.clone(), sender);
-    emit_run(&app, &run);
-
-    let task_app = app.clone();
-    let task_runtime = runtime.inner().clone();
-    let task_session_id = session_id.clone();
-    let task_run_id = run_id.clone();
-    let task_model_id = model_id;
-    tauri::async_runtime::spawn(async move {
-        let started = Instant::now();
-        let result = run_realtime_stream(
-            &task_app,
-            &task_session_id,
-            &task_run_id,
-            &config,
-            &task_model_id,
-            request,
-            receiver,
-        )
-        .await;
-        let completed_at = timestamp_millis();
-        let duration_ms = started.elapsed().as_millis() as u64;
-        let artifact = result.as_ref().ok().and_then(|payload| {
-            artifact_from_payload(CAPABILITY_CONVERSATION, payload.clone()).ok()
-        });
-        let updated = task_runtime.update(&task_app, &task_run_id, |run| {
-            run.completed_at = Some(completed_at);
-            run.duration_ms = Some(duration_ms);
-            run.progress = 100;
-            run.activity = None;
-            match (&result, artifact) {
-                (Ok(_), Some(artifact)) => {
-                    run.status = "completed".to_string();
-                    run.artifacts = vec![artifact];
-                    run.error = None;
-                }
-                (Ok(_), None) => {
-                    run.status = "failed".to_string();
-                    run.error = Some("无法保存实时语音对话结果".to_string());
-                }
-                (Err(error), _) => {
-                    run.status = "failed".to_string();
-                    run.error = Some(error.clone());
-                }
-            }
-        });
-        if let Ok(run) = updated {
-            emit_run(&task_app, &run);
-        }
-        let (kind, error) = match result {
-            Ok(_) => ("completed", None),
-            Err(error) => ("error", Some(error)),
-        };
-        let _ = task_app.emit(
-            "realtime-stream-event",
-            RealtimeStreamEvent {
-                session_id: task_session_id.clone(),
-                run_id: task_run_id,
-                kind,
-                text: None,
-                pcm_base64: None,
-                sample_rate: 24_000,
-                error,
-            },
-        );
-        if let Ok(mut streams) = task_runtime.realtime_streams.lock() {
-            streams.remove(&task_session_id);
-        }
-    });
-
-    Ok(RealtimeStreamStartResponse { session_id, run })
-}
-
-#[tauri::command]
-pub fn harness_push_realtime_stream(
-    runtime: State<'_, Arc<HarnessRuntime>>,
-    session_id: String,
-    pcm_base64: String,
-) -> Result<(), String> {
-    let pcm = STANDARD
-        .decode(pcm_base64)
-        .map_err(|error| format!("实时语音对话 PCM 数据无效: {error}"))?;
-    if pcm.is_empty() || pcm.len() % 2 != 0 {
-        return Err("实时语音对话 PCM 数据必须是非空的 16-bit 音频".to_string());
-    }
-    let sender = runtime
-        .realtime_streams
-        .lock()
-        .map_err(|_| "实时语音对话会话状态不可用".to_string())?
-        .get(&session_id)
-        .cloned()
-        .ok_or_else(|| "实时语音对话会话不存在或已经结束".to_string())?;
-    sender
-        .try_send(RealtimeStreamCommand::Audio(pcm))
-        .map_err(|error| match error {
-            mpsc::error::TrySendError::Full(_) => {
-                "实时语音对话处理速度跟不上输入，已触发背压保护".to_string()
-            }
-            mpsc::error::TrySendError::Closed(_) => "实时语音对话会话已经关闭".to_string(),
-        })
-}
-
-#[tauri::command]
-pub async fn harness_finish_realtime_stream(
-    runtime: State<'_, Arc<HarnessRuntime>>,
-    session_id: String,
-) -> Result<(), String> {
-    let sender = {
-        runtime
-            .realtime_streams
-            .lock()
-            .map_err(|_| "实时语音对话会话状态不可用".to_string())?
-            .get(&session_id)
-            .cloned()
-    };
-    let Some(sender) = sender else {
-        return Ok(());
-    };
-    sender
-        .send(RealtimeStreamCommand::Finish)
-        .await
-        .map_err(|_| "实时语音对话会话已经关闭".to_string())?;
-    let deadline = Instant::now() + Duration::from_secs(90);
-    while Instant::now() < deadline {
-        let completed = !runtime
-            .realtime_streams
-            .lock()
-            .map_err(|_| "实时语音对话会话状态不可用".to_string())?
-            .contains_key(&session_id);
-        if completed {
-            return Ok(());
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    Err("等待实时语音对话完成事件超时（90 秒）".to_string())
-}
-
-async fn run_realtime_stream(
-    app: &AppHandle,
-    session_id: &str,
-    run_id: &str,
-    config: &BailianProviderConfig,
-    model_id: &str,
-    request: RealtimeStreamStartRequest,
-    mut receiver: mpsc::Receiver<RealtimeStreamCommand>,
-) -> Result<Value, String> {
-    let input_sample_rate = request.sample_rate;
-    let target_sample_rate = 24_000;
-    let websocket_url = config
-        .base_url
-        .replacen("https://", "wss://", 1)
-        .trim_end_matches('/')
-        .to_string()
-        + BAILIAN_REALTIME_WEBSOCKET_PATH
-        + "?model="
-        + model_id;
-    let mut websocket_request = websocket_url
-        .into_client_request()
-        .map_err(|error| format!("无法创建实时语音对话 WebSocket 请求: {error}"))?;
-    websocket_request.headers_mut().insert(
-        "Authorization",
-        HeaderValue::from_str(&format!("Bearer {}", config.api_key))
-            .map_err(|error| format!("百炼 AK 格式无效: {error}"))?,
-    );
-    websocket_request
-        .headers_mut()
-        .insert("OpenAI-Beta", HeaderValue::from_static("realtime=v1"));
-    websocket_request.headers_mut().insert(
-        "User-Agent",
-        HeaderValue::from_static("qwenaudio-toolkits/0.1"),
-    );
-    let (mut socket, _) = connect_async(websocket_request)
-        .await
-        .map_err(|error| format!("实时语音对话 WebSocket 连接失败: {error}"))?;
-
-    let instructions = request
-        .system_prompt
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("你是一个简洁自然的语音助手。直接回答问题，回复适合朗读。");
-    let voice = request
-        .voice
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("alloy");
-    socket
-        .send(Message::Text(
-            json!({
-                "type": "session.update",
-                "session": {
-                    "model": model_id,
-                    "modalities": ["audio", "text"],
-                    "instructions": instructions,
-                    "voice": voice,
-                    "input_audio_format": "pcm16",
-                    "output_audio_format": "pcm16",
-                    "input_audio_transcription": { "model": "whisper-1" },
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.5,
-                        "prefix_padding_ms": 300,
-                        "silence_duration_ms": 500
-                    },
-                    "temperature": 0.8
-                }
-            })
-            .to_string(),
-        ))
-        .await
-        .map_err(|error| format!("无法发送实时语音对话会话配置: {error}"))?;
-
-    let (mut writer, mut reader) = socket.split();
-    let started = Instant::now();
-    let mut user_pcm = Vec::new();
-    let mut captured_text = String::new();
-    let mut assistant_text = String::new();
-    let mut finishing = false;
-    let mut response_active = false;
-    loop {
-        tokio::select! {
-            command = receiver.recv(), if !finishing => {
-                match command {
-                    Some(RealtimeStreamCommand::Audio(bytes)) => {
-                        let bytes = if input_sample_rate == target_sample_rate {
-                            bytes
-                        } else {
-                            let samples = bytes
-                                .chunks_exact(2)
-                                .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / i16::MAX as f32)
-                                .collect::<Vec<_>>();
-                            let converted = resample_audio(
-                                &PcmAudio {
-                                    samples,
-                                    sample_rate: input_sample_rate,
-                                    channels: 1,
-                                },
-                                target_sample_rate,
-                            )?;
-                            converted
-                                .samples
-                                .iter()
-                                .flat_map(|sample| {
-                                    ((sample.clamp(-1.0, 1.0) * i16::MAX as f32).round() as i16)
-                                        .to_le_bytes()
-                                })
-                                .collect()
-                        };
-                        user_pcm.extend_from_slice(&bytes);
-                        let audio_base64 = STANDARD.encode(&bytes);
-                        writer
-                            .send(Message::Text(
-                                json!({
-                                    "type": "input_audio_buffer.append",
-                                    "audio": audio_base64
-                                })
-                                .to_string(),
-                            ))
-                            .await
-                            .map_err(|error| format!("实时语音对话音频发送失败: {error}"))?;
-                    }
-                    Some(RealtimeStreamCommand::Finish) | None => {
-                        writer
-                            .send(Message::Text(
-                                json!({ "type": "input_audio_buffer.commit" }).to_string(),
-                            ))
-                            .await
-                            .map_err(|error| format!("无法提交实时语音对话音频: {error}"))?;
-                        if !response_active {
-                            writer
-                                .send(Message::Text(
-                                    json!({ "type": "response.create" }).to_string(),
-                                ))
-                                .await
-                                .map_err(|error| format!("无法请求实时语音对话回复: {error}"))?;
-                        }
-                        finishing = true;
-                    }
-                }
-            }
-            message = reader.next() => {
-                let message = message
-                    .ok_or_else(|| "实时语音对话在完成前关闭了连接".to_string())?
-                    .map_err(|error| format!("实时语音对话接收失败: {error}"))?;
-                match message {
-                    Message::Text(text) => {
-                        let event = serde_json::from_str::<Value>(&text)
-                            .map_err(|error| format!("实时语音对话返回了无效事件: {error}"))?;
-                        let event_type = event.get("type").and_then(Value::as_str);
-                        match event_type {
-                            Some("session.updated") => {
-                                let _ = app.emit(
-                                    "realtime-stream-event",
-                                    RealtimeStreamEvent {
-                                        session_id: session_id.to_string(),
-                                        run_id: run_id.to_string(),
-                                        kind: "user_transcript",
-                                        text: Some("会话已建立".to_string()),
-                                        pcm_base64: None,
-                                        sample_rate: target_sample_rate,
-                                        error: None,
-                                    },
-                                );
-                            }
-                            Some("input_audio_buffer.committed") => {}
-                            Some("response.created") => {
-                                response_active = true;
-                            }
-                            Some("response.audio.delta") => {
-                                if let Some(audio) = event.get("delta").and_then(Value::as_str) {
-                                    let _ = app.emit(
-                                        "realtime-stream-event",
-                                        RealtimeStreamEvent {
-                                            session_id: session_id.to_string(),
-                                            run_id: run_id.to_string(),
-                                            kind: "audio_delta",
-                                            text: None,
-                                            pcm_base64: Some(audio.to_string()),
-                                            sample_rate: target_sample_rate,
-                                            error: None,
-                                        },
-                                    );
-                                }
-                            }
-                            Some("response.audio.done") => {
-                                response_active = false;
-                            }
-                            Some("response.audio_transcript.delta") => {
-                                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
-                                    assistant_text.push_str(delta);
-                                    let _ = app.emit(
-                                        "realtime-stream-event",
-                                        RealtimeStreamEvent {
-                                            session_id: session_id.to_string(),
-                                            run_id: run_id.to_string(),
-                                            kind: "assistant_transcript",
-                                            text: Some(assistant_text.clone()),
-                                            pcm_base64: None,
-                                            sample_rate: target_sample_rate,
-                                            error: None,
-                                        },
-                                    );
-                                }
-                            }
-                            Some("conversation.item.input_audio_buffer.transcription.completed") => {
-                                if let Some(text) = event.get("transcript").and_then(Value::as_str) {
-                                    captured_text.push_str(text);
-                                    let _ = app.emit(
-                                        "realtime-stream-event",
-                                        RealtimeStreamEvent {
-                                            session_id: session_id.to_string(),
-                                            run_id: run_id.to_string(),
-                                            kind: "user_transcript",
-                                            text: Some(captured_text.clone()),
-                                            pcm_base64: None,
-                                            sample_rate: target_sample_rate,
-                                            error: None,
-                                        },
-                                    );
-                                }
-                            }
-                            Some("error") => {
-                                let error_message = event
-                                    .get("error")
-                                    .and_then(|value| value.get("message"))
-                                    .and_then(Value::as_str)
-                                    .unwrap_or("实时语音对话返回错误事件");
-                                return Err(error_message.to_string());
-                            }
-                            Some("response.done") => {
-                                if finishing {
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    let duration = user_pcm.len() as f32 / (2.0 * target_sample_rate as f32);
-    let captured_audio = PcmAudio {
-        samples: user_pcm
-            .chunks_exact(2)
-            .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]) as f32 / i16::MAX as f32)
-            .collect(),
-        sample_rate: target_sample_rate,
-        channels: 1,
-    };
-    let source_wav = encode_wav_bytes(&captured_audio)?;
-    let source_file_path = write_recording(app, &request.clip_name, &source_wav)?;
-    let inference_seconds = started.elapsed().as_secs_f32();
-    Ok(json!({
-        "clipName": request.clip_name,
-        "sourceFilePath": path_string(&source_file_path),
-        "userText": captured_text,
-        "assistantText": assistant_text,
-        "duration": duration,
-        "inferenceSeconds": inference_seconds,
-        "engine": format!("百炼 · {model_id}")
-    }))
 }
 
 async fn run_funasr_stream(
@@ -5062,7 +4118,6 @@ async fn execute_request(
                     audio_data_url,
                     clip_name,
                     operations,
-                    optional_string(&request.parameters, "outputFileName"),
                     optional_number(&request.parameters, "selectionStart"),
                     optional_number(&request.parameters, "selectionEnd"),
                     optional_number(&request.parameters, "denoiseStrength"),
@@ -5084,15 +4139,12 @@ async fn execute_request(
         }
         (CAPABILITY_AUDIO_TAGGING, false) => {
             let audio = required_string(&request.input, "audioDataUrl")?;
-            run_isolated_audio_model(
-                "audio-tagging",
+            run_audio_tagging(
                 provider
                     .model_path
                     .as_deref()
                     .ok_or_else(|| "Audio Tagging 缺少模型目录".to_string())?,
                 &audio,
-                Some(&provider.adapter),
-                cancel.as_ref(),
             )?
         }
         (CAPABILITY_LANGUAGE_ID, false) => {
@@ -5157,15 +4209,12 @@ async fn execute_request(
         }
         (CAPABILITY_DIARIZATION, false) => {
             let audio = required_string(&request.input, "audioDataUrl")?;
-            run_isolated_audio_model(
-                "speaker-diarization",
+            run_diarization(
                 provider
                     .model_path
                     .as_deref()
                     .ok_or_else(|| "Speaker Diarization 缺少模型目录".to_string())?,
                 &audio,
-                Some(&provider.adapter),
-                cancel.as_ref(),
             )?
         }
         (CAPABILITY_SOURCE_SEPARATION, false) => {
@@ -5174,13 +4223,11 @@ async fn execute_request(
                 .model_path
                 .as_deref()
                 .ok_or_else(|| "Source Separation 缺少模型目录".to_string())?;
-            run_isolated_audio_model(
-                "source-separation",
-                model_path,
-                &audio,
-                Some(&provider.adapter),
-                cancel.as_ref(),
-            )?
+            if provider.adapter == "mossformer2-separation" {
+                separate_mossformer2(model_path, &audio)?
+            } else {
+                run_source_separation(model_path, &audio)?
+            }
         }
         (CAPABILITY_ENHANCE, true) if provider.adapter == "bailian-audio-process" => {
             execute_bailian_audio_process(&app, request, &provider.model_id, cancel, false).await?
@@ -5875,60 +4922,25 @@ async fn execute_bailian_tts(
         .filter(|value| !value.trim().is_empty())
         .map(str::to_string)
         .or_else(|| (model_id == BAILIAN_COSYVOICE_MODEL).then(|| "longxiaochun_v2".to_string()))
-        .ok_or_else(|| {
-            match model_id {
-                BAILIAN_QWEN3_TTS_VC_MODEL => {
-                    "Qwen3 TTS Voice Cloning 需要 qwen-voice-enrollment 复刻的音色 ID"
-                }
-                BAILIAN_QWEN3_TTS_VD_MODEL => {
-                    "Qwen3 TTS Voice Design 需要 qwen-voice-design 设计的音色 ID"
-                }
-                _ => "CosyVoice v3.5 需要声音复刻或声音设计生成的音色 ID",
-            }
-            .to_string()
-        })?;
-    let is_qwen3_tts = model_id.starts_with("qwen3-tts-");
-    let instruction = optional_string(&request.parameters, "instruction");
-    let (url, input) = if is_qwen3_tts {
-        let mut input = json!({
-            "text": text,
-            "voice": voice,
-        });
-        if let Some(instruction) = instruction {
-            input["instructions"] = json!(instruction);
-            input["optimize_instructions"] = json!(true);
-        }
-        (
-            format!(
-                "{}/api/v1/services/aigc/multimodal-generation/generation",
-                config.base_url
-            ),
-            input,
-        )
-    } else {
-        let mut input = json!({
-            "text": text,
-            "voice": voice,
-            "format": "wav",
-            "sample_rate": 24000,
-            "rate": speed
-        });
-        if let Some(instruction) =
-            instruction.map(|value| value.chars().take(100).collect::<String>())
-        {
-            input["instruction"] = json!(instruction);
-        }
-        (
-            format!(
-                "{}/api/v1/services/audio/tts/SpeechSynthesizer",
-                config.base_url
-            ),
-            input,
-        )
-    };
+        .ok_or_else(|| "CosyVoice v3.5 需要声音复刻或声音设计生成的音色 ID".to_string())?;
+    let instruction = optional_string(&request.parameters, "instruction")
+        .map(|value| value.chars().take(100).collect::<String>());
+    let mut input = json!({
+        "text": text,
+        "voice": voice,
+        "format": "wav",
+        "sample_rate": 24000,
+        "rate": speed
+    });
+    if let Some(instruction) = instruction {
+        input["instruction"] = json!(instruction);
+    }
     let started = Instant::now();
     let response = api_client()?
-        .post(url)
+        .post(format!(
+            "{}/api/v1/services/audio/tts/SpeechSynthesizer",
+            config.base_url
+        ))
         .bearer_auth(&config.api_key)
         .json(&json!({ "model": model_id, "input": input }))
         .send()
@@ -6992,12 +6004,7 @@ async fn execute_api_text(
     provider: &ResolvedProvider,
     cancel: Arc<AtomicBool>,
 ) -> Result<Value, String> {
-    let api_config = (provider.id != BAILIAN_PROVIDER_ID)
-        .then(|| configured_api_provider(app, &provider.id))
-        .transpose()?;
-    let (base_url, api_key) = if let Some(config) = api_config.as_ref() {
-        (config.base_url.clone(), config.api_key.clone())
-    } else {
+    let (base_url, api_key) = if provider.id == BAILIAN_PROVIDER_ID {
         let config = configured_bailian_provider(app)?;
         (
             format!(
@@ -7006,6 +6013,9 @@ async fn execute_api_text(
             ),
             config.api_key,
         )
+    } else {
+        let config = configured_api_provider(app, &provider.id)?;
+        (config.base_url, config.api_key)
     };
     let messages = request
         .input
@@ -7025,67 +6035,35 @@ async fn execute_api_text(
         .unwrap_or(512.0)
         .clamp(1.0, 8192.0) as u64;
     let started = Instant::now();
+    let api_config = (provider.id != BAILIAN_PROVIDER_ID)
+        .then(|| configured_api_provider(app, &provider.id))
+        .transpose()?;
     let path = api_config
         .as_ref()
         .map(|config| config.llm_path.as_str())
         .unwrap_or("/chat/completions");
-    let request_id = Uuid::new_v4().to_string();
-    let builder = api_client()?
-        .post(api_endpoint(&base_url, path))
-        .timeout(Duration::from_secs(120));
+    let builder = api_client()?.post(api_endpoint(&base_url, path));
     let builder = if let Some(config) = api_config.as_ref() {
-        apply_api_request_headers(builder, config, &provider.model_id, "", &request_id)?
+        apply_api_request_headers(
+            builder,
+            config,
+            &provider.model_id,
+            "",
+            &Uuid::new_v4().to_string(),
+        )?
     } else {
         with_api_auth(builder, &api_key)
     };
-    let text_pointer = api_config
-        .as_ref()
-        .map(|config| config.llm_text_pointer.as_str())
-        .unwrap_or("/choices/0/message/content");
-    let mut payload = if let Some(config) = api_config.as_ref() {
-        match custom_api_adapter(CAPABILITY_TEXT, config)? {
-            CustomApiAdapter::OpenAiChat => json!({
-                "model": provider.model_id,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            }),
-            CustomApiAdapter::TemplateJson => expand_api_json_template(
-                &config.llm_body_template,
-                &llm_template_values(
-                    &provider.model_id,
-                    &messages,
-                    temperature,
-                    max_tokens,
-                    &request_id,
-                ),
-            )?,
-            CustomApiAdapter::GenericAsr | CustomApiAdapter::GenericTts => {
-                return Err("LLM request profile is unsupported".to_string());
-            }
-        }
-    } else {
-        json!({
+    let response = builder
+        .json(&json!({
             "model": provider.model_id,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens
-        })
-    };
-    if provider.id == BAILIAN_PROVIDER_ID {
-        if let Some(enable_thinking) = request
-            .parameters
-            .get("enableThinking")
-            .and_then(Value::as_bool)
-        {
-            payload["enable_thinking"] = json!(enable_thinking);
-        }
-    }
-    let response = builder
-        .json(&payload)
+        }))
         .send()
         .await
-        .map_err(|error| format!("文本生成 API 请求失败: {}", reqwest_error_details(&error)))?;
+        .map_err(|error| format!("文本生成 API 请求失败: {error}"))?;
     if cancel.load(Ordering::Relaxed) {
         return Err("任务已取消".to_string());
     }
@@ -7095,7 +6073,7 @@ async fn execute_api_text(
         .await
         .map_err(|error| format!("文本生成 API 没有返回有效 JSON: {error}"))?;
     let text = raw
-        .pointer(text_pointer)
+        .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .trim()
@@ -7132,141 +6110,12 @@ async fn checked_response(
 fn api_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(180))
-        .connect_timeout(Duration::from_secs(15))
         .build()
         .map_err(|error| format!("无法创建 API 客户端: {error}"))
 }
 
-fn opencode_model_discovery_client() -> Result<reqwest::Client, String> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(180))
-        .connect_timeout(Duration::from_secs(15))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|_| "Unable to create the OpenCode model discovery client".to_string())
-}
-
-fn reqwest_error_details(error: &reqwest::Error) -> String {
-    use std::error::Error as _;
-
-    let mut details = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        let cause = cause.to_string();
-        if !cause.is_empty() && !details.contains(&cause) {
-            details.push_str(": ");
-            details.push_str(&cause);
-        }
-        source = source.and_then(std::error::Error::source);
-    }
-    if error.is_timeout() {
-        details.push_str(" [timeout]");
-    }
-    if error.is_connect() {
-        details.push_str(" [connect]");
-    }
-    details
-}
-
 fn api_endpoint(base_url: &str, path: &str) -> String {
     format!("{}{}", base_url.trim_end_matches('/'), path)
-}
-
-fn opencode_model_endpoint(base_url: &str) -> Result<reqwest::Url, String> {
-    let mut endpoint = reqwest::Url::parse(base_url)
-        .map_err(|_| "Unable to construct the OpenCode model discovery URL".to_string())?;
-    if endpoint.query().is_some() || endpoint.fragment().is_some() {
-        return Err("Unable to construct the OpenCode model discovery URL".to_string());
-    }
-    let mut segments = endpoint
-        .path_segments_mut()
-        .map_err(|_| "Unable to construct the OpenCode model discovery URL".to_string())?;
-    segments.pop_if_empty();
-    segments.push("models");
-    drop(segments);
-    Ok(endpoint)
-}
-
-async fn discover_opencode_models(launch: &OpenCodeLaunchConfig) -> Result<Vec<String>, String> {
-    discover_opencode_models_with_timeout(launch, Duration::from_secs(15)).await
-}
-
-async fn discover_opencode_models_with_timeout(
-    launch: &OpenCodeLaunchConfig,
-    timeout: Duration,
-) -> Result<Vec<String>, String> {
-    let request_config = launch.api_provider_request_config();
-    let endpoint = opencode_model_endpoint(&launch.base_url)?;
-    let client = opencode_model_discovery_client()?;
-    let request = client.get(endpoint).timeout(timeout);
-    let response = apply_api_request_headers(
-        request,
-        &request_config,
-        "",
-        "",
-        &Uuid::new_v4().to_string(),
-    )
-    .map_err(|_| "Unable to prepare the OpenCode model discovery request".to_string())?
-    .send()
-    .await
-    .map_err(|error| {
-        if error.is_timeout() {
-            "OpenCode model discovery timed out".to_string()
-        } else {
-            "OpenCode model discovery request failed".to_string()
-        }
-    })?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "OpenCode model discovery returned HTTP {}",
-            response.status().as_u16()
-        ));
-    }
-    let body = read_opencode_model_response(response).await?;
-    parse_opencode_models(&body)
-}
-
-async fn read_opencode_model_response(mut response: reqwest::Response) -> Result<Vec<u8>, String> {
-    if response
-        .content_length()
-        .is_some_and(|length| length > OPENCODE_MODEL_RESPONSE_MAX_BYTES as u64)
-    {
-        return Err("OpenCode model discovery response is too large".to_string());
-    }
-
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|_| "OpenCode model discovery response failed".to_string())?
-    {
-        if body.len().saturating_add(chunk.len()) > OPENCODE_MODEL_RESPONSE_MAX_BYTES {
-            return Err("OpenCode model discovery response is too large".to_string());
-        }
-        body.extend_from_slice(&chunk);
-    }
-    Ok(body)
-}
-
-fn parse_opencode_models(body: &[u8]) -> Result<Vec<String>, String> {
-    let response = serde_json::from_slice::<Value>(body)
-        .map_err(|_| "OpenCode model discovery response was not valid JSON".to_string())?;
-    let models = response
-        .get("data")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            "OpenCode model discovery response did not contain a model list".to_string()
-        })?;
-    Ok(models
-        .iter()
-        .filter_map(|model| model.get("id").and_then(Value::as_str))
-        .map(str::trim)
-        .filter(|model_id| !model_id.is_empty())
-        .map(str::to_string)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .take(OPENCODE_MODEL_LIMIT)
-        .collect())
 }
 
 fn normalize_api_path(value: &str) -> Result<String, String> {
@@ -7302,64 +6151,6 @@ fn validate_api_field(value: &str, label: &str) -> Result<(), String> {
     Ok(())
 }
 
-const LLM_TEMPLATE_PLACEHOLDERS: &[&str] = &[
-    "{model}",
-    "{messages}",
-    "{temperature}",
-    "{maxTokens}",
-    "{uuid}",
-];
-
-fn validate_llm_body_template(template: &str) -> Result<(), String> {
-    validate_api_json_template(template, "LLM")?;
-    let value = serde_json::from_str::<Value>(template)
-        .map_err(|error| format!("LLM JSON 模板无效: {error}"))?;
-    validate_template_placeholders(&value, LLM_TEMPLATE_PLACEHOLDERS, "LLM")
-}
-
-fn validate_template_placeholders(
-    value: &Value,
-    allowed: &[&str],
-    label: &str,
-) -> Result<(), String> {
-    match value {
-        Value::String(text) => {
-            let mut remaining = text.as_str();
-            while let Some(start) = remaining.find('{') {
-                if remaining[..start].contains('}') {
-                    return Err(format!("{label} JSON 模板变量无效"));
-                }
-                let candidate = &remaining[start..];
-                let end = candidate
-                    .find('}')
-                    .ok_or_else(|| format!("{label} JSON 模板变量无效"))?;
-                let placeholder = &candidate[..=end];
-                if !allowed.iter().any(|allowed| *allowed == placeholder) {
-                    return Err(format!("{label} JSON 模板变量不受支持: {placeholder}"));
-                }
-                remaining = &candidate[end + 1..];
-            }
-            if remaining.contains('}') {
-                return Err(format!("{label} JSON 模板变量无效"));
-            }
-            Ok(())
-        }
-        Value::Array(items) => items
-            .iter()
-            .try_for_each(|item| validate_template_placeholders(item, allowed, label)),
-        Value::Object(object) => {
-            for (key, item) in object {
-                if key.contains(['{', '}']) {
-                    return Err(format!("{label} JSON 模板不支持变量作为对象键"));
-                }
-                validate_template_placeholders(item, allowed, label)?;
-            }
-            Ok(())
-        }
-        _ => Ok(()),
-    }
-}
-
 fn validate_api_provider_update(update: &ApiProviderUpdate) -> Result<(), String> {
     if !update.llm_enabled && !update.asr_enabled && !update.tts_enabled {
         return Err("请至少启用一种 Provider 能力".to_string());
@@ -7373,13 +6164,6 @@ fn validate_api_provider_update(update: &ApiProviderUpdate) -> Result<(), String
     if update.auth_type == "custom-header" {
         validate_api_field(&update.auth_header, "鉴权 Header")?;
     }
-    if !matches!(update.llm_profile.as_str(), "openai-chat" | "template-json") {
-        return Err("LLM 请求格式无效".to_string());
-    }
-    if update.llm_profile == "template-json" {
-        validate_llm_body_template(&update.llm_body_template)?;
-    }
-    normalize_json_pointer(&update.llm_text_pointer)?;
     if !matches!(
         update.asr_mode.as_str(),
         "multipart" | "binary" | "template-json-base64"
@@ -7489,22 +6273,6 @@ fn api_template_values(context: &ApiTemplateContext<'_>) -> HashMap<String, Valu
             json!(api_audio_format(context.audio_format)),
         ),
         ("{uuid}".to_string(), json!(context.request_id)),
-    ])
-}
-
-fn llm_template_values(
-    model_id: &str,
-    messages: &Value,
-    temperature: f64,
-    max_tokens: u64,
-    request_id: &str,
-) -> HashMap<String, Value> {
-    HashMap::from([
-        ("{model}".to_string(), json!(model_id)),
-        ("{messages}".to_string(), messages.clone()),
-        ("{temperature}".to_string(), json!(temperature)),
-        ("{maxTokens}".to_string(), json!(max_tokens)),
-        ("{uuid}".to_string(), json!(request_id)),
     ])
 }
 
@@ -7701,10 +6469,6 @@ fn artifact_from_payload(capability: &str, mut payload: Value) -> Result<Harness
         CAPABILITY_ASR => ("transcript", "application/json", "transcript.json"),
         CAPABILITY_VAD => ("data", "application/json", "speech-segments.json"),
         CAPABILITY_TEXT => ("data", "application/json", "text-output.json"),
-        CAPABILITY_CONVERSATION if payload.get("filePath").is_some() => {
-            ("audio", "audio/wav", "conversation-recording.wav")
-        }
-        CAPABILITY_CONVERSATION => ("stream", "application/json", "conversation.json"),
         CAPABILITY_LIVE if payload.get("filePath").is_some() => {
             ("audio", "audio/wav", "live-recording.wav")
         }
@@ -8038,7 +6802,6 @@ fn resolve_provider(
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let adapter = custom_api_adapter(&request.capability, &api_config)?;
         let model_id = match request.capability.as_str() {
             CAPABILITY_TTS if api_config.tts_enabled => requested_model
                 .map(str::to_string)
@@ -8056,7 +6819,7 @@ fn resolve_provider(
             name: api_config.name,
             model_id,
             is_api: true,
-            adapter: adapter.id().to_string(),
+            adapter: "openai-compatible".to_string(),
             model_path: None,
         });
     }
@@ -8339,94 +7102,6 @@ mod tests {
         }
     }
 
-    fn opencode_mock_response(status: &str, body: &str) -> String {
-        format!(
-            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
-        )
-    }
-
-    fn start_opencode_model_server(
-        responses: Vec<(Duration, String)>,
-    ) -> (
-        String,
-        std::sync::mpsc::Receiver<String>,
-        std::thread::JoinHandle<()>,
-    ) {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind model server");
-        let address = listener.local_addr().expect("read model server address");
-        let (request_tx, request_rx) = std::sync::mpsc::channel();
-        let server = std::thread::spawn(move || {
-            for (delay, response) in responses {
-                let (mut stream, _) = listener.accept().expect("accept model request");
-                stream
-                    .set_read_timeout(Some(Duration::from_secs(5)))
-                    .expect("set model request timeout");
-                let mut reader = BufReader::new(stream.try_clone().expect("clone model stream"));
-                let mut request = String::new();
-                loop {
-                    let mut line = String::new();
-                    let read = reader.read_line(&mut line).expect("read model request");
-                    assert!(read > 0, "model request ended before headers");
-                    request.push_str(&line);
-                    if line == "\r\n" {
-                        break;
-                    }
-                }
-                request_tx.send(request).expect("record model request");
-                thread::sleep(delay);
-                match stream.write_all(response.as_bytes()) {
-                    Ok(()) => {}
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::BrokenPipe
-                                | std::io::ErrorKind::ConnectionAborted
-                                | std::io::ErrorKind::ConnectionReset
-                                | std::io::ErrorKind::NotConnected
-                        ) => {}
-                    Err(error) => panic!("write model response: {error}"),
-                }
-            }
-        });
-        (format!("http://{address}/v1"), request_rx, server)
-    }
-
-    fn request_header<'a>(request: &'a str, header: &str) -> Option<&'a str> {
-        request.lines().find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            name.eq_ignore_ascii_case(header).then(|| value.trim())
-        })
-    }
-
-    #[test]
-    fn opencode_model_server_tolerates_intentional_client_disconnects() {
-        let (base_url, requests, server) = start_opencode_model_server(vec![(
-            Duration::from_millis(50),
-            opencode_mock_response("200 OK", &"x".repeat(8 * 1024 * 1024)),
-        )]);
-        let address = base_url
-            .strip_prefix("http://")
-            .and_then(|value| value.strip_suffix("/v1"))
-            .expect("extract model server address");
-        let mut client = std::net::TcpStream::connect(address).expect("connect model server");
-        client
-            .write_all(b"GET /v1/models HTTP/1.1\r\nHost: localhost\r\n\r\n")
-            .expect("send model request");
-        assert!(requests
-            .recv_timeout(Duration::from_secs(1))
-            .expect("capture model request")
-            .starts_with("GET /v1/models HTTP/1.1\r\n"));
-        client
-            .shutdown(std::net::Shutdown::Both)
-            .expect("disconnect model client");
-        drop(client);
-
-        server
-            .join()
-            .expect("ignore intentional client disconnect while writing response");
-    }
-
     fn test_run(id: &str) -> HarnessRun {
         HarnessRun {
             id: id.to_string(),
@@ -8477,27 +7152,6 @@ mod tests {
             .expect("skip initialized runtime");
 
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
-    }
-
-    #[test]
-    fn native_execution_is_serialized() {
-        let runtime = HarnessRuntime::default();
-        let first = runtime
-            .native_execution_gate
-            .clone()
-            .try_acquire_owned()
-            .expect("first native task should start");
-        assert!(runtime
-            .native_execution_gate
-            .clone()
-            .try_acquire_owned()
-            .is_err());
-        drop(first);
-        assert!(runtime
-            .native_execution_gate
-            .clone()
-            .try_acquire_owned()
-            .is_ok());
     }
 
     #[test]
@@ -8618,575 +7272,6 @@ mod tests {
     }
 
     #[test]
-    fn opencode_connections_only_allow_supported_custom_llm_providers() {
-        let mut config = provider("https://example.com/v1", "secret");
-        config.id = "api.custom.Test Provider".to_string();
-        config.name = "Test Provider".to_string();
-
-        let connection = opencode_connection(&config);
-        assert!(connection.eligible);
-        assert_eq!(
-            connection.provider_slug,
-            "qwenaudio-api-custom-test-provider"
-        );
-        let serialized = serde_json::to_value(&connection).expect("serialize connection");
-        assert_eq!(serialized["id"], "api.custom.Test Provider");
-        assert_eq!(serialized["name"], "Test Provider");
-        assert!(serialized.get("baseUrl").is_none());
-        assert!(serialized.get("apiKey").is_none());
-
-        config.enabled = false;
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("Provider is disabled")
-        );
-        config.enabled = true;
-
-        config.llm_enabled = false;
-        assert_eq!(opencode_connection_reason(&config), Some("LLM is disabled"));
-        config.llm_enabled = true;
-
-        config.llm_profile = "template-json".to_string();
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("LLM request profile is unsupported")
-        );
-        config.llm_profile = default_llm_profile();
-
-        config.auth_type = "token".to_string();
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("Custom authentication is unsupported")
-        );
-        config.auth_type = "bearer".to_string();
-
-        config
-            .extra_headers
-            .insert("x-test".to_string(), "value".to_string());
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("Extra headers are unsupported")
-        );
-        config.extra_headers.clear();
-
-        config.base_url = "not a usable URL".to_string();
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("Provider base URL is invalid")
-        );
-        config.base_url = "https://example.com/v1".to_string();
-
-        config.api_key.clear();
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("Provider is not configured")
-        );
-        config.auth_type = "none".to_string();
-        assert_eq!(opencode_connection_reason(&config), None);
-
-        config.base_url = "https://example.com/v1?scope=models".to_string();
-        assert!(api_provider_endpoint_is_valid(&config.base_url));
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("Provider base URL must not contain a query or fragment")
-        );
-        config.base_url = "https://example.com/v1#models".to_string();
-        assert!(api_provider_endpoint_is_valid(&config.base_url));
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("Provider base URL must not contain a query or fragment")
-        );
-        config.base_url = "https://example.com/v1".to_string();
-        assert_eq!(opencode_connection_reason(&config), None);
-
-        config.id = API_PROVIDER_ID.to_string();
-        assert_eq!(
-            opencode_connection_reason(&config),
-            Some("Only saved custom providers are supported")
-        );
-    }
-
-    #[test]
-    fn configured_bailian_opencode_connection_is_eligible() {
-        let config = BailianProviderConfig {
-            api_key: "bailian-secret".to_string(),
-            enabled: true,
-            ..Default::default()
-        };
-
-        let connection = bailian_opencode_connection(&config);
-        assert_eq!(connection.id, BAILIAN_PROVIDER_ID);
-        assert_eq!(connection.name, config.name);
-        assert_eq!(connection.provider_slug, "qwenaudio-api-bailian");
-        assert!(connection.eligible);
-        assert_eq!(connection.reason, None);
-
-        let serialized = serde_json::to_value(&connection).expect("serialize connection");
-        assert!(serialized.get("secret").is_none());
-        assert!(serialized.get("baseUrl").is_none());
-        assert!(serialized.get("apiKey").is_none());
-        assert!(!serialized.to_string().contains(&config.api_key));
-
-        let launch = bailian_opencode_launch_config(&config).expect("eligible launch config");
-        assert_eq!(launch.id, BAILIAN_PROVIDER_ID);
-        assert_eq!(launch.base_url, BAILIAN_OPENCODE_BASE_URL);
-        assert_eq!(launch.api_key, config.api_key);
-        assert_eq!(launch.provider_slug, "qwenaudio-api-bailian");
-        assert_eq!(launch.auth_type, "bearer");
-    }
-
-    #[test]
-    fn ineligible_bailian_opencode_connections_return_safe_errors() {
-        let disabled = BailianProviderConfig {
-            api_key: "disabled-secret".to_string(),
-            enabled: false,
-            ..Default::default()
-        };
-        let disabled_connection = bailian_opencode_connection(&disabled);
-        assert!(!disabled_connection.eligible);
-        assert_eq!(
-            disabled_connection.reason.as_deref(),
-            Some("Provider is disabled")
-        );
-        let disabled_error = bailian_opencode_launch_config(&disabled)
-            .err()
-            .expect("disabled provider must be rejected");
-        assert_eq!(
-            disabled_error,
-            "OpenCode connection is not eligible: Provider is disabled"
-        );
-        assert!(!disabled_error.contains(&disabled.api_key));
-
-        let unconfigured = BailianProviderConfig {
-            api_key: "   ".to_string(),
-            enabled: true,
-            ..Default::default()
-        };
-        let unconfigured_connection = bailian_opencode_connection(&unconfigured);
-        assert!(!unconfigured_connection.eligible);
-        assert_eq!(
-            unconfigured_connection.reason.as_deref(),
-            Some("Provider is not configured")
-        );
-        let unconfigured_error = bailian_opencode_launch_config(&unconfigured)
-            .err()
-            .expect("unconfigured provider must be rejected");
-        assert_eq!(
-            unconfigured_error,
-            "OpenCode connection is not eligible: Provider is not configured"
-        );
-    }
-
-    #[test]
-    fn opencode_connections_merge_bailian_before_custom_without_secrets() {
-        let bailian = BailianProviderConfig {
-            api_key: "bailian-list-secret".to_string(),
-            enabled: true,
-            ..Default::default()
-        };
-        let mut custom = provider("https://example.com/v1", "custom-list-secret");
-        custom.id = "api.custom.merged".to_string();
-        custom.name = "Merged Custom".to_string();
-
-        let connections = collect_opencode_connections(Some(&bailian), &[custom]);
-
-        assert_eq!(connections.len(), 2);
-        assert_eq!(connections[0].id, BAILIAN_PROVIDER_ID);
-        assert_eq!(connections[1].id, "api.custom.merged");
-        let serialized = serde_json::to_string(&connections).expect("serialize connections");
-        assert!(!serialized.contains(&bailian.api_key));
-        assert!(!serialized.contains("custom-list-secret"));
-    }
-
-    #[test]
-    fn opencode_connections_collect_custom_without_bailian() {
-        let mut custom = provider("https://example.com/v1", "custom-only-secret");
-        custom.id = "api.custom.only".to_string();
-
-        let connections = collect_opencode_connections(None, &[custom]);
-
-        assert_eq!(connections.len(), 1);
-        assert_eq!(connections[0].id, "api.custom.only");
-        assert!(!serde_json::to_string(&connections)
-            .expect("serialize connections")
-            .contains("custom-only-secret"));
-    }
-
-    #[test]
-    fn opencode_connections_collect_bailian_without_custom() {
-        let bailian = BailianProviderConfig {
-            api_key: "bailian-only-secret".to_string(),
-            enabled: true,
-            ..Default::default()
-        };
-
-        let connections = collect_opencode_connections(Some(&bailian), &[]);
-
-        assert_eq!(connections.len(), 1);
-        assert_eq!(connections[0].id, BAILIAN_PROVIDER_ID);
-        assert!(!serde_json::to_string(&connections)
-            .expect("serialize connections")
-            .contains(&bailian.api_key));
-    }
-
-    #[test]
-    fn opencode_connections_collect_empty_when_both_sources_are_missing() {
-        assert!(collect_opencode_connections(None, &[]).is_empty());
-    }
-
-    #[test]
-    fn opencode_connection_sources_fail_only_when_both_sources_fail() {
-        let bailian = BailianProviderConfig {
-            api_key: "bailian-source-secret".to_string(),
-            enabled: true,
-            ..Default::default()
-        };
-        let mut custom = provider("https://example.com/v1", "custom-source-secret");
-        custom.id = "api.custom.source".to_string();
-
-        let custom_only = collect_available_opencode_connections(
-            Err("malformed Bailian: bailian-file-secret".to_string()),
-            Ok(vec![custom.clone()]),
-        )
-        .expect("use valid custom source");
-        assert_eq!(custom_only.len(), 1);
-        assert_eq!(custom_only[0].id, custom.id);
-
-        let bailian_only = collect_available_opencode_connections(
-            Ok(bailian),
-            Err("malformed custom: custom-file-secret".to_string()),
-        )
-        .expect("use valid Bailian source");
-        assert_eq!(bailian_only.len(), 1);
-        assert_eq!(bailian_only[0].id, BAILIAN_PROVIDER_ID);
-
-        let error = collect_available_opencode_connections(
-            Err("malformed Bailian: bailian-file-secret".to_string()),
-            Err("malformed custom: custom-file-secret".to_string()),
-        )
-        .expect_err("reject when both sources fail");
-        assert_eq!(error, "Unable to load OpenCode connections");
-        assert!(!error.contains("bailian-file-secret"));
-        assert!(!error.contains("custom-file-secret"));
-    }
-
-    #[test]
-    fn opencode_launch_resolver_dispatches_bailian_custom_and_unknown_safely() {
-        let bailian = BailianProviderConfig {
-            api_key: "bailian-launch-secret".to_string(),
-            enabled: true,
-            ..Default::default()
-        };
-        let mut custom = provider("https://example.com/custom/v1", "custom-launch-secret");
-        custom.id = "api.custom.resolved".to_string();
-
-        let bailian_launch =
-            resolve_opencode_launch_config(BAILIAN_PROVIDER_ID, Some(&bailian), &[])
-                .expect("resolve Bailian without custom providers");
-        assert_eq!(bailian_launch.base_url, BAILIAN_OPENCODE_BASE_URL);
-        assert_eq!(bailian_launch.api_key, bailian.api_key);
-
-        let custom_launch = resolve_opencode_launch_config(&custom.id, None, &[custom.clone()])
-            .expect("resolve custom provider without Bailian");
-        assert_eq!(custom_launch.base_url, custom.base_url);
-        assert_eq!(custom_launch.api_key, custom.api_key);
-
-        custom.enabled = false;
-        let ineligible_error = resolve_opencode_launch_config(&custom.id, None, &[custom.clone()])
-            .err()
-            .expect("reject ineligible custom provider");
-        assert_eq!(
-            ineligible_error,
-            "OpenCode connection is not eligible: Provider is disabled"
-        );
-        assert!(!ineligible_error.contains(&custom.api_key));
-
-        let unknown_error =
-            resolve_opencode_launch_config("api.custom.unknown", Some(&bailian), &[custom])
-                .err()
-                .expect("reject unknown provider");
-        assert_eq!(unknown_error, "OpenCode connection is unavailable");
-        assert!(!unknown_error.contains(&bailian.api_key));
-        assert!(!unknown_error.contains("custom-launch-secret"));
-
-        let missing_bailian_error = resolve_opencode_launch_config(BAILIAN_PROVIDER_ID, None, &[])
-            .err()
-            .expect("reject missing Bailian provider");
-        assert_eq!(missing_bailian_error, "OpenCode connection is unavailable");
-    }
-
-    #[test]
-    fn custom_api_adapter_registry_uses_only_reviewed_profiles() {
-        let mut config = provider("https://example.com/v1", "secret");
-        assert_eq!(
-            custom_api_adapter(CAPABILITY_TEXT, &config).expect("default LLM profile"),
-            CustomApiAdapter::OpenAiChat,
-        );
-        config.llm_profile = "template-json".to_string();
-        assert_eq!(
-            custom_api_adapter(CAPABILITY_TEXT, &config).expect("template LLM profile"),
-            CustomApiAdapter::TemplateJson,
-        );
-        config.llm_profile = "unsupported-profile".to_string();
-        let error = custom_api_adapter(CAPABILITY_TEXT, &config)
-            .expect_err("reject an unknown LLM profile before requesting a provider");
-        assert_eq!(error, "LLM request profile is unsupported");
-        assert!(!error.contains(&config.api_key));
-        assert_eq!(
-            custom_api_adapter(CAPABILITY_ASR, &config).expect("generic ASR adapter"),
-            CustomApiAdapter::GenericAsr,
-        );
-        assert_eq!(
-            custom_api_adapter(CAPABILITY_TTS, &config).expect("generic TTS adapter"),
-            CustomApiAdapter::GenericTts,
-        );
-    }
-
-    #[test]
-    fn opencode_model_parser_normalizes_deduplicates_sorts_and_caps_ids() {
-        let response = json!({
-            "data": [
-                { "id": " beta " },
-                { "id": "alpha" },
-                { "id": "beta" },
-                { "id": "  " },
-                { "id": "gamma" },
-                { "id": 42 },
-                {}
-            ]
-        });
-        let body = serde_json::to_vec(&response).expect("serialize model response");
-        assert_eq!(
-            parse_opencode_models(&body).expect("parse model response"),
-            vec!["alpha", "beta", "gamma"]
-        );
-
-        let response = json!({
-            "data": (0..510)
-                .map(|index| json!({ "id": format!("model-{index:03}") }))
-                .collect::<Vec<_>>()
-        });
-        let body = serde_json::to_vec(&response).expect("serialize capped response");
-        let models = parse_opencode_models(&body).expect("parse capped response");
-        assert_eq!(models.len(), OPENCODE_MODEL_LIMIT);
-        assert_eq!(models.first().map(String::as_str), Some("model-000"));
-        assert_eq!(models.last().map(String::as_str), Some("model-499"));
-    }
-
-    #[test]
-    fn opencode_model_discovery_uses_get_auth_and_safe_failures() {
-        let mut model_data = vec![
-            json!({ "id": " beta " }),
-            json!({ "id": "alpha" }),
-            json!({ "id": "beta" }),
-            json!({ "id": " " }),
-            json!({ "id": 42 }),
-        ];
-        model_data.extend((0..505).map(|index| json!({ "id": format!("model-{index:03}") })));
-        let (base_url, requests, server) = start_opencode_model_server(vec![
-            (
-                Duration::from_secs(0),
-                opencode_mock_response("200 OK", &json!({ "data": model_data }).to_string()),
-            ),
-            (
-                Duration::from_secs(0),
-                opencode_mock_response("200 OK", r#"{"data":[{"id":" anonymous "}]}"#),
-            ),
-            (
-                Duration::from_secs(0),
-                opencode_mock_response("503 Service Unavailable", r#"{"error":"unavailable"}"#),
-            ),
-        ]);
-        let bearer = OpenCodeLaunchConfig {
-            id: "api.custom.bearer".to_string(),
-            base_url: base_url.clone(),
-            api_key: "test-bearer-credential".to_string(),
-            provider_slug: "qwenaudio-bearer".to_string(),
-            auth_type: "bearer".to_string(),
-        };
-        let anonymous = OpenCodeLaunchConfig {
-            id: "api.custom.anonymous".to_string(),
-            base_url: base_url.clone(),
-            api_key: String::new(),
-            provider_slug: "qwenaudio-anonymous".to_string(),
-            auth_type: "none".to_string(),
-        };
-        let unavailable = OpenCodeLaunchConfig {
-            id: "api.custom.unavailable".to_string(),
-            base_url,
-            api_key: "test-failure-credential".to_string(),
-            provider_slug: "qwenaudio-unavailable".to_string(),
-            auth_type: "bearer".to_string(),
-        };
-
-        let models = tauri::async_runtime::block_on(discover_opencode_models(&bearer))
-            .expect("discover bearer models");
-        assert_eq!(models.len(), OPENCODE_MODEL_LIMIT);
-        assert_eq!(models.first().map(String::as_str), Some("alpha"));
-        assert_eq!(models.get(1).map(String::as_str), Some("beta"));
-        assert_eq!(models.last().map(String::as_str), Some("model-497"));
-        assert_eq!(
-            tauri::async_runtime::block_on(discover_opencode_models(&anonymous))
-                .expect("discover anonymous models"),
-            vec!["anonymous"]
-        );
-        let error = tauri::async_runtime::block_on(discover_opencode_models(&unavailable))
-            .expect_err("reject unavailable discovery");
-        assert_eq!(error, "OpenCode model discovery returned HTTP 503");
-        assert!(!error.contains(&unavailable.api_key));
-
-        let requests = (0..3)
-            .map(|_| {
-                requests
-                    .recv_timeout(Duration::from_secs(1))
-                    .expect("capture model request")
-            })
-            .collect::<Vec<_>>();
-        server.join().expect("join model server");
-        assert!(requests
-            .iter()
-            .all(|request| request.starts_with("GET /v1/models HTTP/1.1\r\n")));
-        assert_eq!(
-            request_header(&requests[0], "authorization"),
-            Some("Bearer test-bearer-credential")
-        );
-        assert_eq!(request_header(&requests[1], "authorization"), None);
-    }
-
-    #[test]
-    fn opencode_model_discovery_returns_redirect_status_without_following_location() {
-        let redirect_listener =
-            std::net::TcpListener::bind("127.0.0.1:0").expect("bind redirect target");
-        redirect_listener
-            .set_nonblocking(true)
-            .expect("make redirect target nonblocking");
-        let redirect_address = redirect_listener
-            .local_addr()
-            .expect("read redirect target address");
-
-        let source_listener =
-            std::net::TcpListener::bind("127.0.0.1:0").expect("bind redirect source");
-        let source_address = source_listener
-            .local_addr()
-            .expect("read redirect source address");
-        let (request_tx, request_rx) = std::sync::mpsc::channel();
-        let source_server = std::thread::spawn(move || {
-            let (mut stream, _) = source_listener.accept().expect("accept model request");
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .expect("set model request timeout");
-            let mut reader = BufReader::new(stream.try_clone().expect("clone model stream"));
-            let mut request = String::new();
-            loop {
-                let mut line = String::new();
-                let read = reader.read_line(&mut line).expect("read model request");
-                assert!(read > 0, "model request ended before headers");
-                request.push_str(&line);
-                if line == "\r\n" {
-                    break;
-                }
-            }
-            request_tx.send(request).expect("record model request");
-            let response = format!(
-                "HTTP/1.1 302 Found\r\nLocation: http://{redirect_address}/redirected\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-            );
-            stream
-                .write_all(response.as_bytes())
-                .expect("write redirect response");
-        });
-        let launch = OpenCodeLaunchConfig {
-            id: "api.custom.redirect".to_string(),
-            base_url: format!("http://{source_address}/v1"),
-            api_key: "test-redirect-credential".to_string(),
-            provider_slug: "qwenaudio-redirect".to_string(),
-            auth_type: "bearer".to_string(),
-        };
-
-        let error = tauri::async_runtime::block_on(discover_opencode_models_with_timeout(
-            &launch,
-            Duration::from_millis(100),
-        ))
-        .expect_err("return redirect status without following it");
-        assert_eq!(error, "OpenCode model discovery returned HTTP 302");
-        assert!(!error.contains(&launch.api_key));
-        assert_eq!(
-            request_rx
-                .recv_timeout(Duration::from_secs(1))
-                .expect("capture source model request")
-                .lines()
-                .next(),
-            Some("GET /v1/models HTTP/1.1")
-        );
-        source_server.join().expect("join redirect source");
-        match redirect_listener.accept() {
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
-            Ok(_) => panic!("model discovery followed redirect target"),
-            Err(error) => panic!("accept redirect target: {error}"),
-        }
-    }
-
-    #[test]
-    fn opencode_model_discovery_rejects_oversized_responses_and_times_out_safely() {
-        let oversized_body = "x".repeat(OPENCODE_MODEL_RESPONSE_MAX_BYTES + 1);
-        let chunked_response = |content_length: Option<usize>| {
-            let content_length = content_length
-                .map(|length| format!("Content-Length: {length}\r\n"))
-                .unwrap_or_default();
-            format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n{content_length}Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n{:X}\r\n{oversized_body}\r\n0\r\n\r\n",
-                oversized_body.len()
-            )
-        };
-        let (base_url, requests, server) = start_opencode_model_server(vec![
-            (
-                Duration::from_secs(0),
-                format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    OPENCODE_MODEL_RESPONSE_MAX_BYTES + 1
-                ),
-            ),
-            (Duration::from_secs(0), chunked_response(None)),
-            (Duration::from_secs(0), chunked_response(Some(1))),
-            (Duration::from_millis(100), String::new()),
-        ]);
-        let launch = OpenCodeLaunchConfig {
-            id: "api.custom.model-discovery".to_string(),
-            base_url,
-            api_key: "test-model-discovery-credential".to_string(),
-            provider_slug: "qwenaudio-model-discovery".to_string(),
-            auth_type: "bearer".to_string(),
-        };
-
-        for _ in 0..3 {
-            let error = tauri::async_runtime::block_on(discover_opencode_models(&launch))
-                .expect_err("reject oversized model response");
-            assert_eq!(error, "OpenCode model discovery response is too large");
-            assert!(!error.contains(&launch.api_key));
-        }
-
-        let error = tauri::async_runtime::block_on(discover_opencode_models_with_timeout(
-            &launch,
-            Duration::from_millis(25),
-        ))
-        .expect_err("time out model discovery");
-        assert_eq!(error, "OpenCode model discovery timed out");
-        assert!(!error.contains(&launch.api_key));
-
-        for _ in 0..4 {
-            requests
-                .recv_timeout(Duration::from_secs(1))
-                .expect("capture model request");
-        }
-        server.join().expect("join model server");
-    }
-
-    #[test]
-    fn opencode_model_parser_rejects_malformed_model_lists() {
-        assert!(parse_opencode_models(b"not JSON").is_err());
-        assert!(parse_opencode_models(br#"{"data":{}}"#).is_err());
-    }
-
-    #[test]
     fn api_paths_are_relative_and_expand_encoded_variables() {
         assert_eq!(
             expand_api_path(
@@ -9245,20 +7330,6 @@ mod tests {
         assert_eq!(payload.pointer("/audio/data"), Some(&json!("UklGRg==")));
         assert_eq!(payload.pointer("/request/rate"), Some(&json!(50)));
         assert_eq!(payload.pointer("/id"), Some(&json!("prefix-request-id")));
-
-        let messages = json!([{ "role": "user", "content": "hello" }]);
-        let llm_payload = expand_api_json_template(
-            r#"{"model":"{model}","messages":"{messages}","temperature":"{temperature}","maxTokens":"{maxTokens}","requestId":"{uuid}"}"#,
-            &llm_template_values("service-model", &messages, 0.25, 99, "request-id"),
-        )
-        .expect("expand LLM template");
-        assert_eq!(llm_payload.pointer("/messages"), Some(&messages));
-        assert_eq!(llm_payload.pointer("/temperature"), Some(&json!(0.25)));
-        assert_eq!(llm_payload.pointer("/maxTokens"), Some(&json!(99)));
-        assert_eq!(
-            llm_payload.pointer("/requestId"),
-            Some(&json!("request-id"))
-        );
     }
 
     #[test]
@@ -9287,7 +7358,7 @@ mod tests {
 
     #[test]
     fn provider_protocol_update_rejects_unsafe_fields() {
-        let mut update = ApiProviderUpdate {
+        let update = ApiProviderUpdate {
             id: None,
             name: "Test".to_string(),
             base_url: "https://example.com/v1".to_string(),
@@ -9300,9 +7371,6 @@ mod tests {
             auth_header: "bad header".to_string(),
             extra_headers: HashMap::new(),
             llm_path: "/chat/completions".to_string(),
-            llm_profile: "openai-chat".to_string(),
-            llm_body_template: String::new(),
-            llm_text_pointer: "/choices/0/message/content".to_string(),
             asr_mode: "multipart".to_string(),
             asr_path: "/audio/transcriptions".to_string(),
             asr_body_template: String::new(),
@@ -9319,30 +7387,6 @@ mod tests {
             tts_sample_rate: 24_000,
         };
         assert!(validate_api_provider_update(&update).is_err());
-
-        update.auth_header = "x-api-key".to_string();
-        assert!(validate_api_provider_update(&update).is_ok());
-
-        update.llm_profile = "unsupported".to_string();
-        assert_eq!(
-            validate_api_provider_update(&update).expect_err("reject unsupported LLM profile"),
-            "LLM 请求格式无效",
-        );
-
-        update.llm_profile = "template-json".to_string();
-        update.llm_body_template = r#"{"reply":"{unsupported}"}"#.to_string();
-        assert_eq!(
-            validate_api_provider_update(&update)
-                .expect_err("reject unsupported template variable"),
-            "LLM JSON 模板变量不受支持: {unsupported}",
-        );
-
-        update.llm_body_template = r#"{"request":{"model":"{model}","turns":"{messages}","temperature":"{temperature}","limit":"{maxTokens}","id":"{uuid}"}}"#.to_string();
-        update.llm_text_pointer = "not-a-pointer".to_string();
-        assert!(validate_api_provider_update(&update).is_err());
-
-        update.llm_text_pointer = "/result/text".to_string();
-        assert!(validate_api_provider_update(&update).is_ok());
     }
 
     #[test]
@@ -9645,6 +7689,30 @@ mod tests {
         config.api_key = "secret".to_string();
         config.enabled = false;
         assert!(!config.configured());
+    }
+
+    #[test]
+    fn video_translation_bailian_environment_requires_enabled_credentials() {
+        let mut config = BailianProviderConfig {
+            api_key: " secret ".to_string(),
+            base_url: "https://bailian.example.test/".to_string(),
+            enabled: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            bailian_video_translation_env_from_config(&config)
+                .expect("configured provider environment"),
+            vec![
+                ("DASHSCOPE_API_KEY".to_string(), "secret".to_string()),
+                (
+                    "DASHSCOPE_HTTP_BASE_URL".to_string(),
+                    "https://bailian.example.test".to_string(),
+                ),
+            ],
+        );
+
+        config.enabled = false;
+        assert!(bailian_video_translation_env_from_config(&config).is_err());
     }
 
     #[test]
@@ -10108,6 +8176,31 @@ fn configured_bailian_provider(app: &AppHandle) -> Result<BailianProviderConfig,
     }
 }
 
+fn bailian_video_translation_env_from_config(
+    config: &BailianProviderConfig,
+) -> Result<Vec<(String, String)>, String> {
+    if !config.configured() {
+        return Err("阿里云百炼尚未配置或未启用".to_string());
+    }
+    let base_url = config.base_url.trim().trim_end_matches('/');
+    if base_url.is_empty() {
+        return Err("阿里云百炼服务地址未配置".to_string());
+    }
+    Ok(vec![
+        (
+            "DASHSCOPE_API_KEY".to_string(),
+            config.api_key.trim().to_string(),
+        ),
+        ("DASHSCOPE_HTTP_BASE_URL".to_string(), base_url.to_string()),
+    ])
+}
+
+pub(crate) fn bailian_video_translation_env(
+    app: &AppHandle,
+) -> Result<Vec<(String, String)>, String> {
+    bailian_video_translation_env_from_config(&configured_bailian_provider(app)?)
+}
+
 fn decode_data_url_bytes(data_url: &str) -> Result<Vec<u8>, String> {
     let encoded = data_url
         .split_once(',')
@@ -10135,4 +8228,48 @@ fn timestamp_millis() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_millis() as u64)
         .unwrap_or(0)
+}
+
+// Share the configured provider only with the built-in independent Bailian projects.
+pub(crate) fn python_agent_provider_env(
+    app: &AppHandle,
+    id: &str,
+) -> Result<Vec<(String, String)>, String> {
+    if !matches!(
+        id,
+        "bailian-cosyvoice-v2"
+            | "bailian-cosyvoice-v3-plus"
+            | "bailian-cosyvoice-v35-flash"
+            | "bailian-cosyvoice-v35-plus"
+            | "bailian-fun-audio-denoising"
+            | "bailian-funasr-8k-realtime"
+            | "bailian-funasr-realtime"
+            | "bailian-paraformer-8k-realtime-v2"
+            | "bailian-paraformer-realtime-v2"
+            | "bailian-qwen-audio-asr-filetrans"
+            | "bailian-qwen-audio-asr-flash"
+            | "bailian-qwen-audio-tts"
+            | "bailian-qwen-audio-tts-plus"
+            | "bailian-qwen3-asr"
+            | "bailian-qwen36-plus"
+            | "bailian-qwen37-plus"
+    ) {
+        return Ok(vec![]);
+    }
+    let config = read_bailian_provider_config(app)?;
+    if !config.configured() {
+        return Ok(vec![]);
+    }
+    let base = config.base_url.trim_end_matches('/');
+    Ok(vec![
+        ("DASHSCOPE_API_KEY".into(), config.api_key),
+        ("DASHSCOPE_HTTP_BASE_URL".into(), base.into()),
+        (
+            "DASHSCOPE_WEBSOCKET_BASE_URL".into(),
+            format!(
+                "{}/api-ws/v1/inference",
+                base.replacen("https://", "wss://", 1)
+            ),
+        ),
+    ])
 }

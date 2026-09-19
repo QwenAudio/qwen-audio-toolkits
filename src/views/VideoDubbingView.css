@@ -17,6 +17,7 @@
 .video-translation-header span { color: var(--primary); font-size: 11px; font-weight: 700; }
 .video-translation-header h1 { margin: 7px 0 0; font-size: 26px; letter-spacing: -.03em; }
 .video-translation-header button,
+.video-translation-source-file button,
 .video-translation-retry,
 .video-translation-result button {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -25,6 +26,7 @@
   white-space: nowrap; transition: background-color .15s ease, border-color .15s ease;
 }
 .video-translation-header button:hover,
+.video-translation-source-file button:hover,
 .video-translation-retry:hover,
 .video-translation-result button:hover {
   background: color-mix(in srgb, var(--text-primary, #202422) 4%, var(--surface-raised, #fff));
@@ -36,7 +38,8 @@
 .video-translation-source p { margin: 7px 0 0; color: var(--ink-soft); font-size: 13px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .video-translation-settings { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised, #fff); }
 .video-translation-source-file { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
-.video-translation-source-file strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.video-translation-source-file > div { min-width: 0; }
+.video-translation-source-file strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .video-translation-source-file small { flex: 0 0 auto; color: var(--muted); font-size: 10px; }
 .video-translation-settings fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 .video-translation-settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
@@ -46,7 +49,8 @@
 .video-translation-settings textarea { min-height: 80px; max-height: 240px; resize: vertical; line-height: 1.6; }
 .video-translation-settings :is(select, textarea):focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .video-translation-settings :disabled { opacity: .6; cursor: not-allowed; }
-.video-translation-instruction { margin-top: 12px; }
+.video-translation-instruction { display: grid; gap: 6px; margin-top: 12px; color: var(--ink-soft); font-size: 11px; }
+.video-translation-instruction p { margin: 0; padding: 8px 9px; max-height: 160px; overflow-y: auto; color: var(--ink); font-size: 12px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-soft, var(--list-active)); border: 1px solid var(--line); border-radius: 7px; }
 .video-translation-settings > p { margin: 10px 0 0; font-size: 11px; line-height: 1.5; color: var(--muted); }
 .video-translation-view button:disabled { opacity: .5; cursor: not-allowed; }
 .video-translation-card > p.video-translation-stale { padding: 10px 12px; color: var(--ink-soft); background: var(--list-active); border-radius: 8px; line-height: 1.6; }

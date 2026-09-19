@@ -21,14 +21,12 @@ flowchart TD
 
 The React frontend lives in `src/`:
 
-- `App.tsx` owns the desktop shell, New Task home page, Creative Workshop,
-  Skills and Model Store navigation, settings, and global run state.
-- `views/CreativeWorkshopView.tsx` presents user-facing video and audio
-  workflows, gathers fixed launch parameters, and opens an editor-only task.
+- `App.tsx` owns the desktop shell, model navigation, settings, and global run
+  state.
 - `views/ModelWorkspaceView.tsx` renders the conversation and capability-aware
   input controls.
-- `views/PluginsView.tsx` renders the Skills and Model Store catalog surfaces,
-  installation state, model variants, and dependency bindings.
+- `views/PluginsView.tsx` renders the model catalog, installation state, model
+  variants, and dependency bindings.
 - `components/` contains shared waveform, spectrogram, recording, drop-zone,
   and playback controls.
 - `services/harness.ts` is the typed boundary for frontend-to-Rust calls.
@@ -54,27 +52,13 @@ to the parent result detail. Model bindings are persisted by the Rust backend,
 so sidebar removal, store removal, and the local API share the same reference
 graph. Referenced weights are retained; unreferenced weights are deleted.
 
-## Creative Workshop, Skills, and model projects
+## Agent projects
 
-The product has three separate layers:
-
-1. **Creative Workshop** is the user-facing catalog of high-frequency video and
-   audio task recipes. A recipe gathers fixed inputs and options, then opens a
-   dedicated editor without displaying an Agent conversation.
-2. **Skills** are reusable declarative capabilities. They describe what an
-   Agent or workflow can do, when to use it, its inputs and outputs, the tools
-   it invokes, and its model or permission requirements.
-3. **Model Store** entries are concrete local or cloud implementations of
-   capabilities such as ASR, TTS, VAD, text generation, and enhancement.
-
-Today, some built-in workspace workflows are still cataloged and installed as
-legacy Skills. The target is for a workshop recipe to compose multiple Skills,
-and for an Agent to discover and compose those same Skills for open-ended
-requests. `agents.rs` continues to validate the current `agent.json` manifest
-and `plugins.rs` registers its reviewed host adapter during this migration. See
-[Creative Workshop and Skills design](creative-workshop-skills-design.md) for
-the target contract and [Skill and model projects](agent-projects.md) for
-implemented manifest boundaries.
+Independent data-processing projects bundle usage knowledge, model resources and
+a Harness contract. `agents.rs` validates `agent.json`; `plugins.rs` installs the
+project and registers its selected host adapter. New projects do not depend on
+other Agents. Legacy model packages remain compatible during migration. See
+[Agent projects](agent-projects.md) for implemented boundaries and examples.
 
 ## Model plugins
 
@@ -102,20 +86,12 @@ only once and uses the finalized artifact for history.
 
 ## Local API and trust boundary
 
-The app exposes a loopback-only HTTP API on `127.0.0.1:3847` for local
-workflow integration and smoke tests. It is not authenticated and must not be
-bound or proxied to a LAN or public interface. Tauri asset scopes are restricted
-to application-owned audio, video, recording, and generated-artifact directories.
+The app exposes an experimental HTTP API on `127.0.0.1:3847` for local
+integration and smoke tests. It is not authenticated and must not be bound or
+proxied to a LAN or public interface. Tauri asset scopes are restricted to
+application-owned audio directories.
 
 Cloud provider credentials are stored in the private application configuration
 directory. Native credential-vault integration is planned. See
 [PRIVACY.md](../PRIVACY.md) and [SECURITY.md](../SECURITY.md).
 
-## Native inference isolation
-
-Local batch inference is serialized before entering native runtimes. Audio
-tagging, speaker diarization, and source separation additionally run in a
-short-lived worker process. A fatal ONNX or sherpa-onnx failure therefore marks
-the individual Harness run as failed instead of terminating the Tauri UI
-process. Worker request, result, and error files use private temporary files and
-are removed after completion or cancellation.

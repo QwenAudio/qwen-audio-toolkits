@@ -1,4 +1,3 @@
-import { t, useLocale } from "../i18n"
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { listen } from '@tauri-apps/api/event'
 import {
@@ -41,13 +40,13 @@ function removeCommittedPrefix(committed: string, candidate: string): string {
 }
 
 export function CaptionOverlay() {
-  useLocale()
-
+  const [snapshotMode, setSnapshotMode] = useState(false)
   const [history, setHistory] = useState<string[]>([])
   const [current, setCurrent] = useState('')
   const [status, setStatus] =
     useState<CaptionOutputUpdate['status']>('listening')
   const [liveSeconds, setLiveSeconds] = useState(0)
+  const streamingTextRef = useRef<HTMLDivElement>(null)
   const committedRef = useRef('')
   const currentRef = useRef('')
   const resizeQueueRef = useRef<Promise<void>>(Promise.resolve())
@@ -61,7 +60,7 @@ export function CaptionOverlay() {
       ),
     [current, history],
   )
-  const boundedLines = lines.slice(-CAPTION_TOTAL_LINE_COUNT)
+  const boundedLines = lines.slice(-(snapshotMode ? 3 : CAPTION_TOTAL_LINE_COUNT))
   const visibleLines: CaptionDisplayLine[] = boundedLines.length
     ? boundedLines
     : [
@@ -76,7 +75,7 @@ export function CaptionOverlay() {
     ({ role }) => role === 'history',
   ).length
   const visibleLiveLineCount = visibleLines.length - visibleFinalLineCount
-  const visiblePanelHeight = captionPanelHeight(visibleLines.length)
+  const visiblePanelHeight = captionPanelHeight(snapshotMode ? 3 : visibleLines.length)
 
   useEffect(() => {
     if (!import.meta.env.DEV) return
@@ -101,6 +100,15 @@ export function CaptionOverlay() {
     void listen<CaptionOutputUpdate>(CAPTION_UPDATE_EVENT, ({ payload }) => {
       if (disposed) return
       if (payload.status) setStatus(payload.status)
+      if (payload.snapshot) {
+        setSnapshotMode(true)
+        committedRef.current = ''
+        currentRef.current = payload.text
+        setHistory([])
+        setCurrent(payload.text)
+        return
+      }
+      if (payload.reset) setSnapshotMode(false)
       const text = removeCommittedPrefix(committedRef.current, payload.text)
       if (!payload.text.trim()) {
         if (payload.reset) {
@@ -181,27 +189,45 @@ export function CaptionOverlay() {
       })
   }, [visiblePanelHeight])
 
+  useLayoutEffect(() => {
+    if (!snapshotMode) return
+    const text = streamingTextRef.current
+    if (!text) return
+    const scrollToLatest = () => { text.scrollTop = text.scrollHeight }
+    scrollToLatest()
+    const observer = new ResizeObserver(scrollToLatest)
+    observer.observe(text)
+    return () => observer.disconnect()
+  }, [snapshotMode, current])
+
   const duration = `${Math.floor(liveSeconds / 60)
     .toString()
     .padStart(2, '0')}:${(liveSeconds % 60).toString().padStart(2, '0')}`
 
   return (
-    <main className="caption-overlay-root">
+    <main className="caption-overlay-root"
+      onPointerDown={(event) => {
+        if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+        event.preventDefault()
+        void getCurrentWindow().startDragging().catch(() => undefined)
+      }}
+    >
       <section
-        className="caption-panel"
-        data-tauri-drag-region
+        className={`caption-panel${snapshotMode ? " caption-panel-streaming" : ""}`}
         style={{ height: visiblePanelHeight }}
       >
-        <div
+        {snapshotMode ? (
+          <div className="caption-stream-text" ref={streamingTextRef}>
+            {current.replace(/\s+/g, ' ').trim() || '\u00a0'}
+          </div>
+        ) : <div
           className="caption-lines"
-          data-tauri-drag-region
-          data-visible-line-count={visibleLines.length}
+            data-visible-line-count={visibleLines.length}
         >
           {visibleLines.map((line, index) => (
             <div
               className={`caption-line role-${line.role}`}
-              data-tauri-drag-region
-              key={`${line.groupId}-${index}-${line.text}`}
+                    key={`${line.groupId}-${index}-${line.text}`}
             >
               <div
                 className={`caption-badge${
@@ -215,12 +241,12 @@ export function CaptionOverlay() {
               <p>{line.text || '\u00a0'}</p>
             </div>
           ))}
-        </div>
+        </div>}
         <button
           className="caption-close"
           type="button"
-          title={t("关闭字幕")}
-          aria-label={t("关闭字幕")}
+          title="关闭字幕"
+          aria-label="关闭字幕"
           onClick={() => void getCurrentWindow().hide()}
         >
           <X size={9} strokeWidth={2.4} />

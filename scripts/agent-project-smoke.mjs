@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { getModelBinding, recommendedDependencies, referencingModels } from '../src/modelDependencies.ts'
 
-const project = JSON.parse(readFileSync(new URL('../examples/agents/audio-to-text/agent.json', import.meta.url)))
+const project = JSON.parse(readFileSync(new URL('../src-tauri/tests/fixtures/audio-to-text-agent.json', import.meta.url)))
 const independent = {
   id: project.id,
   installed: true,

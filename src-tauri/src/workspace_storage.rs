@@ -105,8 +105,16 @@ fn validate_document(payload: &str) -> Result<Value, String> {
     if payload.len() > MAX_WORKSPACE_BYTES {
         return Err("工作区超过 16 MB 大小限制，原文件已保留。".into());
     }
-    let value: Value = serde_json::from_str(payload)
+    let mut value: Value = serde_json::from_str(payload)
         .map_err(|error| format!("工作区数据损坏，原文件已保留：{error}"))?;
+    if let Some(document) = value.as_object_mut() {
+        if !document.contains_key("metadata") {
+            document.insert(
+                "metadata".into(),
+                serde_json::json!({ "conversations": [], "generalTasks": [], "selectedId": null }),
+            );
+        }
+    }
     if value.get("version").and_then(Value::as_u64) != Some(WORKSPACE_VERSION) {
         return Err("工作区版本不受支持，原文件已保留。".into());
     }
@@ -180,8 +188,8 @@ fn read_workspace(path: &Path) -> Result<Option<String>, String> {
         Ok(_) => {}
     }
     let payload = fs::read_to_string(path).map_err(|error| format!("无法读取工作区：{error}"))?;
-    validate_document(&payload)?;
-    Ok(Some(payload))
+    let document = validate_document(&payload)?;
+    Ok(Some(document.to_string()))
 }
 
 fn write_workspace(path: &Path, payload: &str) -> Result<(), String> {
@@ -288,6 +296,57 @@ mod tests {
 
     fn document(revision: u64) -> String {
         json!({ "version": 1, "revision": revision, "updatedAt": 10, "metadata": { "conversations": [], "generalTasks": [], "selectedId": null }, "projects": {} }).to_string()
+    }
+
+    fn legacy_document(revision: u64) -> String {
+        json!({ "version": 1, "revision": revision, "updatedAt": 10, "projects": {} }).to_string()
+    }
+
+    #[test]
+    fn legacy_metadata_is_normalized_for_validation_and_reads() {
+        let root = std::env::temp_dir().join(format!("workspace-test-{}", uuid::Uuid::new_v4()));
+        let path = root.join("workspace-v1.json");
+        let normalized = validate_document(&legacy_document(1)).unwrap();
+        assert_eq!(
+            normalized,
+            serde_json::from_str::<Value>(&document(1)).unwrap()
+        );
+
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&path, legacy_document(1)).unwrap();
+        let loaded = read_workspace(&path).unwrap().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&loaded).unwrap(), normalized);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn higher_revision_canonical_save_replaces_legacy_file() {
+        let root = std::env::temp_dir().join(format!("workspace-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("workspace-v1.json");
+        fs::write(&path, legacy_document(1)).unwrap();
+
+        write_workspace(&path, &document(2)).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), document(2));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn present_null_or_partial_metadata_is_rejected() {
+        for metadata in [
+            Value::Null,
+            json!({ "conversations": [], "generalTasks": [] }),
+        ] {
+            let payload = json!({
+                "version": 1,
+                "revision": 1,
+                "updatedAt": 10,
+                "metadata": metadata,
+                "projects": {},
+            })
+            .to_string();
+            assert!(validate_document(&payload).is_err());
+        }
     }
 
     #[test]

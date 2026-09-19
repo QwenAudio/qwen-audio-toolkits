@@ -1,6 +1,24 @@
-import type { GeneralAgentAttachment, GeneralAgentInstallModelAction } from './agents'
 import type { ModelPlugin } from '../types'
-import { agentFileKind } from './agentFiles'
+
+export interface OnDemandModelAttachment {
+  path: string
+  name: string
+}
+
+export interface OnDemandModelInstallAction {
+  id: string
+  kind: 'install-on-demand-model'
+  status: 'pending'
+  modelId: string
+  modelName: string
+  capability: ModelPlugin['harnessCapabilities'][number]
+  needLabel: string
+  actionLabel: string
+  prompt: string
+  selectedModeName: string | null
+  attachmentHint: string
+  attachment: OnDemandModelAttachment | null
+}
 
 export type OnDemandModelInstallMode = 'ask' | 'auto'
 
@@ -294,7 +312,7 @@ function scoreModelForNeed(model: ModelPlugin, need: OnDemandModelNeed): number 
   return preferredScore + featuredScore + localScore + installableScore
 }
 
-function fileNameFromAttachment(attachment: GeneralAgentAttachment): string {
+function fileNameFromAttachment(attachment: OnDemandModelAttachment): string {
   return attachment.name || attachment.path.split(/[\\/]/u).at(-1) || 'audio.wav'
 }
 
@@ -315,13 +333,12 @@ export function separatedAudioFileName(fileName: string): string {
 export function createOnDemandModelExecutionPlan(
   resolution: OnDemandModelResolution,
   model: ModelPlugin,
-  attachment: GeneralAgentAttachment | null,
+  attachment: OnDemandModelAttachment | null,
   promptText?: string,
 ): OnDemandModelExecutionPlan | null {
   const needId = resolution.need.id
   const isTextInput = TEXT_INPUT_CAPABILITIES.has(resolution.need.capability)
   if (AUDIO_INPUT_NEEDS.has(needId) && !attachment) return null
-  if (AUDIO_INPUT_NEEDS.has(needId) && attachment && agentFileKind(attachment) !== 'audio') return null
   if (isTextInput && !promptText?.trim()) return null
 
   if (needId === 'audio-denoise') {
@@ -407,7 +424,7 @@ export function createOnDemandModelExecutionPlan(
 export function resolveOnDemandModelExecution(
   content: string,
   models: ModelPlugin[],
-  attachment: GeneralAgentAttachment | null,
+  attachment: OnDemandModelAttachment | null,
 ): OnDemandModelExecutionCandidate | null {
   const candidates = resolveOnDemandModelExecutions(content, models, attachment)
   if (!candidates.length) return null
@@ -421,7 +438,7 @@ export function resolveOnDemandModelExecution(
 export function resolveOnDemandModelExecutions(
   content: string,
   models: ModelPlugin[],
-  attachment: GeneralAgentAttachment | null,
+  attachment: OnDemandModelAttachment | null,
 ): OnDemandModelExecutionCandidate[] {
   const need = detectOnDemandModelNeed(content)
   if (!need) return []
@@ -447,16 +464,6 @@ function sortCandidatesForNeed(models: ModelPlugin[], need: OnDemandModelNeed): 
       model.harnessCapabilities.includes(need.capability),
     )
     .sort((left, right) => scoreModelForNeed(right, need) - scoreModelForNeed(left, need))
-}
-
-export function resolveOnDemandModelInstallCandidates(
-  resolution: OnDemandModelResolution,
-  models: ModelPlugin[],
-): ModelPlugin[] {
-  return sortCandidatesForNeed(models, resolution.need)
-    .filter((model) =>
-      model.installed || (model.catalogManaged && model.installable !== false),
-    )
 }
 
 export function detectOnDemandModelNeed(content: string): OnDemandModelNeed | null {
@@ -558,20 +565,9 @@ export function createInstallModelAction(
     prompt: string
     selectedModeName: string | null
     attachmentHint: string
-    attachment?: GeneralAgentAttachment | null
-    modelCandidates?: ModelPlugin[]
+    attachment?: OnDemandModelAttachment | null
   },
-): GeneralAgentInstallModelAction {
-  const questionOptions = request.modelCandidates
-    ?.filter((candidate, index, candidates) =>
-      candidates.findIndex((item) => item.id === candidate.id) === index,
-    )
-    .map((candidate) => ({
-      id: candidate.id,
-      label: candidate.name,
-      description: candidate.description,
-      installed: candidate.installed,
-    }))
+): OnDemandModelInstallAction {
   return {
     id: resolution.need.id,
     kind: 'install-on-demand-model',
@@ -585,15 +581,6 @@ export function createInstallModelAction(
     selectedModeName: request.selectedModeName,
     attachmentHint: request.attachmentHint,
     attachment: request.attachment ?? null,
-    ...(questionOptions && questionOptions.length > 1
-      ? {
-          question: {
-            id: `model:${resolution.need.id}`,
-            prompt: `选择用于${resolution.need.label}的模型`,
-            options: questionOptions,
-          },
-        }
-      : {}),
   }
 }
 

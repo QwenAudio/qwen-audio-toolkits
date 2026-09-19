@@ -10,10 +10,13 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+python/*/build/
+python/*/data/
 *.local
-
-# Local media/demo outputs
-artifacts/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -29,5 +32,4 @@ artifacts/
 .release/
 RELEASE.md
 
-# CI-fetched Tauri OpenCode sidecar binaries (the directory placeholder is tracked)
-/src-tauri/binaries/opencode-*
+/build/

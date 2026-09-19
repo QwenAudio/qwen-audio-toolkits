@@ -98,4 +98,3 @@ try render(text: nil, name: "blank.png")
 for (index, cue) in payload.cues.enumerated() {
     try render(text: cue.text, name: String(format: "cue-%03d.png", index + 1))
 }
-

@@ -1583,26 +1583,6 @@
       "streamingMode": "batch",
       "featured": true,
       "visible": true
-    },
-    {
-      "id": "bailian-qwen-audio-realtime-plus",
-      "name": "Qwen Audio 3.0 Realtime Plus",
-      "author": "阿里云百炼",
-      "description": "端到端实时语音对话模型，支持双向流式语音交互、自然打断与低延迟回复。",
-      "capabilities": [
-        "语音对话",
-        "实时",
-        "双向流式",
-        "低延迟"
-      ],
-      "harnessCapability": "speech.converse",
-      "providerId": "api.bailian",
-      "adapter": "bailian-realtime",
-      "modelId": "qwen-audio-3.0-realtime-plus",
-      "aliases": [],
-      "streamingMode": "streaming",
-      "featured": true,
-      "visible": true
     }
   ]
 }

@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { createJsonCache, readJsonIfValid } from './lib/video-dubbing/cache.mjs'
 import { createHarnessClient } from './lib/video-dubbing/harness-client.mjs'
@@ -18,8 +17,17 @@ import {
   ttsStyleInstruction,
 } from './lib/video-dubbing/script-planner.mjs'
 
+function readBailianCredentials() {
+  const apiKey = String(process.env.DASHSCOPE_API_KEY ?? '').trim()
+  const baseUrl = String(process.env.DASHSCOPE_HTTP_BASE_URL ?? '').trim().replace(/\/$/u, '')
+  if (!apiKey) throw new Error('Bailian API key is required for video dubbing')
+  if (!baseUrl) throw new Error('Bailian HTTP base URL is required for video dubbing')
+  return { apiKey, baseUrl }
+}
+
 const api = process.env.QWEN_AUDIO_TOOLKITS_API ?? 'http://127.0.0.1:3847/v1'
 const cloudMode = process.env.VIDEO_TRANSLATION_MODE === 'bailian'
+const bailianCredentials = cloudMode ? readBailianCredentials() : null
 const cloudTtsModel = 'qwen-audio-3.0-tts-plus'
 const rhythmPlanVersion = 2
 const minimumInternalPauseSeconds = 0.32
@@ -89,23 +97,12 @@ function audioInput(filePath) {
   }
 }
 
-function readBailianConfig() {
-  const configPath = path.join(
-    os.homedir(),
-    'Library/Application Support/org.qwenaudio.toolkits/providers/bailian.json',
-  )
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'))
-  if (!config.enabled || !config.apiKey?.trim()) throw new Error('Bailian provider is not configured')
-  return config
-}
-
 async function createBailianVoice(reference, speaker) {
-  const config = readBailianConfig()
   const prefix = `frdl${shortHash(`${speaker}:${reference.text}`).slice(0, 6)}`
-  const response = await fetch(`${String(config.baseUrl).replace(/\/$/u, '')}/api/v1/services/audio/tts/customization`, {
+  const response = await fetch(`${bailianCredentials.baseUrl}/api/v1/services/audio/tts/customization`, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${config.apiKey}`,
+      authorization: `Bearer ${bailianCredentials.apiKey}`,
       'content-type': 'application/json',
     },
     body: JSON.stringify({

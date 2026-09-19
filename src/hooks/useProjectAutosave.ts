@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { flushWorkspace, getWorkspaceStore, writeProjectSnapshot } from '../services/workspaceStorage'
@@ -14,9 +14,27 @@ export function useWorkspaceSaveStatus() {
   return useSyncExternalStore(store.subscribe, store.getStatus, store.getStatus)
 }
 
-/** Flush already-cached edits when backgrounding or leaving the application. */
-export function useWorkspaceCloseFlush(): void {
+/** Hydrate once at the shared editor boundary before snapshot initializers can read. */
+export function useWorkspaceReady(enabled: boolean): boolean {
+  const [ready, setReady] = useState(false)
   useEffect(() => {
+    if (!enabled) {
+      setReady(false)
+      return
+    }
+    let active = true
+    void getWorkspaceStore().initialize().finally(() => {
+      if (active) setReady(true)
+    })
+    return () => { active = false }
+  }, [enabled])
+  return ready
+}
+
+/** Flush already-cached edits when backgrounding or leaving the application. */
+export function useWorkspaceCloseFlush(enabled = true): void {
+  useEffect(() => {
+    if (!enabled) return
     const flush = () => { void flushWorkspace().catch(() => {}) }
     const onVisibility = () => { if (document.visibilityState === 'hidden') flush() }
     window.addEventListener('pagehide', flush)
@@ -28,9 +46,9 @@ export function useWorkspaceCloseFlush(): void {
       document.removeEventListener('visibilitychange', onVisibility)
       flush()
     }
-  }, [])
+  }, [enabled])
   useEffect(() => {
-    if (!('__TAURI_INTERNALS__' in window)) return
+    if (!enabled || !('__TAURI_INTERNALS__' in window)) return
     let active = true
     let closing = false
     let unlisten: (() => void) | undefined
@@ -62,5 +80,5 @@ export function useWorkspaceCloseFlush(): void {
       unlisten?.()
       void invoke('workspace_set_close_guard', { owner, enabled: false }).catch(() => {})
     }
-  }, [])
+  }, [enabled])
 }

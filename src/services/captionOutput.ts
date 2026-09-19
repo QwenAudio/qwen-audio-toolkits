@@ -13,6 +13,7 @@ export interface CaptionOutputUpdate {
   isFinal: boolean
   status?: 'listening' | 'speech' | 'stopped' | 'error'
   reset?: boolean
+  snapshot?: boolean
   metrics?: {
     rtf?: number
     vadRemainingMs?: number
@@ -102,4 +103,14 @@ export async function stopCaptionOutput(): Promise<void> {
       { text: '', isFinal: false, status: 'stopped' },
     ),
   )
+}
+
+
+// SDK streaming callbacks emit complete transcript snapshots, not committed segments.
+export async function publishCaptionSnapshot(text: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  return enqueueOutput(() => emitTo<CaptionOutputUpdate>(
+    CAPTION_WINDOW_LABEL, CAPTION_UPDATE_EVENT,
+    {text, isFinal:false, status:'speech', snapshot:true},
+  ));
 }

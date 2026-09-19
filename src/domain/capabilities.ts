@@ -1,4 +1,3 @@
-import { t } from "../i18n"
 import type {
   HarnessCapabilityId,
   ModelPlugin,
@@ -10,13 +9,11 @@ type CapabilityCategory =
   | '音频理解'
   | '文本智能'
   | '音频生成'
-  | '语音交互'
 
 export type WorkflowNodeKind = 'enhance' | 'vad' | 'asr' | 'llm' | 'tts'
 
 export type WorkflowPortType =
   | 'audio'
-  | 'video'
   | 'speech-segments'
   | 'transcript'
   | 'text'
@@ -61,8 +58,8 @@ const CAPABILITY_DEFINITIONS: Record<
 > = {
   'speech.synthesize': {
     id: 'speech.synthesize',
-    get label() { return t("文字生成语音") },
-    category: "音频生成",
+    label: '文字生成语音',
+    category: '音频生成',
     nodeKind: 'tts',
     inputTypes: ['text', 'transcript'],
     outputType: 'audio',
@@ -72,8 +69,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'speech.transcribe': {
     id: 'speech.transcribe',
-    get label() { return t("语音识别") },
-    category: "音频理解",
+    label: '语音识别',
+    category: '音频理解',
     nodeKind: 'asr',
     inputTypes: ['audio', 'speech-segments'],
     outputType: 'transcript',
@@ -83,8 +80,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'speech.detect': {
     id: 'speech.detect',
-    get label() { return t("语音活动检测") },
-    category: "音频处理",
+    label: '语音活动检测',
+    category: '音频处理',
     nodeKind: 'vad',
     inputTypes: ['audio'],
     outputType: 'speech-segments',
@@ -98,8 +95,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'text.generate': {
     id: 'text.generate',
-    get label() { return t("文本生成") },
-    category: "文本智能",
+    label: '文本生成',
+    category: '文本智能',
     nodeKind: 'llm',
     inputTypes: ['transcript', 'text'],
     outputType: 'text',
@@ -113,8 +110,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'audio.enhance': {
     id: 'audio.enhance',
-    get label() { return t("音频增强") },
-    category: "音频处理",
+    label: '音频增强',
+    category: '音频处理',
     nodeKind: 'enhance',
     inputTypes: ['audio'],
     outputType: 'audio',
@@ -124,8 +121,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'audio.live': {
     id: 'audio.live',
-    get label() { return t("实时音频") },
-    category: "音频处理",
+    label: '实时音频',
+    category: '音频处理',
     nodeKind: 'enhance',
     inputTypes: ['audio'],
     outputType: 'audio',
@@ -133,24 +130,10 @@ const CAPABILITY_DEFINITIONS: Record<
     result: 'stream',
     defaultParameters: {},
   },
-  'speech.converse': {
-    id: 'speech.converse',
-    get label() { return t("语音对话") },
-    category: "语音交互",
-    nodeKind: 'llm',
-    inputTypes: [],
-    outputType: 'text',
-    composer: 'audio',
-    result: 'stream',
-    defaultParameters: {
-      systemPrompt: VOICE_ASSISTANT_PROMPT,
-      voice: 'alloy',
-    },
-  },
   'audio.classify': {
     id: 'audio.classify',
-    get label() { return t("音频标签") },
-    category: "音频理解",
+    label: '音频标签',
+    category: '音频理解',
     nodeKind: 'asr',
     inputTypes: ['audio'],
     outputType: 'audio-tags',
@@ -160,8 +143,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'speech.keyword': {
     id: 'speech.keyword',
-    get label() { return t("关键词检测") },
-    category: "音频理解",
+    label: '关键词检测',
+    category: '音频理解',
     nodeKind: 'asr',
     inputTypes: ['audio'],
     outputType: 'keyword-events',
@@ -171,8 +154,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'speech.language': {
     id: 'speech.language',
-    get label() { return t("语言识别") },
-    category: "音频理解",
+    label: '语言识别',
+    category: '音频理解',
     nodeKind: 'asr',
     inputTypes: ['audio'],
     outputType: 'language',
@@ -182,8 +165,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'text.punctuate': {
     id: 'text.punctuate',
-    get label() { return t("标点恢复") },
-    category: "文本智能",
+    label: '标点恢复',
+    category: '文本智能',
     nodeKind: 'llm',
     inputTypes: ['text', 'transcript'],
     outputType: 'text',
@@ -193,8 +176,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'text.normalize': {
     id: 'text.normalize',
-    get label() { return t("文本归一化") },
-    category: "文本智能",
+    label: '文本归一化',
+    category: '文本智能',
     nodeKind: 'llm',
     inputTypes: ['text', 'transcript'],
     outputType: 'text',
@@ -208,8 +191,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'speaker.embed': {
     id: 'speaker.embed',
-    get label() { return t("声纹比对") },
-    category: "音频理解",
+    label: '声纹比对',
+    category: '音频理解',
     nodeKind: 'asr',
     inputTypes: ['audio'],
     outputType: 'speaker-embedding',
@@ -219,8 +202,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'speaker.diarize': {
     id: 'speaker.diarize',
-    get label() { return t("说话人分离") },
-    category: "音频理解",
+    label: '说话人分离',
+    category: '音频理解',
     nodeKind: 'asr',
     inputTypes: ['audio'],
     outputType: 'speaker-segments',
@@ -230,8 +213,8 @@ const CAPABILITY_DEFINITIONS: Record<
   },
   'audio.separate': {
     id: 'audio.separate',
-    get label() { return t("人声分离") },
-    category: "音频处理",
+    label: '人声分离',
+    category: '音频处理',
     nodeKind: 'enhance',
     inputTypes: ['audio'],
     outputType: 'audio-tracks',
@@ -320,7 +303,7 @@ const COMMON_PARAMETER_SCHEMAS: Partial<
   'speech.detect': [
     {
       name: 'threshold',
-      get label() { return t("检测阈值") },
+      label: '检测阈值',
       type: 'number',
       default: 0.25,
       min: 0.05,
@@ -329,7 +312,7 @@ const COMMON_PARAMETER_SCHEMAS: Partial<
     },
     {
       name: 'minSpeechDuration',
-      get label() { return t("最短语音") },
+      label: '最短语音',
       type: 'number',
       default: 0.18,
       min: 0.05,
@@ -338,7 +321,7 @@ const COMMON_PARAMETER_SCHEMAS: Partial<
     },
     {
       name: 'minSilenceDuration',
-      get label() { return t("结束静音") },
+      label: '结束静音',
       type: 'number',
       default: 0.2,
       min: 0.05,
@@ -349,7 +332,7 @@ const COMMON_PARAMETER_SCHEMAS: Partial<
   'audio.enhance': [
     {
       name: 'denoiseStrength',
-      get label() { return t("降噪强度") },
+      label: '降噪强度',
       type: 'number',
       default: 0.58,
       min: 0,
@@ -369,7 +352,7 @@ const COMMON_PARAMETER_SCHEMAS: Partial<
     },
     {
       name: 'maxTokens',
-      get label() { return t("最大输出长度") },
+      label: '最大输出长度',
       type: 'number',
       default: 320,
       min: 32,
@@ -387,27 +370,12 @@ const COMMON_PARAMETER_SCHEMAS: Partial<
   'speech.synthesize': [
     {
       name: 'speed',
-      get label() { return t("语速") },
+      label: '语速',
       type: 'number',
       default: 1,
       min: 0.5,
       max: 1.5,
       step: 0.05,
-    },
-  ],
-  'speech.converse': [
-    {
-      name: 'systemPrompt',
-      label: 'System Prompt',
-      type: 'string',
-      default: VOICE_ASSISTANT_PROMPT,
-      multiline: true,
-    },
-    {
-      name: 'voice',
-      label: 'Voice',
-      type: 'string',
-      default: 'alloy',
     },
   ],
 }
@@ -438,19 +406,19 @@ function languageParameter(
 ): PluginParameterDefinition {
   return {
     name: 'language',
-    get label() { return t("识别语言") },
+    label: '识别语言',
     type: 'enum',
     default: 'auto',
     options: [
-      { get label() { return t("自动识别") }, value: 'auto' },
-      ...options.map(([value, label]) => ({ get label() { return t(label) }, value })),
+      { label: '自动识别', value: 'auto' },
+      ...options.map(([value, label]) => ({ label, value })),
     ],
   }
 }
 
 const CONTEXT_PARAMETER: PluginParameterDefinition = {
   name: 'context',
-  get label() { return t("上下文") },
+  label: '上下文',
   type: 'string',
   default: '',
   multiline: true,
@@ -458,7 +426,7 @@ const CONTEXT_PARAMETER: PluginParameterDefinition = {
 
 const SEMANTIC_PUNCTUATION_PARAMETER: PluginParameterDefinition = {
   name: 'semanticPunctuation',
-  get label() { return t("语义断句") },
+  label: '语义断句',
   type: 'boolean',
   default: true,
 }
@@ -476,10 +444,10 @@ const QWEN_AUDIO_ASR_PARAMETERS: PluginParameterDefinition[] = [
 
 const QWEN3_ASR_PARAMETERS: PluginParameterDefinition[] = [
   languageParameter(QWEN_ASR_LANGUAGE_OPTIONS),
-  { ...CONTEXT_PARAMETER, get label() { return t("识别提示") } },
+  { ...CONTEXT_PARAMETER, label: '识别提示' },
   {
     name: 'enableItn',
-    get label() { return t("数字格式化") },
+    label: '数字格式化',
     type: 'boolean',
     default: true,
   },

@@ -6,33 +6,10 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)](https://v2.tauri.app/)
 [![macOS](https://img.shields.io/badge/macOS-14.2%2B-black?logo=apple)](docs/getting-started.md)
 
-QwenAudio Toolkits is a local-first desktop workspace for audio AI creation and
-model execution. It offers a **Creative Workshop** for direct, guided tasks
-such as video editing, AI podcast, video dubbing, and meeting notes, alongside
-an Agent workspace for open-ended requests. Required models are installed only
-when they are needed.
-
-The product goal is to become a conversational Agent-driven audio and video
-creation IDE. The Agent understands user intent, plans workflows, orchestrates
-models, and produces reviewable edits; dedicated editing surfaces provide
-timeline, waveform, caption, dubbing, and preview controls; the model store
-supplies local and cloud capabilities on demand.
-
-Four product pillars guide this goal:
-
-- **Creative Workshop workflows**: choose a frequent creative goal, set a few
-  fixed parameters, and enter its dedicated workspace without first configuring
-  or conversing with an Agent.
-
-- **Conversational Agent workflow**: describe an audio or video goal in natural
-  language, then let the Agent plan the workflow, choose tools and models,
-  run long tasks, and return reviewable edits instead of opaque results.
-- **On-demand open source model store**: install open-source local models, runtime
-  packages, dependencies, and cloud model definitions only when a skill or
-  project needs them.
-- **Dedicated professional editing surfaces**: use purpose-built timeline,
-  waveform, transcript, caption, dubbing, and preview interfaces for precise
-  manual control, while the Agent operates the same project state.
+QwenAudio Toolkits is a local-first desktop workspace for audio AI models. It
+provides one conversation-like interface for uploading, recording, and
+monitoring audio, then inspecting results as playable audio, waveforms, Mel
+spectrograms, timestamps, speaker segments, and runtime metadata.
 
 The first public preview targets Apple Silicon Macs running macOS 14.2 or
 later. Model weights and runtime packages are downloaded on demand, so they are
@@ -47,8 +24,6 @@ not bundled into the application installer.
 - Audio enhancement and noise suppression
 - Text normalization, including TN / ITN processing
 - Text-to-speech and reference-voice workflows where supported by the model
-- Guided video and audio workflows for video editing, captions, dubbing,
-  podcast generation, and meeting notes
 - Local model runtimes and cloud API models behind one typed Harness contract
 - A model store with variants, checksums, dependencies, and resumable downloads
 - Shared input, streaming, preview, and result-detail interactions across model
@@ -93,12 +68,6 @@ npm run desktop:dev
 microphone access, system-audio capture, and the updater require the Tauri
 desktop process.
 
-The local development server can inspect installed ACP Agents and load their
-model choices. This performs an ACP handshake without sending a prompt or
-enabling tools. The inspection endpoint is restricted to same-origin loopback
-requests and is not included in production builds. Agent conversations still
-run through the desktop process.
-
 For a local production-style build:
 
 ```bash
@@ -112,59 +81,9 @@ inside the release workflow to create signed updater artifacts.
 See the [getting started guide](docs/getting-started.md) for permissions,
 model installation, cloud configuration, and local data locations.
 
-## Start a creation
+## Use a model
 
-Use **创意工坊 / Creative Workshop** when the goal matches a common, guided
-workflow. It is the primary entry point for users who want to create directly:
-
-1. Choose a video or audio workflow.
-2. Add the required source material, if any.
-3. Set the workflow's fixed options, such as caption generation, dubbing
-   language, or meeting-note focus.
-4. Start in the dedicated editor. The editor checks and helps install the
-   models it needs; it does not require an Agent conversation or Agent model
-   configuration.
-
-The initial workshop workflows are **Smart Cut**, **Captioned Video**,
-**Video Dubbing**, **AI Podcast**, and **Meeting Notes**. They are grouped into
-video and audio creation and keep their projects in the regular recent-task
-history.
-
-Use **New Task** when the request is open-ended, needs planning, or benefits
-from natural-language iteration:
-
-1. Open **New Task**.
-2. Describe what you want to create.
-3. Optionally select an Agent capability and describe additional constraints.
-4. Add source material when the selected skill needs a file.
-5. Install or configure the required models if the skill asks for them.
-
-The product distinguishes a user-facing workflow from a reusable **Skill**.
-Creative Workshop workflows are fixed task recipes; Skills are declarative,
-installable capabilities that an Agent or workflow can discover and compose.
-For example, a video-dubbing workflow can combine transcription, dialogue
-translation, voice synthesis, and subtitle rendering Skills. The current
-catalog still exposes some built-in workspace workflows as legacy Skills while
-this separation is migrated. See [Creative Workshop and Skills design](docs/creative-workshop-skills-design.md).
-
-Agent-created tasks keep the conversation beside their manual editor. Ask AI to
-change editing parameters, mark cuts, edit podcast turns, adjust dubbing
-settings, or inspect meeting notes. Creative Workshop tasks open directly in
-the dedicated editor instead. Both paths operate on the same saved project
-state. If you edit an Agent workspace while it is planning, its pending changes
-are stopped so you can send an updated request. Changed podcast or dubbing
-settings require new audio before the updated result can be exported.
-
-The suggested exact commands, such as **关闭字幕** and **配音风格设为轻松**,
-work without a language model. Other requests use the selected ACP Agent,
-such as Codex or Qoder. Choose the Agent and its advertised model beside the
-Send button; Agents that do not advertise models use their own default.
-Provider selection and model selection are saved with each task. Native
-generation and recording still require the desktop app and the relevant models.
-
-## Use a model directly
-
-1. Open **Model Store**.
+1. Open **更多 / More**, enable **Extension Workbench**, then choose **Model Store**.
 2. Choose an **Offline** model, a bundled cloud model, or configure a custom
    REST LLM, ASR, or TTS model.
 3. Select a model variant when available and start the installation.
@@ -178,8 +97,8 @@ reference transcription, remain separate models and can be selected from the
 model details.
 
 Cloud execution sends the selected input to the configured provider. Configure
-provider credentials from the API model configuration flow in **Model Store**;
-local models continue to run without access to those credentials.
+provider credentials under **Settings → Provider**; local models continue to
+run without access to those credentials.
 
 ## Updates, models, and privacy
 
@@ -209,31 +128,14 @@ processed audio, recordings, run history, and provider configuration. Removing
 the app does not remove this directory automatically. See [PRIVACY.md](PRIVACY.md)
 for the complete storage and network boundaries.
 
-Task conversations, drafts, and the four creation editors save automatically to
-`workspace/workspace-v1.json` in this directory. Reopening the app restores the
-selected task and saved edits; interrupted processing waits for an explicit
-retry, and meeting recording stays stopped. The header shows save progress or
-an error, and normal desktop closing waits for pending writes.
+## Agent projects
 
-Snapshots keep media file references, not copies of source media or live meeting
-audio. Keep those files in place; missing files leave the saved text and edits
-available. Podcast audio is tied to its script and voice settings: editing them
-requires an audio update before export, while unchanged speech segments can be
-reused. Browser development uses local storage for the current origin; `?demo`
-does not read or overwrite saved tasks. An unreadable or unsupported workspace
-file is preserved and autosaving is paused. Back it up before repairing or
-moving it aside, then restart the app.
-
-## Creative Workshop, Skills, and model projects
-
-The desktop UI separates **Creative Workshop** from **Skills** and the
-**Model Store**. Creative Workshop owns user-facing task recipes; Skills own
-reusable capability definitions, instructions, contracts, and requirements;
-Model Store entries provide concrete local or cloud model implementations.
-During the current migration period, imported skill projects and model projects
-use the existing manifest contracts. See [Creative Workshop and Skills design](docs/creative-workshop-skills-design.md)
-for the target boundary and [Skill and model projects](docs/agent-projects.md)
-for the current host-adapter execution boundary.
+The extensions page now presents Agents: data-processing projects combining a
+model, usage information, resources and a Harness contract. Import a local
+Agent project folder or ZIP from the desktop Agents page. 3D-Speaker and
+SenseVoice are the first migrated entries; legacy model packages remain
+compatible. See [Agent projects](docs/agent-projects.md) for examples and the
+current host-adapter execution boundary.
 
 ## Architecture
 
@@ -303,3 +205,9 @@ The original project source is licensed under the
 [Apache License 2.0](LICENSE). Third-party runtimes, libraries, model weights,
 datasets, and hosted services retain their own licenses and terms. See
 [NOTICE](NOTICE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Python Agent UI
+
+Python Agent 项目仅需在根目录提供 `agent_ui.py` / `create_ui()`，业务代码可自由组织，无需 `agent.json`。开发者通过 SDK 在浏览器体验标准音频和文本组件；桌面 Agents 页直接展示 Agent Server 网站，不提供 Python 开发入口、IDE 或 Git 编辑界面。参见 [Python UI SDK 与运行说明](docs/python-agent-ui.md)。
+
+Toolkits 本身提供可 pip 安装的 Python 包与桌面应用，共用同一份 UI 组件和运行时。参见 [Python SDK](docs/python-sdk.md) 与 [仓库结构](docs/repositories.md)。Agent 网站与示例在独立的 agent-server 仓库维护。

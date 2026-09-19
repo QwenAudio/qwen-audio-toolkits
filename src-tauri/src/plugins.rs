@@ -3,10 +3,10 @@ use crate::downloads::{
     DownloadProgressRange,
 };
 use crate::harness::{
-    CAPABILITY_ASR, CAPABILITY_AUDIO_TAGGING, CAPABILITY_CONVERSATION, CAPABILITY_DIARIZATION,
-    CAPABILITY_ENHANCE, CAPABILITY_KWS, CAPABILITY_LANGUAGE_ID, CAPABILITY_LIVE,
-    CAPABILITY_PUNCTUATION, CAPABILITY_SOURCE_SEPARATION, CAPABILITY_SPEAKER_EMBED,
-    CAPABILITY_TEXT, CAPABILITY_TEXT_NORMALIZE, CAPABILITY_TTS, CAPABILITY_VAD,
+    CAPABILITY_ASR, CAPABILITY_AUDIO_TAGGING, CAPABILITY_DIARIZATION, CAPABILITY_ENHANCE,
+    CAPABILITY_KWS, CAPABILITY_LANGUAGE_ID, CAPABILITY_LIVE, CAPABILITY_PUNCTUATION,
+    CAPABILITY_SOURCE_SEPARATION, CAPABILITY_SPEAKER_EMBED, CAPABILITY_TEXT,
+    CAPABILITY_TEXT_NORMALIZE, CAPABILITY_TTS, CAPABILITY_VAD,
 };
 use minisign_verify::{PublicKey, Signature};
 use serde::{Deserialize, Serialize};
@@ -3713,7 +3713,6 @@ fn validate_remote_api_model(model: &ApiModelCatalogEntry) -> Result<(), String>
             model.harness_capability == CAPABILITY_ASR
         }
         "bailian-llm" | "compatible-llm" => model.harness_capability == CAPABILITY_TEXT,
-        "bailian-realtime" => model.harness_capability == CAPABILITY_CONVERSATION,
         _ => false,
     };
     if !capability_matches {
@@ -7989,8 +7988,8 @@ mod tests {
     #[test]
     fn agent_examples_register_isolated_harness_contracts() {
         for raw in [
-            include_str!("../../examples/agents/3d-speaker/agent.json"),
-            include_str!("../../examples/agents/audio-to-text/agent.json"),
+            include_str!("../tests/fixtures/legacy-3d-speaker-agent.json"),
+            include_str!("../tests/fixtures/audio-to-text-agent.json"),
         ] {
             let manifest = parse_manifest_value(serde_json::from_str(raw).unwrap()).unwrap();
             let project = manifest.agent.as_ref().unwrap();
@@ -8014,7 +8013,7 @@ mod tests {
         fs::create_dir_all(&project).unwrap();
         fs::write(
             project.join("agent.json"),
-            include_str!("../../examples/agents/3d-speaker/agent.json"),
+            include_str!("../tests/fixtures/legacy-3d-speaker-agent.json"),
         )
         .unwrap();
         fs::write(project.join("README.md"), "Project-owned usage").unwrap();
@@ -8616,7 +8615,7 @@ mod tests {
     fn exported_catalog_matches_the_runtime_schema() {
         let catalog = parse_remote_catalog(include_bytes!("../../catalog/model-catalog.json"))
             .expect("parse exported model catalog");
-        assert_eq!(catalog.api_models.len(), 20);
+        assert_eq!(catalog.api_models.len(), 19);
         assert!(catalog.api_models.iter().any(|model| model
             .aliases
             .iter()

@@ -1,101 +1,109 @@
-import { getWorkspacePresentation, subscribeWorkspacePresentation } from './services/workspaceController';
-import { t, useLocale, setLocale } from "./i18n";
+import {
+  agentInstallRegistry,
+  type AgentInstallationState,
+} from './services/agentInstallState'
+import type { AgentServerCatalogActions } from './services/agentServerCatalogBridge'
+import {
+  buildPythonAgentSidebarGroups,
+  reconcilePythonAgentSelection,
+} from './services/agentSidebarState'
+import {
+  extensionWorkbenchPageLabels,
+  readExtensionWorkbenchEnabled,
+  resolveExtensionWorkbenchPage,
+  writeExtensionWorkbenchEnabled,
+  type ExtensionWorkbenchPage,
+} from './services/extensionWorkbenchState'
+import { refreshThenPersistCloudModelState } from './services/extensionModelStoreLifecycle'
+import { useWorkspaceCloseFlush, useWorkspaceReady } from './hooks/useProjectAutosave'
+import { PythonAgentWorkspace } from './views/PythonAgentWorkspace'
+import type { ExtensionExecutionContext } from './views/ExtensionWorkbenchView'
 import {
   lazy,
   Suspense,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
-} from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+  type SetStateAction,
+} from 'react'
+import { invoke } from '@tauri-apps/api/core'
+import { emit, listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   ArrowLeft,
-  Archive,
-  ArchiveRestore,
   AudioLines,
   Check,
-  ChevronDown,
-  Cloud,
   Download,
+  GitBranch,
   HardDrive,
   LoaderCircle,
   Menu,
   Monitor,
   Moon,
+  Pin,
   RefreshCw,
   Palette,
-  PanelRight,
   Settings,
   Settings2,
   ShoppingBag,
-  MessageSquareText,
-  Sparkles,
-  WandSparkles,
-  SquarePen,
   Sun,
   Trash2,
   X,
-} from "lucide-react";
+} from 'lucide-react'
 import {
   ProviderSettings,
-  type ProviderSettingsKind,
-} from "./components/ProviderSettings";
-import { runWorkspaceAgentRequest } from "./services/workspaceAgent";
-import { acpApiProviderId, acpModelCacheKey, getAgentSelection, loadAgentModelPreference, resolveAcpSelection, resolveOpenCodeApiBinding, saveAgentModelPreference, type AgentModelOption } from "./domain/agentModelSelection";
-import { requestAcpConversation } from "./services/acpConversation";
-import {
-  appAgentsWithInstallState,
-  defaultInstalledAppAgentIds,
-  INSTALLED_APP_AGENTS_STORAGE_KEY,
-  sanitizeInstalledAppAgentIds,
-} from "./appAgents";
-import { initialPlugins, fallbackRuntime } from "./data";
-import { initTraceSystem, recordScenarioId, saveRecording } from "./services/trace";
-import {
-  isDemoMode,
-  demoConversations,
-  demoPlugins,
-  demoCatalog,
-} from "./demo";
-import { cloudModelsFromCatalog, isRetiredCloudModelId } from "./cloudModels";
+} from './components/ProviderSettings'
+import { initialPlugins, fallbackRuntime } from './data'
+import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
+import { resolveRunnerAttribution } from './domain/executionAttribution'
+import { modelTaxonomy } from './domain/modelTaxonomy'
+import { setLocale, t, useLocale, type Locale } from './i18n'
 import {
   appDataDirectory,
   cleanupDownloadCache,
   executeHarnessTask,
   deleteHarnessRun,
+  getAgentServerStatus,
   getHarnessCatalog,
   getModelDependencyBindings,
+  installAgentUi,
   installCatalogModel,
   installRecommendedModelDependency,
   isTauriRuntime,
   listApiModelCatalog,
   listHarnessRuns,
+  listInstalledAgentUi,
   listModelPlugins,
-  readDroppedAudioFile,
   refreshModelPlugins,
   replaceModelDependencyBindings,
   revealInFileManager,
   setCloseBehavior,
   setModelDependencyBinding,
+  setModelPluginSidebarVisible,
   subscribeHarnessRuns,
-} from "./services/harness";
-import { getModelBinding, recommendedDependencies } from "./modelDependencies";
+  uninstallAgentUi,
+  uninstallModelPlugin,
+} from './services/harness'
+import {
+  getModelBinding,
+  referencingModels,
+  recommendedDependencies,
+} from './modelDependencies'
 import {
   checkForAppUpdate,
   downloadAppUpdate,
   installAppUpdate,
   type AppUpdateInfo,
-} from "./services/updater";
-import { listAcpProviders, inspectAcpModels, listOpenCodeConnections, listOpenCodeModels, respondAcpPermission, respondAcpPlanApproval, respondAcpQuestion } from "./services/acp";
-import type { AcpProviderInfo, AcpSessionEvent, OpenCodeConnection } from "./types";
+} from './services/updater'
+import {
+  listSavedWorkflows,
+  type SavedWorkflow,
+} from './services/workflowRuntime'
 import type {
   ApiModelCatalogEntry,
   AsrTranscriptionResult,
@@ -111,397 +119,277 @@ import type {
   TextGenerateResult,
   TtsGenerateResult,
   VadDetectionResult,
-} from "./types";
-import type {
-  AgentCreationMode,
-  GeneralAgentAttachment,
-  GeneralAgentMessage,
-  GeneralAgentMessageModelOptions,
-  GeneralAgentProgressEntry,
-  GeneralAgentStructuredPlanAction,
-  GeneralAgentTask,
-  VideoDubbingLanguages,
-  VideoDubbingMode,
-  VideoDubbingStyle,
-} from "./domain/agents";
-import { capabilityDefinition } from "./domain/capabilities";
-import {
-  createOnDemandModelExecutionPlan,
-  createInstallModelAction,
-  isInstallApproval,
-  planOnDemandModelAction,
-  resolveOnDemandModelNeeds,
-  resolveOnDemandModelExecutions,
-  resolveOnDemandModelInstallCandidates,
-  TEXT_INPUT_CAPABILITIES,
-  type OnDemandModelExecutionCandidate,
-  type OnDemandModelInstallMode,
-  type OnDemandModelResolution,
-} from "./domain/onDemandModels";
-import { agentFileKind, uniqueAgentFiles } from "./domain/agentFiles";
-import { useAgentConversations } from "./hooks/useAgentConversations";
-import { buildConfirmAgentResponse } from "./domain/agentMessageActions";
-import { matchingSkillConversation, skillAcceptsFile } from "./domain/skillLaunch";
-import { audioFileToClip } from "./utils/audio";
-import appIconUrl from "../src-tauri/icons/128x128.png";
-import "./App.css";
+} from './types'
+import type { WorkflowChatTurn } from './views/WorkflowChatView'
+import './App.css'
+
+const agentServerCatalogActions: AgentServerCatalogActions = {
+  installAgentUi,
+  uninstallAgentUi,
+  listInstalledAgentUi,
+}
 
 const ModelWorkspaceView = lazy(() =>
-  import("./views/ModelWorkspaceView").then((module) => ({
+  import('./views/ModelWorkspaceView').then((module) => ({
     default: module.ModelWorkspaceView,
   })),
-);
+)
 const PluginsView = lazy(() =>
-  import("./views/PluginsView").then((module) => ({
+  import('./views/PluginsView').then((module) => ({
     default: module.PluginsView,
   })),
-);
-const SmartCutView = lazy(() =>
-  import("./views/SmartCutView").then((module) => ({
-    default: module.SmartCutView,
+)
+const ExtensionWorkbenchView = lazy(() =>
+  import('./views/ExtensionWorkbenchView').then((module) => ({
+    default: module.ExtensionWorkbenchView,
   })),
-);
-const AiPodcastView = lazy(() =>
-  import("./views/AiPodcastView").then((module) => ({
-    default: module.AiPodcastView,
+)
+const ExtensionModelStoreView = lazy(() =>
+  import('./views/ExtensionModelStoreView').then((module) => ({
+    default: module.ExtensionModelStoreView,
   })),
-);
-const AgentHomeView = lazy(() =>
-  import("./views/AgentHomeView").then((module) => ({
-    default: module.AgentHomeView,
+)
+const WorkflowChatView = lazy(() =>
+  import('./views/WorkflowChatView').then((module) => ({
+    default: module.WorkflowChatView,
   })),
-);
-const MeetingNotesView = lazy(() =>
-  import("./views/MeetingNotesView").then((module) => ({
-    default: module.MeetingNotesView,
+)
+const WorkflowsView = lazy(() =>
+  import('./views/WorkflowsView').then((module) => ({
+    default: module.WorkflowsView,
   })),
-);
-const VideoDubbingView = lazy(() =>
-  import("./views/VideoDubbingView").then((module) => ({
-    default: module.VideoDubbingView,
-  })),
-);
-const CreativeWorkshopView = lazy(() =>
-  import("./views/CreativeWorkshopView").then((module) => ({
-    default: module.CreativeWorkshopView,
-  })),
-);
+)
 
-type AppView = "workspace" | "agents" | AgentCreationMode;
-type ThemePreference = "system" | "light" | "dark";
+type AppView = 'workspace' | 'workflows'
+type AppRunnerMode = 'boss' | 'workbench'
+type ThemePreference = 'system' | 'light' | 'dark'
 type AppUpdateState = {
   status:
-    | "idle"
-    | "checking"
-    | "current"
-    | "available"
-    | "downloading"
-    | "downloaded"
-    | "installing"
-    | "unavailable"
-    | "error";
-  update?: AppUpdateInfo;
-  progress?: number;
-  message?: string;
-};
+    | 'idle'
+    | 'checking'
+    | 'current'
+    | 'available'
+    | 'downloading'
+    | 'downloaded'
+    | 'installing'
+    | 'unavailable'
+    | 'error'
+  update?: AppUpdateInfo
+  progress?: number
+  message?: string
+}
 
-const CLOUD_MODELS_STORAGE_KEY =
-  "qwen-audio-toolkits.installed-cloud-models-v1";
+const CLOUD_MODELS_STORAGE_KEY = 'qwen-audio-toolkits.installed-cloud-models-v1'
 const CUSTOM_API_MODELS_STORAGE_KEY =
-  "qwen-audio-toolkits.custom-api-models-v1";
-const RUNS_REMOVED_EVENT = "harness-runs-removed";
-const HISTORY_CLEARED_EVENT = "harness-history-cleared";
-const SIDEBAR_WIDTH_KEY = "qwen-audio-toolkits.sidebar-width-v8";
-const EDITOR_RATIO_KEY = "qwen-audio-toolkits.editor-ratio-v1";
-const THEME_STORAGE_KEY = "qwen-audio-toolkits.theme-v1";
-const ACCENT_STORAGE_KEY = "qwen-audio-toolkits.accent-v1";
-const SIDEBAR_DENSITY_STORAGE_KEY = "qwen-audio-toolkits.sidebar-density-v1";
-const CLOSE_BEHAVIOR_STORAGE_KEY = "qwen-audio-toolkits.close-behavior-v1";
-const AUTO_UPDATE_STORAGE_KEY = "qwen-audio-toolkits.auto-update-v1";
-const LAST_MODEL_STORAGE_KEY = "qwen-audio-toolkits.last-model-v1";
+  'qwen-audio-toolkits.custom-api-models-v1'
+const RUNS_REMOVED_EVENT = 'harness-runs-removed'
+const HISTORY_CLEARED_EVENT = 'harness-history-cleared'
+const SIDEBAR_MODEL_ORDER_KEY = 'qwen-audio-toolkits.model-sidebar-order-v1'
+const SIDEBAR_PINNED_MODELS_KEY = 'qwen-audio-toolkits.sidebar-pinned-models-v1'
+const SIDEBAR_WIDTH_KEY = 'qwen-audio-toolkits.sidebar-width-v8'
+const SIDEBAR_COLLAPSED_GROUPS_KEY =
+  'qwen-audio-toolkits.sidebar-collapsed-groups-v1'
+const THEME_STORAGE_KEY = 'qwen-audio-toolkits.theme-v1'
+const ACCENT_STORAGE_KEY = 'qwen-audio-toolkits.accent-v1'
+const SIDEBAR_DENSITY_STORAGE_KEY = 'qwen-audio-toolkits.sidebar-density-v1'
+const CLOSE_BEHAVIOR_STORAGE_KEY = 'qwen-audio-toolkits.close-behavior-v1'
+const AUTO_UPDATE_STORAGE_KEY = 'qwen-audio-toolkits.auto-update-v1'
+const LAST_MODEL_STORAGE_KEY = 'qwen-audio-toolkits.last-model-v1'
 const DEFAULT_VOICE_WORKFLOW_MODELS_KEY =
-  "qwen-audio-toolkits.default-voice-workflow-models-v2";
-const NATIVE_TITLEBAR_HEIGHT = 46;
-const DRAG_REGION_INTERACTIVE_SELECTOR =
-  'button, a, input, select, textarea, label, video, [contenteditable], [role="button"], [role="link"], [role="tab"], [role="slider"], [role="switch"], [role="checkbox"], [role="menuitem"], [role="option"], [role="dialog"]';
-const SHOW_INSTALLED_MODELS_SIDEBAR = false;
-const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000;
-const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000;
-const MAX_AGENT_PROGRESS_ENTRIES = 8;
+  'qwen-audio-toolkits.default-voice-workflow-models-v2'
+const WORKFLOWS_ENABLED = false
+const APP_UPDATE_CHECK_INTERVAL_MS = 30 * 60_000
+const MODEL_CATALOG_REFRESH_INTERVAL_MS = 6 * 60 * 60_000
+const DEFAULT_SIDEBAR_WIDTH = 260
+const MIN_SIDEBAR_WIDTH = 160
+const MAX_SIDEBAR_WIDTH = 520
+const MIN_WORKSPACE_WIDTH = 480
+const LOCALE_OPTIONS: ReadonlyArray<readonly [Locale, string]> = [
+  ['zh-CN', '简体中文'],
+  ['en', 'English'],
+]
 
-function compactProgressDetail(value?: string) {
-  const text = value?.replace(/\s+/g, " ").trim();
-  if (!text) return undefined;
-  return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+interface SidebarModelGroup {
+  id: string
+  label: string
+  models: ModelPlugin[]
 }
 
-function normalizeAcpProgressStatus(event: AcpSessionEvent): GeneralAgentProgressEntry["status"] {
-  if (event.kind === "permission_requested" || event.kind === "question_requested" || event.kind === "plan_approval_requested") return "waiting";
-  if (event.kind === "turn_completed" || event.kind === "permission_resolved" || event.kind === "question_resolved" || event.kind === "plan_approval_resolved") return "done";
-  if (event.kind === "turn_failed" || event.kind === "closed" || event.kind === "error") return "failed";
-  const status = event.status?.toLowerCase() ?? "";
-  if (/(fail|error|cancel|reject|denied)/.test(status)) return "failed";
-  if (/(complete|completed|done|success|succeeded)/.test(status)) return "done";
-  if (/(pending|wait|queued)/.test(status)) return "waiting";
-  return "running";
-}
-
-function describeAcpProgressEvent(event: AcpSessionEvent): Omit<GeneralAgentProgressEntry, "createdAt" | "updatedAt"> | null {
-  if (event.kind === "agent_thought_chunk") {
-    return { id: "agent-thinking", label: t("Agent 正在分析任务"), status: "running" };
-  }
-  if (event.kind === "agent_message_chunk") {
-    return { id: "agent-reply", label: t("正在生成回复"), status: "running" };
-  }
-  if (event.kind === "plan" && event.plan?.length) {
-    const running = event.plan.find(item => item.status === "in_progress" || item.status === "running");
-    const pending = event.plan.filter(item => item.status !== "completed" && item.status !== "done").length;
-    return {
-      id: "agent-plan",
-      label: t("已收到执行计划"),
-      detail: compactProgressDetail(running?.content ?? (pending ? t("还有 {0} 个步骤待处理", [String(pending)]) : undefined)),
-      status: pending ? "running" : "done",
-    };
-  }
-  if (event.kind === "tool_call" || event.kind === "tool_call_update") {
-    const title = event.toolTitle || event.toolKind || t("工具调用");
-    return {
-      id: event.toolCallId ? `tool:${event.toolCallId}` : `tool:${title}`,
-      label: event.kind === "tool_call" ? t("开始执行：{0}", [title]) : t("工具进度：{0}", [title]),
-      detail: compactProgressDetail(event.status || event.content),
-      status: normalizeAcpProgressStatus(event),
-    };
-  }
-  if (event.kind === "permission_requested") {
-    return {
-      id: event.requestId ? `permission:${event.requestId}` : "permission",
-      label: t("等待权限确认"),
-      detail: compactProgressDetail(event.title),
-      status: "waiting",
-    };
-  }
-  if (event.kind === "permission_resolved") {
-    return {
-      id: event.requestId ? `permission:${event.requestId}` : "permission",
-      label: t("权限已确认"),
-      status: "done",
-    };
-  }
-  if (event.kind === "question_requested") {
-    return {
-      id: event.requestId ? `question:${event.requestId}` : "question",
-      label: t("等待用户选择"),
-      detail: compactProgressDetail(event.title ?? event.questions?.[0]?.prompt),
-      status: "waiting",
-    };
-  }
-  if (event.kind === "question_resolved") {
-    return {
-      id: event.requestId ? `question:${event.requestId}` : "question",
-      label: t("用户选择已提交"),
-      status: "done",
-    };
-  }
-  if (event.kind === "plan_approval_requested") {
-    return {
-      id: event.requestId ? `plan-approval:${event.requestId}` : "plan-approval",
-      label: t("等待计划确认"),
-      detail: compactProgressDetail(event.title ?? event.content),
-      status: "waiting",
-    };
-  }
-  if (event.kind === "plan_approval_resolved") {
-    return {
-      id: event.requestId ? `plan-approval:${event.requestId}` : "plan-approval",
-      label: t("计划确认已提交"),
-      status: "done",
-    };
-  }
-  if (event.kind === "panel_requested") {
-    return {
-      id: "panel-requested",
-      label: t("正在打开任务面板"),
-      detail: compactProgressDetail(event.panel),
-      status: "running",
-    };
-  }
-  if (event.kind === "turn_completed") {
-    return { id: "turn-completed", label: t("Agent 已完成"), status: "done" };
-  }
-  if (event.kind === "turn_failed" || event.kind === "closed" || event.kind === "error") {
-    return {
-      id: "turn-failed",
-      label: t("Agent 执行中断"),
-      detail: compactProgressDetail(event.error),
-      status: "failed",
-    };
-  }
-  return null;
-}
-const DEFAULT_SIDEBAR_WIDTH = 260;
-const MIN_SIDEBAR_WIDTH = 200;
-const MAX_SIDEBAR_WIDTH = 520;
-const MIN_WORKSPACE_WIDTH = 480;
-// Editor share of the conversation:editor split (0–1). Default 1:2 → editor 2/3.
-const DEFAULT_EDITOR_RATIO = 2 / 3;
-const MIN_EDITOR_RATIO = 0.25;
-const MAX_EDITOR_RATIO = 0.8;
-const WORKSPACE_TASK_MODES: ReadonlySet<AppView> = new Set([
-  "smart-cut", "ai-podcast", "video-dubbing", "meeting-notes",
-]);
+// 复用扩展页 taxonomy 分类（Audio-to-Text 等）作为侧边栏分组
+const SIDEBAR_TAXONOMY_GROUP_ORDER = [
+  'Audio-to-Text',
+  'Text-to-Audio',
+  'Audio-to-Audio',
+  'Text-to-Text',
+]
 
 function getInitialTheme(): ThemePreference {
-  if (typeof window === "undefined") return "system";
+  if (typeof window === 'undefined') return 'system'
   try {
-    const value = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return value === "light" || value === "dark" ? value : "system";
+    const value = window.localStorage.getItem(THEME_STORAGE_KEY)
+    return value === 'light' || value === 'dark' ? value : 'system'
   } catch {
-    return "system";
+    return 'system'
   }
 }
 
 function getInitialAccent(): AccentColor {
-  if (typeof window === "undefined") return "mint";
+  if (typeof window === 'undefined') return 'mint'
   try {
-    const value = window.localStorage.getItem(ACCENT_STORAGE_KEY);
-    return value === "indigo" || value === "amber" || value === "rose"
+    const value = window.localStorage.getItem(ACCENT_STORAGE_KEY)
+    return value === 'indigo' || value === 'amber' || value === 'rose'
       ? value
-      : "mint";
+      : 'mint'
   } catch {
-    return "mint";
+    return 'mint'
   }
 }
 
 function getInitialSidebarDensity(): SidebarDensity {
-  if (typeof window === "undefined") return "comfortable";
+  if (typeof window === 'undefined') return 'comfortable'
   try {
-    const value = window.localStorage.getItem(SIDEBAR_DENSITY_STORAGE_KEY);
-    return value === "compact" ? "compact" : "comfortable";
+    const value = window.localStorage.getItem(SIDEBAR_DENSITY_STORAGE_KEY)
+    return value === 'compact' ? 'compact' : 'comfortable'
   } catch {
-    return "comfortable";
+    return 'comfortable'
   }
 }
 
 function getInitialCloseBehavior(): boolean {
-  if (typeof window === "undefined") return false;
+  if (typeof window === 'undefined') return false
   try {
-    return window.localStorage.getItem(CLOSE_BEHAVIOR_STORAGE_KEY) === "quit";
+    return window.localStorage.getItem(CLOSE_BEHAVIOR_STORAGE_KEY) === 'quit'
   } catch {
-    return false;
+    return false
   }
 }
 
 function getInitialAutoUpdate(): boolean {
-  if (typeof window === "undefined") return true;
+  if (typeof window === 'undefined') return true
   try {
-    return window.localStorage.getItem(AUTO_UPDATE_STORAGE_KEY) !== "off";
+    return window.localStorage.getItem(AUTO_UPDATE_STORAGE_KEY) !== 'off'
   } catch {
-    return true;
+    return true
+  }
+}
+
+function getInitialExtensionWorkbenchEnabled(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return readExtensionWorkbenchEnabled(window.localStorage)
+  } catch {
+    return false
   }
 }
 
 function getInitialSidebarWidth() {
-  if (typeof window === "undefined") return DEFAULT_SIDEBAR_WIDTH;
+  if (typeof window === 'undefined') return DEFAULT_SIDEBAR_WIDTH
   try {
-    const value = window.localStorage.getItem(SIDEBAR_WIDTH_KEY);
-    if (value === null) return DEFAULT_SIDEBAR_WIDTH;
-    const stored = Number(value);
-    if (!Number.isFinite(stored)) return DEFAULT_SIDEBAR_WIDTH;
-    return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, stored));
+    const value = window.localStorage.getItem(SIDEBAR_WIDTH_KEY)
+    if (value === null) return DEFAULT_SIDEBAR_WIDTH
+    const stored = Number(value)
+    if (!Number.isFinite(stored)) return DEFAULT_SIDEBAR_WIDTH
+    return Math.min(
+      MAX_SIDEBAR_WIDTH,
+      Math.max(MIN_SIDEBAR_WIDTH, stored),
+    )
   } catch {
-    return DEFAULT_SIDEBAR_WIDTH;
+    return DEFAULT_SIDEBAR_WIDTH
   }
 }
 
-function getInitialEditorRatio() {
-  if (typeof window === "undefined") return DEFAULT_EDITOR_RATIO;
+function getInitialCollapsedSidebarGroups() {
+  if (typeof window === 'undefined') return new Set<string>()
   try {
-    const value = window.localStorage.getItem(EDITOR_RATIO_KEY);
-    if (value === null) return DEFAULT_EDITOR_RATIO;
-    const stored = Number(value);
-    if (!Number.isFinite(stored)) return DEFAULT_EDITOR_RATIO;
-    return Math.min(MAX_EDITOR_RATIO, Math.max(MIN_EDITOR_RATIO, stored));
+    const value = JSON.parse(
+      window.localStorage.getItem(SIDEBAR_COLLAPSED_GROUPS_KEY) ?? '[]',
+    )
+    return new Set<string>(
+      Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string')
+        : [],
+    )
   } catch {
-    return DEFAULT_EDITOR_RATIO;
+    return new Set<string>()
   }
 }
 
 function getInitialSelectedPluginId(): string {
-  if (typeof window === "undefined") return "funaudiollm.sensevoice-small-gguf";
+  if (typeof window === 'undefined') return 'funaudiollm.sensevoice-small-gguf'
   try {
     return (
       window.localStorage.getItem(LAST_MODEL_STORAGE_KEY) ??
-      "funaudiollm.sensevoice-small-gguf"
-    );
+      'funaudiollm.sensevoice-small-gguf'
+    )
   } catch {
-    return "funaudiollm.sensevoice-small-gguf";
+    return 'funaudiollm.sensevoice-small-gguf'
   }
 }
 
 function getInitialCloudModels(): string[] {
-  if (typeof window === "undefined") return [];
+  if (typeof window === 'undefined') return []
   try {
     const value = JSON.parse(
-      window.localStorage.getItem(CLOUD_MODELS_STORAGE_KEY) ?? "[]",
-    );
+      window.localStorage.getItem(CLOUD_MODELS_STORAGE_KEY) ?? '[]',
+    )
     const installed = Array.isArray(value)
       ? value.filter(
           (item): item is string =>
-            typeof item === "string" && !isRetiredCloudModelId(item),
+            typeof item === 'string' && !isRetiredCloudModelId(item),
         )
-      : [];
+      : []
     window.localStorage.setItem(
       CLOUD_MODELS_STORAGE_KEY,
       JSON.stringify(installed),
-    );
+    )
     if (!window.localStorage.getItem(DEFAULT_VOICE_WORKFLOW_MODELS_KEY)) {
       installed.push(
-        "bailian-funasr-realtime",
-        "bailian-qwen37-plus",
-        "bailian-cosyvoice-v2",
-      );
-      const next = Array.from(new Set(installed));
+        'bailian-funasr-realtime',
+        'bailian-qwen37-plus',
+        'bailian-cosyvoice-v2',
+      )
+      const next = Array.from(new Set(installed))
       window.localStorage.setItem(
         DEFAULT_VOICE_WORKFLOW_MODELS_KEY,
-        "installed",
-      );
+        'installed',
+      )
       window.localStorage.setItem(
         CLOUD_MODELS_STORAGE_KEY,
         JSON.stringify(next),
-      );
-      return next;
+      )
+      return next
     }
-    return installed;
+    return installed
   } catch {
-    return [];
+    return []
   }
 }
 
 function getInitialCustomApiModels(): CustomApiModelDefinition[] {
-  if (typeof window === "undefined") return [];
+  if (typeof window === 'undefined') return []
   try {
     const value = JSON.parse(
-      window.localStorage.getItem(CUSTOM_API_MODELS_STORAGE_KEY) ?? "[]",
-    );
-    if (!Array.isArray(value)) return [];
+      window.localStorage.getItem(CUSTOM_API_MODELS_STORAGE_KEY) ?? '[]',
+    )
+    if (!Array.isArray(value)) return []
     return value.flatMap((item): CustomApiModelDefinition[] => {
       if (
         !item ||
-        typeof item.id !== "string" ||
-        typeof item.name !== "string" ||
-        typeof item.modelId !== "string" ||
-        typeof item.providerId !== "string" ||
-        !item.providerId.startsWith("api.")
+        typeof item.id !== 'string' ||
+        typeof item.name !== 'string' ||
+        typeof item.modelId !== 'string' ||
+        typeof item.providerId !== 'string' ||
+        !item.providerId.startsWith('api.')
       ) {
-        return [];
+        return []
       }
       const capability = [
-        "text.generate",
-        "speech.transcribe",
-        "speech.synthesize",
+        'text.generate',
+        'speech.transcribe',
+        'speech.synthesize',
       ].includes(item.capability)
         ? item.capability
-        : "text.generate";
+        : 'text.generate'
       return [
         {
           id: item.id,
@@ -509,36 +397,103 @@ function getInitialCustomApiModels(): CustomApiModelDefinition[] {
           modelId: item.modelId,
           providerId: item.providerId,
           capability,
-          ...(typeof item.defaultVoice === "string"
+          ...(typeof item.defaultVoice === 'string'
             ? { defaultVoice: item.defaultVoice }
             : {}),
         } as CustomApiModelDefinition,
-      ];
-    });
+      ]
+    })
   } catch {
-    return [];
+    return []
   }
 }
 
-function getInitialInstalledAppAgents(): string[] {
-  if (typeof window === "undefined") return defaultInstalledAppAgentIds();
+function getInitialSidebarModelOrder(): string[] {
+  if (typeof window === 'undefined') return []
   try {
-    const saved = window.localStorage.getItem(INSTALLED_APP_AGENTS_STORAGE_KEY);
-    if (saved === null) return defaultInstalledAppAgentIds();
-    return sanitizeInstalledAppAgentIds(JSON.parse(saved));
+    const value = JSON.parse(
+      window.localStorage.getItem(SIDEBAR_MODEL_ORDER_KEY) ?? '[]',
+    )
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : []
   } catch {
-    return defaultInstalledAppAgentIds();
+    return []
   }
+}
+
+function getInitialPinnedModels(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const value = JSON.parse(
+      window.localStorage.getItem(SIDEBAR_PINNED_MODELS_KEY) ?? '[]',
+    )
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+function startModelNameScroll(button: HTMLButtonElement) {
+  const text = button.querySelector<HTMLElement>('.activity-model-name-text')
+  const viewport = text?.parentElement
+  if (!text || !viewport) return
+  const compact =
+    button.closest<HTMLElement>('.model-sidebar')?.dataset.compact === 'true'
+  if (compact) {
+    const overflow = text.scrollHeight - viewport.clientHeight
+    if (overflow <= 1) return
+    text.getAnimations().forEach((animation) => animation.cancel())
+    text.animate(
+      [
+        { transform: 'translateY(0)' },
+        { transform: `translateY(-${overflow}px)` },
+      ],
+      {
+        duration: Math.max(1400, overflow * 90),
+        delay: 350,
+        direction: 'alternate',
+        easing: 'ease-in-out',
+        iterations: Infinity,
+      },
+    )
+    return
+  }
+  const overflow = text.scrollWidth - viewport.clientWidth
+  if (overflow <= 1) return
+  text.getAnimations().forEach((animation) => animation.cancel())
+  text.animate(
+    [
+      { transform: 'translateX(0)' },
+      { transform: `translateX(-${overflow}px)` },
+    ],
+    {
+      duration: Math.max(1600, overflow * 32),
+      delay: 350,
+      direction: 'alternate',
+      easing: 'ease-in-out',
+      iterations: Infinity,
+    },
+  )
+}
+
+function stopModelNameScroll(button: HTMLButtonElement) {
+  const text = button.querySelector<HTMLElement>('.activity-model-name-text')
+  text?.getAnimations().forEach((animation) => animation.cancel())
 }
 
 function upsertRun(runs: HarnessRun[], run: HarnessRun): HarnessRun[] {
-  const existingIndex = runs.findIndex((item) => item.id === run.id);
+  const existingIndex = runs.findIndex((item) => item.id === run.id)
   if (existingIndex >= 0) {
-    const next = [...runs];
-    next[existingIndex] = run;
-    return next;
+    const next = [...runs]
+    next[existingIndex] = run
+    return next
   }
-  return [run, ...runs].sort((left, right) => right.createdAt - left.createdAt);
+  return [run, ...runs].sort(
+    (left, right) => right.createdAt - left.createdAt,
+  )
 }
 
 function summarizeRun(run: HarnessRun): HarnessRun {
@@ -548,525 +503,352 @@ function summarizeRun(run: HarnessRun): HarnessRun {
       ...artifact,
       payload: {},
     })),
-  };
-}
-
-type ShellPage = "workspace" | "workshop" | "skills" | "models" | "settings";
-type SettingsSection = "general" | "api" | "appearance" | "storage" | "archived";
-
-type AccentColor = "mint" | "indigo" | "amber" | "rose";
-
-const ACCENT_OPTIONS: {
-  id: AccentColor;
-  label: string;
-  swatch: string;
-}[] = [
-  {
-    id: "mint",
-    get label() {
-      return t("青瓷绿");
-    },
-    swatch: "#4c7e6c",
-  },
-  {
-    id: "indigo",
-    get label() {
-      return t("靛蓝");
-    },
-    swatch: "#4d63b0",
-  },
-  {
-    id: "amber",
-    get label() {
-      return t("琥珀");
-    },
-    swatch: "#9a7a2f",
-  },
-  {
-    id: "rose",
-    get label() {
-      return t("玫瑰");
-    },
-    swatch: "#a95f6f",
-  },
-];
-
-type SidebarDensity = "comfortable" | "compact";
-
-interface PendingOnDemandInstall {
-  resolution: OnDemandModelResolution
-  prompt: string
-  selectedModeName: string | null
-  attachmentHint: string
-  attachment: GeneralAgentAttachment | null
-  chain?: {
-    resolutions: OnDemandModelResolution[]
   }
 }
 
-const SIDEBAR_DENSITY_OPTIONS: {
-  id: SidebarDensity;
-  label: string;
+type ShellPage =
+  | 'workspace'
+  | 'extensions'
+  | 'extension-workbench'
+  | 'settings'
+type SettingsSection = 'general' | 'appearance' | 'storage' | 'accounts'
+
+type AccentColor = 'mint' | 'indigo' | 'amber' | 'rose'
+
+const ACCENT_OPTIONS: {
+  id: AccentColor
+  label: string
+  swatch: string
 }[] = [
-  {
-    id: "comfortable",
-    get label() {
-      return t("舒适");
-    },
-  },
-  {
-    id: "compact",
-    get label() {
-      return t("紧凑");
-    },
-  },
-];
+  { id: 'mint', label: '青瓷绿', swatch: '#4c7e6c' },
+  { id: 'indigo', label: '靛蓝', swatch: '#4d63b0' },
+  { id: 'amber', label: '琥珀', swatch: '#9a7a2f' },
+  { id: 'rose', label: '玫瑰', swatch: '#a95f6f' },
+]
+
+type SidebarDensity = 'comfortable' | 'compact'
+
+const SIDEBAR_DENSITY_OPTIONS: {
+  id: SidebarDensity
+  label: string
+}[] = [
+  { id: 'comfortable', label: '舒适' },
+  { id: 'compact', label: '紧凑' },
+]
 
 const SETTINGS_SECTIONS: {
-  id: SettingsSection;
-  label: string;
-  Icon: typeof Palette;
+  id: SettingsSection
+  label: string
+  Icon: typeof Palette
 }[] = [
-  {
-    id: "general",
-    get label() {
-      return t("常规");
-    },
-    Icon: Settings2,
-  },
-  {
-    id: "api",
-    get label() {
-      return t("API 配置");
-    },
-    Icon: Cloud,
-  },
-  {
-    id: "appearance",
-    get label() {
-      return t("外观");
-    },
-    Icon: Palette,
-  },
-  {
-    id: "storage",
-    get label() {
-      return t("模型与存储");
-    },
-    Icon: HardDrive,
-  },
-  { id: "archived", get label() { return t("已归档"); }, Icon: Archive },
-
-];
-
-// Activate recording/replay from the URL before any service module calls IPC.
-// Replay loads async; its invoke matcher queues until the trace arrives.
-initTraceSystem(__APP_VERSION__);
-const traceRecordingId = recordScenarioId();
+  { id: 'general', label: '常规', Icon: Settings2 },
+  { id: 'appearance', label: '外观', Icon: Palette },
+  { id: 'storage', label: '模型与存储', Icon: HardDrive },
+  { id: 'accounts', label: '账号与服务', Icon: Settings2 },
+]
 
 function App() {
-  const locale = useLocale();
-
+  const locale = useLocale()
+  const [view, setView] = useState<AppView>('workspace')
+  const [shellPage, setShellPage] = useState<ShellPage>('workspace')
+  const [agentCategory, setAgentCategory] = useState('all')
+  const [expandedAgentCategory, setExpandedAgentCategory] = useState<string | null>(null)
+  const [agentSecondary, setAgentSecondary] = useState('all')
+  const [pythonAgents, setPythonAgents] = useState<readonly AgentInstallationState[]>(
+    () => agentInstallRegistry.snapshot(),
+  )
   useEffect(() => {
-    if (!isTauriRuntime()) return;
-    void invoke("set_ui_language", { language: locale }).catch((error) => {
-      console.error("Could not update the native menu language", error);
-    });
-  }, [locale]);
-
-  const demoMode = isDemoMode();
-  const [view, setView] = useState<AppView>("agents");
-  const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false);
-  const [workspacePanelFocused, setWorkspacePanelFocused] = useState(false);
-  const {
-    conversations: agentConversations,
-    generalTasks,
-    selectedId: selectedAgentConversationId,
-    selectedConversation: selectedAgentConversation,
-    selectedGeneralTask,
-    createGeneralTask,
-    ensureGeneralTask,
-    updateGeneralTask,
-    setTaskArchived,
-    reportTaskProgress,
-    recordWorkspaceBrief,
-    updateGeneralMessageActionStatus,
-    updateStructuredPlanStep,
-    submitGeneralPrompt: submitGeneralPromptToTask,
-    selectConversation: setSelectedAgentConversationId,
-    createConversation: createAgentConversation,
-    ready: workspaceReady,
-    restoredSelectedId,
-  } = useAgentConversations(
-    demoMode ? (new URLSearchParams(window.location.search).get('demo') === 'tasks'
-      ? demoConversations.filter(task => task.mode !== 'agent-chat') : []) : undefined,
-    demoMode ? [] : undefined,
-  );
-  const initialViewRestoredRef = useRef(false);
-  const [openedAgentIds, setOpenedAgentIds] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    if (!workspaceReady || initialViewRestoredRef.current) return;
-    initialViewRestoredRef.current = true;
-    if (restoredSelectedId) setView(selectedAgentConversation?.mode ?? "agents");
-  }, [workspaceReady, restoredSelectedId, selectedAgentConversation]);
-  useEffect(() => {
-    if (!selectedAgentConversation) return;
-    setOpenedAgentIds(current => current.has(selectedAgentConversation.id)
-      ? current : new Set([...current, selectedAgentConversation.id]));
-  }, [selectedAgentConversation]);
-  const openedAgentConversations = agentConversations.filter(conversation =>
-    openedAgentIds.has(conversation.id) || conversation.id === selectedAgentConversationId,
-  );
-  const [, refreshPresentation] = useState(0);
-  useEffect(() => subscribeWorkspacePresentation(() => refreshPresentation(value => value + 1)), []);
-  const workspacePresentation = getWorkspacePresentation(selectedAgentConversationId);
-  const reportedWorkspaceStatus = useRef(new Map<string, string>());
-  useEffect(() => {
-    if (!selectedGeneralTask || !selectedAgentConversation || !workspacePresentation) return;
-    const message = workspacePresentation.issue || workspacePresentation.message;
-    const key = selectedAgentConversation.id;
-    if (!message || reportedWorkspaceStatus.current.get(key) === message) return;
-    reportedWorkspaceStatus.current.set(key, message);
-    reportTaskProgress(selectedGeneralTask.id, message);
-  }, [selectedGeneralTask, selectedAgentConversation, workspacePresentation, reportTaskProgress]);
-  const isWorkspaceTaskView = WORKSPACE_TASK_MODES.has(view);
-  const activeWorkspaceRef = useRef({ id: null as string | null, epoch: 0 });
-  useLayoutEffect(() => {
-    const id = isWorkspaceTaskView ? selectedAgentConversationId : null;
-    if (activeWorkspaceRef.current.id !== id) {
-      activeWorkspaceRef.current = { id, epoch: activeWorkspaceRef.current.epoch + 1 };
+    const unsubscribe = agentInstallRegistry.subscribe(setPythonAgents)
+    setPythonAgents(agentInstallRegistry.snapshot())
+    if (isTauriRuntime()) {
+      void listInstalledAgentUi().then(setPythonAgents).catch(() => {
+        // Keep the trusted local snapshot while native rehydration is unavailable.
+      })
     }
-  }, [isWorkspaceTaskView, selectedAgentConversationId]);
+    return unsubscribe
+  }, [])
+  const visiblePythonAgents = useMemo(
+    () => pythonAgents.filter((agent) => agent.status !== 'uninstalled'),
+    [pythonAgents],
+  )
+  const [selectedPythonAgent, setSelectedPythonAgent] = useState<string | null>(null)
+  const activePythonAgent = useMemo(
+    () => reconcilePythonAgentSelection(selectedPythonAgent, pythonAgents),
+    [pythonAgents, selectedPythonAgent],
+  )
   useEffect(() => {
-    if (isWorkspaceTaskView && selectedAgentConversationId) {
-      setWorkspacePanelOpen(true);
-      setWorkspacePanelFocused(selectedAgentConversation?.launchSource === 'workshop');
+    if (selectedPythonAgent !== activePythonAgent) {
+      setSelectedPythonAgent(activePythonAgent)
     }
-  }, [isWorkspaceTaskView, selectedAgentConversation?.launchSource, selectedAgentConversationId]);
-  const [agentHomeMode, setAgentHomeMode] = useState<AgentCreationMode | null>(
-    null,
-  );
-  const [preferredAgentModel, setPreferredAgentModel] = useState(loadAgentModelPreference);
-  const pendingGeneralTaskRef = useRef<GeneralAgentTask | null>(null);
-  const pendingOnDemandModelRef = useRef(
-    new Map<string, PendingOnDemandInstall>(),
-  );
-  const [agentModelInstallMode, setAgentModelInstallMode] =
-    useState<OnDemandModelInstallMode>("ask");
-  const [agentChatAvailable, setAgentChatAvailable] = useState(false);
-  const [acpProviders, setAcpProviders] = useState<AcpProviderInfo[]>(demoMode ? [
-    { id: 'qoder', name: 'Qoder', available: true }, { id: 'opencode', name: 'opencode', available: true }, { id: 'kimi', name: 'Kimi Code', available: true },
-    { id: 'codex', name: 'Codex', available: true }, { id: 'qwen-code', name: 'Qwen Code', available: true },
-  ] : []);
-  const [acpModels, setAcpModels] = useState<Record<string, { loading: boolean; options: AgentModelOption[]; currentModelId?: string | null; error?: string }>>({});
-  const acpModelLoads = useRef(new Map<string, number>());
-  const acpModelGeneration = useRef(0);
-  const [openCodeConnections, setOpenCodeConnections] = useState<{
-    loading: boolean;
-    connections: OpenCodeConnection[];
-    error?: string;
-  }>({ loading: false, connections: [] });
-  const acpTurns = useRef(new Map<string, AbortController>());
-  const [activeAcpTasks, setActiveAcpTasks] = useState<string[]>([]);
-  const [acpPermissions, setAcpPermissions] = useState<Array<{ taskId: string; event: AcpSessionEvent }>>([]);
-  const [acpQuestions, setAcpQuestions] = useState<Array<{ taskId: string; event: AcpSessionEvent }>>([]);
-  const [acpPlanApprovals, setAcpPlanApprovals] = useState<Array<{ taskId: string; event: AcpSessionEvent }>>([]);
-  const [agentProgressByTask, setAgentProgressByTask] = useState<Record<string, GeneralAgentProgressEntry[]>>({});
-  const recordAgentProgress = useCallback((taskId: string, event: AcpSessionEvent) => {
-    const progress = describeAcpProgressEvent(event);
-    if (!progress) return;
-    const now = Date.now();
-    setAgentProgressByTask(current => {
-      const existing = current[taskId] ?? [];
-      const index = existing.findIndex(item => item.id === progress.id);
-      const nextEntry: GeneralAgentProgressEntry = index >= 0
-        ? { ...existing[index], ...progress, updatedAt: now }
-        : { ...progress, createdAt: now, updatedAt: now };
-      const next = index >= 0
-        ? existing.map((item, itemIndex) => itemIndex === index ? nextEntry : item)
-        : [...existing, nextEntry];
-      return { ...current, [taskId]: next.slice(-MAX_AGENT_PROGRESS_ENTRIES) };
-    });
-  }, []);
-  useEffect(() => () => { for (const controller of acpTurns.current.values()) controller.abort(); }, []);
-  const [shellPage, setShellPage] = useState<ShellPage>("workspace");
-  const [plugins, setPlugins] = useState<ModelPlugin[]>(
-    demoMode ? demoPlugins : initialPlugins,
-  );
-  const [pluginsLoaded, setPluginsLoaded] = useState(() => demoMode || !isTauriRuntime());
-  const [runtime, setRuntime] = useState<RuntimeStatus>(fallbackRuntime);
-  const [catalog, setCatalog] = useState<HarnessCatalog | null>(
-    demoMode ? demoCatalog : null,
-  );
+  }, [activePythonAgent, selectedPythonAgent])
+
+  const [plugins, setPlugins] = useState<ModelPlugin[]>(initialPlugins)
+  const [pluginsLoaded, setPluginsLoaded] = useState(() => !isTauriRuntime())
+  const [runtime, setRuntime] = useState<RuntimeStatus>(fallbackRuntime)
+  const [catalog, setCatalog] = useState<HarnessCatalog | null>(null)
   const [apiModelCatalog, setApiModelCatalog] = useState<
     ApiModelCatalogEntry[]
-  >([]);
-  const [runs, setRuns] = useState<HarnessRun[]>([]);
+  >([])
+  const [runs, setRuns] = useState<HarnessRun[]>([])
   // Per-provider chat history for text.generate, so the LLM keeps context
   // across turns instead of treating every message as a fresh conversation.
   const [textHistory, setTextHistory] = useState<
-    Record<string, { role: "user" | "assistant"; content: string }[]>
-  >({});
-
-  useEffect(() => {
-    if (selectedGeneralTask) pendingGeneralTaskRef.current = null;
-  }, [selectedGeneralTask]);
+    Record<string, { role: 'user' | 'assistant'; content: string }[]>
+  >({})
   const [activeRunIds, setActiveRunIds] = useState<Set<string>>(
     () => new Set(),
-  );
-  const [installedCloudModelIds, setInstalledCloudModelIds] = useState<
-    string[]
-  >(getInitialCloudModels);
-  const [installedAppAgentIds, setInstalledAppAgentIds] = useState<string[]>(
-    getInitialInstalledAppAgents,
-  );
+  )
+  const [installedCloudModelIds, setInstalledCloudModelIds] = useState<string[]>(
+    getInitialCloudModels,
+  )
   const [customApiModels, setCustomApiModels] = useState<
     CustomApiModelDefinition[]
-  >(getInitialCustomApiModels);
+  >(getInitialCustomApiModels)
   const [modelBindings, setModelBindings] = useState<ModelDependencyBindings>(
     {},
-  );
-  const [modelBindingsLoaded, setModelBindingsLoaded] =
-    useState(!isTauriRuntime());
-  const [selectedPluginId, setSelectedPluginId] = useState(
-    getInitialSelectedPluginId,
-  );
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [recentTasksExpanded, setRecentTasksExpanded] = useState(true);
-  const sidebarTriggerRef = useRef<HTMLButtonElement>(null);
-  const closeSidebar = useCallback(() => {
-    setSidebarOpen(false);
-    window.requestAnimationFrame(() => sidebarTriggerRef.current?.focus());
-  }, []);
-  const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth);
-  const [editorRatio, setEditorRatio] = useState(getInitialEditorRatio);
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-  const extensionsTriggerRef = useRef<HTMLButtonElement>(null);
-  const extensionsReturnFocusRef = useRef<HTMLElement | null>(null);
-  const settingsTriggerRef = useRef<HTMLButtonElement>(null);
+  )
+  const [modelBindingsLoaded, setModelBindingsLoaded] = useState(
+    !isTauriRuntime(),
+  )
+  const [selectedPluginId, setSelectedPluginId] =
+    useState(getInitialSelectedPluginId)
+  const [workflows, setWorkflows] = useState<SavedWorkflow[]>(
+    listSavedWorkflows,
+  )
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
+    null,
+  )
+  const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(
+    null,
+  )
+  const [workflowSelected, setWorkflowSelected] = useState(false)
+  const [workflowTurns, setWorkflowTurns] = useState<
+    Record<string, WorkflowChatTurn[]>
+  >({})
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [sidebarWidth, setSidebarWidth] = useState(getInitialSidebarWidth)
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
+  const [collapsedSidebarGroups, setCollapsedSidebarGroups] = useState(
+    getInitialCollapsedSidebarGroups,
+  )
+  const [sidebarModelOrder, setSidebarModelOrder] = useState(
+    getInitialSidebarModelOrder,
+  )
+  const [pinnedModelIds, setPinnedModelIds] = useState(
+    getInitialPinnedModels,
+  )
+  const [draggingModelId, setDraggingModelId] = useState<string | null>(null)
+  const [dropTargetModelId, setDropTargetModelId] = useState<string | null>(null)
+  const [pendingSidebarRemovalId, setPendingSidebarRemovalId] = useState<
+    string | null
+  >(null)
+  const extensionsTriggerRef = useRef<HTMLButtonElement>(null)
+  const extensionWorkbenchTriggerRef = useRef<HTMLButtonElement>(null)
+  const extensionsReturnFocusRef = useRef<HTMLElement | null>(null)
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null)
   const [settingsSection, setSettingsSection] =
-    useState<SettingsSection>("appearance");
-  const [settingsProvider, setSettingsProvider] =
-    useState<ProviderSettingsKind>("bailian");
-  const [settingsCustomProviderId, setSettingsCustomProviderId] = useState(
-    "api.openai-compatible",
-  );
-  const [clearingHistory, setClearingHistory] = useState(false);
-  const [appUpdate, setAppUpdate] = useState<AppUpdateState>({
-    status: "idle",
-  });
-  const appUpdateStatusRef = useRef<AppUpdateState["status"]>("idle");
-  const [toast, setToast] = useState<string | null>(null);
-  const repairingDependenciesRef = useRef(new Set<string>());
+    useState<SettingsSection | 'all'>('all')
+  const [clearingHistory, setClearingHistory] = useState(false)
+  const [appUpdate, setAppUpdate] = useState<AppUpdateState>({ status: 'idle' })
+  const appUpdateStatusRef = useRef<AppUpdateState['status']>('idle')
+  const [toast, setToast] = useState<string | null>(null)
+  const repairingDependenciesRef = useRef(new Set<string>())
   const [themePreference, setThemePreference] =
-    useState<ThemePreference>(getInitialTheme);
-  const [accent, setAccent] = useState<AccentColor>(getInitialAccent);
+    useState<ThemePreference>(getInitialTheme)
+  const [accent, setAccent] = useState<AccentColor>(getInitialAccent)
   const [sidebarDensity, setSidebarDensity] = useState<SidebarDensity>(
     getInitialSidebarDensity,
-  );
-  const [installedModelsExpanded, setInstalledModelsExpanded] = useState(true);
-  const [expandedModelCategories, setExpandedModelCategories] = useState<
-    Set<string>
-  >(new Set());
+  )
   const [quitOnClose, setQuitOnClose] = useState<boolean>(
     getInitialCloseBehavior,
-  );
-  const [autoUpdateCheck, setAutoUpdateCheck] =
-    useState<boolean>(getInitialAutoUpdate);
-  const [dataDirectory, setDataDirectory] = useState<string | null>(null);
-  const [cleaningCache, setCleaningCache] = useState(false);
+  )
+  const [autoUpdateCheck, setAutoUpdateCheck] = useState<boolean>(
+    getInitialAutoUpdate,
+  )
+  const [extensionWorkbenchEnabled, setExtensionWorkbenchEnabled] =
+    useState(getInitialExtensionWorkbenchEnabled)
+  const [extensionWorkbenchPage, setExtensionWorkbenchPage] =
+    useState<ExtensionWorkbenchPage>(
+      () =>
+        resolveExtensionWorkbenchPage(
+          getInitialExtensionWorkbenchEnabled(),
+          null,
+        ) ?? 'models',
+    )
+  const workbenchWorkspaceReady = useWorkspaceReady(extensionWorkbenchEnabled)
+  useWorkspaceCloseFlush(extensionWorkbenchEnabled)
+  const [dataDirectory, setDataDirectory] = useState<string | null>(null)
+  const [cleaningCache, setCleaningCache] = useState(false)
   const [systemDark, setSystemDark] = useState(() =>
-    typeof window === "undefined"
+    typeof window === 'undefined'
       ? false
-      : window.matchMedia("(prefers-color-scheme: dark)").matches,
-  );
+      : window.matchMedia('(prefers-color-scheme: dark)').matches,
+  )
   const resolvedTheme =
-    themePreference === "system"
+    themePreference === 'system'
       ? systemDark
-        ? "dark"
-        : "light"
-      : themePreference;
+        ? 'dark'
+        : 'light'
+      : themePreference
   const usesOverlayTitlebar =
-    typeof navigator !== "undefined" &&
-    /Macintosh|Mac OS X/.test(navigator.userAgent);
+    typeof navigator !== 'undefined' &&
+    /Macintosh|Mac OS X/.test(navigator.userAgent)
   const leaveShellPage = useCallback(() => {
-    const leaving = shellPage;
-    setShellPage("workspace");
-    setSidebarOpen(false);
-    const returnTarget = extensionsReturnFocusRef.current;
+    const leaving = shellPage
+    setShellPage('workspace')
+    const returnTarget = extensionsReturnFocusRef.current
     window.requestAnimationFrame(() => {
       const trigger =
-        leaving === "settings"
+        leaving === 'settings'
           ? settingsTriggerRef.current
-          : extensionsTriggerRef.current;
-      const target = window.innerWidth <= 900
-        ? sidebarTriggerRef.current
-        : returnTarget?.isConnected ? returnTarget : trigger;
-      target?.focus();
-    });
-  }, [shellPage]);
+          : leaving === 'extension-workbench'
+            ? extensionWorkbenchTriggerRef.current
+            : extensionsTriggerRef.current
+      const target = returnTarget?.isConnected ? returnTarget : trigger
+      target?.focus()
+    })
+  }, [shellPage])
 
   useEffect(() => {
-    const query = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => setSystemDark(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
+    const query = window.matchMedia('(prefers-color-scheme: dark)')
+    const update = () => setSystemDark(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
 
   useEffect(() => {
-    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
-    window.addEventListener("resize", updateViewportWidth);
-    return () => window.removeEventListener("resize", updateViewportWidth);
-  }, []);
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', updateViewportWidth)
+    return () => window.removeEventListener('resize', updateViewportWidth)
+  }, [])
+
 
   useEffect(() => {
-    if (viewportWidth > 900) setSidebarOpen(false);
-  }, [viewportWidth]);
-
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      closeSidebar();
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [closeSidebar, sidebarOpen]);
-
-  useEffect(() => {
-    if (shellPage === "workspace" || sidebarOpen) return undefined;
+    if (shellPage === 'workspace') return undefined
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented ||
-        (event.target instanceof Element && event.target.closest('[role="dialog"]'))) {
-        return;
+      if (event.key !== 'Escape') {
+        return
       }
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      leaveShellPage();
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [leaveShellPage, shellPage, sidebarOpen]);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = resolvedTheme;
-    document.documentElement.style.colorScheme = resolvedTheme;
-    if (isTauriRuntime()) {
-      void getCurrentWindow().setTheme(resolvedTheme);
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      leaveShellPage()
     }
-  }, [resolvedTheme]);
+    window.addEventListener('keydown', closeOnEscape, true)
+    return () => window.removeEventListener('keydown', closeOnEscape, true)
+  }, [leaveShellPage, shellPage])
 
-  // The overlay titlebar hides the native drag area; make the window's top
-  // strip draggable anywhere except on interactive controls.
   useEffect(() => {
-    if (!usesOverlayTitlebar || !isTauriRuntime()) return undefined;
-    const startDragFromTitlebarStrip = (event: MouseEvent) => {
-      if (event.button !== 0 || event.clientY > NATIVE_TITLEBAR_HEIGHT) return;
-      const target = event.target as HTMLElement | null;
-      if (!target || target.closest(DRAG_REGION_INTERACTIVE_SELECTOR)) return;
-      void getCurrentWindow()
-        .startDragging()
-        .catch(() => undefined);
-    };
-    document.addEventListener("mousedown", startDragFromTitlebarStrip);
-    return () =>
-      document.removeEventListener("mousedown", startDragFromTitlebarStrip);
-  }, [usesOverlayTitlebar]);
+    document.documentElement.dataset.theme = resolvedTheme
+    document.documentElement.style.colorScheme = resolvedTheme
+    if (isTauriRuntime()) {
+      void getCurrentWindow().setTheme(resolvedTheme)
+    }
+  }, [resolvedTheme])
 
   const selectTheme = (theme: ThemePreference) => {
-    setThemePreference(theme);
+    setThemePreference(theme)
     try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
     } catch {
       // Keep the theme for the current session when storage is unavailable.
     }
-  };
+  }
 
   useEffect(() => {
-    document.documentElement.dataset.accent = accent;
-    document.documentElement.dataset.density = sidebarDensity;
-  }, [accent, sidebarDensity]);
+    document.documentElement.dataset.accent = accent
+    document.documentElement.dataset.density = sidebarDensity
+  }, [accent, sidebarDensity])
 
   const selectAccent = (value: AccentColor) => {
-    setAccent(value);
+    setAccent(value)
     try {
-      window.localStorage.setItem(ACCENT_STORAGE_KEY, value);
+      window.localStorage.setItem(ACCENT_STORAGE_KEY, value)
     } catch {
       // Keep the accent for the current session when storage is unavailable.
     }
-  };
+  }
 
   const selectSidebarDensity = (value: SidebarDensity) => {
-    setSidebarDensity(value);
+    setSidebarDensity(value)
     try {
-      window.localStorage.setItem(SIDEBAR_DENSITY_STORAGE_KEY, value);
+      window.localStorage.setItem(SIDEBAR_DENSITY_STORAGE_KEY, value)
     } catch {
       // Keep the density for the current session when storage is unavailable.
     }
-  };
+  }
 
   const selectCloseBehavior = (quit: boolean) => {
-    setQuitOnClose(quit);
+    setQuitOnClose(quit)
     try {
-      window.localStorage.setItem(
-        CLOSE_BEHAVIOR_STORAGE_KEY,
-        quit ? "quit" : "dock",
-      );
+      window.localStorage.setItem(CLOSE_BEHAVIOR_STORAGE_KEY, quit ? 'quit' : 'dock')
     } catch {
       // Keep the preference for the current session when storage is unavailable.
     }
     if (isTauriRuntime()) {
-      void setCloseBehavior(quit);
+      void setCloseBehavior(quit)
     }
-  };
+  }
 
   const selectAutoUpdateCheck = (enabled: boolean) => {
-    setAutoUpdateCheck(enabled);
+    setAutoUpdateCheck(enabled)
     try {
-      window.localStorage.setItem(
-        AUTO_UPDATE_STORAGE_KEY,
-        enabled ? "on" : "off",
-      );
+      window.localStorage.setItem(AUTO_UPDATE_STORAGE_KEY, enabled ? 'on' : 'off')
     } catch {
       // Keep the preference for the current session when storage is unavailable.
     }
-  };
+  }
+
+  const selectExtensionWorkbenchEnabled = (enabled: boolean) => {
+    setExtensionWorkbenchEnabled(enabled)
+    const resolvedPage = resolveExtensionWorkbenchPage(
+      enabled,
+      extensionWorkbenchPage,
+    )
+    if (resolvedPage) setExtensionWorkbenchPage(resolvedPage)
+    try {
+      writeExtensionWorkbenchEnabled(window.localStorage, enabled)
+    } catch {
+      // Keep the preference for the current session when storage is unavailable.
+    }
+    if (!enabled && shellPage === 'extension-workbench') {
+      setShellPage('workspace')
+      setView('workspace')
+    }
+  }
+
+  const changeExtensionWorkbenchPage = (page: ExtensionWorkbenchPage) => {
+    const resolvedPage = resolveExtensionWorkbenchPage(
+      extensionWorkbenchEnabled,
+      page,
+    )
+    if (resolvedPage) setExtensionWorkbenchPage(resolvedPage)
+  }
 
   const revealDataDirectory = async () => {
-    if (!dataDirectory) return;
+    if (!dataDirectory) return
     try {
-      await revealInFileManager(dataDirectory);
+      await revealInFileManager(dataDirectory)
     } catch (error) {
       notify(
-        t("无法打开数据目录：{0}", [
-          error instanceof Error ? error.message : String(error),
-        ]),
-      );
+        `无法打开数据目录：${error instanceof Error ? error.message : String(error)}`,
+      )
     }
-  };
+  }
 
   const cleanDownloadCache = async () => {
-    setCleaningCache(true);
+    setCleaningCache(true)
     try {
-      const removed = await cleanupDownloadCache();
-      notify(
-        removed > 0
-          ? t("已清理 {0} 个下载缓存文件", [removed])
-          : t("没有可清理的下载缓存"),
-      );
+      const removed = await cleanupDownloadCache()
+      notify(removed > 0 ? `已清理 ${removed} 个下载缓存文件` : '没有可清理的下载缓存')
     } catch (error) {
       notify(
-        t("清理下载缓存失败：{0}", [
-          error instanceof Error ? error.message : String(error),
-        ]),
-      );
+        `清理下载缓存失败：${error instanceof Error ? error.message : String(error)}`,
+      )
     } finally {
-      setCleaningCache(false);
+      setCleaningCache(false)
     }
-  };
+  }
 
   const cloudModelPlugins = useMemo<ModelPlugin[]>(() => {
     return cloudModelsFromCatalog(
@@ -1074,486 +856,389 @@ function App() {
       installedCloudModelIds,
       apiModelCatalog,
       customApiModels,
-    ).filter((plugin) => plugin.installed);
-  }, [apiModelCatalog, catalog, customApiModels, installedCloudModelIds]);
-  const appAgents = useMemo(
-    () => appAgentsWithInstallState(installedAppAgentIds),
-    [installedAppAgentIds],
-  );
-  const setAppAgentInstalled = (agentId: string, installed: boolean) => {
-    setInstalledAppAgentIds((current) => {
-      const next = sanitizeInstalledAppAgentIds(
-        installed
-          ? [...current, agentId]
-          : current.filter((id) => id !== agentId),
-      );
-      try {
-        window.localStorage.setItem(
-          INSTALLED_APP_AGENTS_STORAGE_KEY,
-          JSON.stringify(next),
-        );
-      } catch {
-        // Keep the current session state when storage is unavailable.
-      }
-      return next;
-    });
-    const agent = appAgents.find((candidate) => candidate.id === agentId);
-    if (!installed && agent?.workspaceEntry === view) changeView("agents");
-  };
+    ).filter((plugin) => plugin.installed)
+  }, [apiModelCatalog, catalog, customApiModels, installedCloudModelIds])
 
   useEffect(() => {
-    if (!modelBindingsLoaded) return;
-    const next: ModelDependencyBindings = {};
+    if (!modelBindingsLoaded) return
+    const next: ModelDependencyBindings = {}
     for (const model of [...plugins, ...cloudModelPlugins]) {
-      if (!model.installed) continue;
-      const dependencies = recommendedDependencies(model);
-      if (!dependencies.length) continue;
-      next[model.id] = {};
+      if (!model.installed) continue
+      const dependencies = recommendedDependencies(model)
+      if (!dependencies.length) continue
+      next[model.id] = {}
       for (const dependency of dependencies) {
         const selected = getModelBinding(
           modelBindings,
           model.id,
           dependency.role,
-          dependency.default ? dependency.pluginId : "",
+          dependency.default ? dependency.pluginId : '',
           plugins,
-        );
+        )
         next[model.id][dependency.role] =
-          dependency.role === "speech-segmentation" && selected === "silero-vad"
+          dependency.role === 'speech-segmentation' &&
+          selected === 'silero-vad'
             ? dependency.pluginId
-            : selected;
+            : selected
       }
     }
-    if (JSON.stringify(next) === JSON.stringify(modelBindings)) return;
-    setModelBindings(next);
+    if (JSON.stringify(next) === JSON.stringify(modelBindings)) return
+    setModelBindings(next)
     if (isTauriRuntime()) {
       void replaceModelDependencyBindings(next).catch((error) =>
         setToast(
-          t("无法保存模型依赖：{0}", [
-            error instanceof Error ? error.message : String(error),
-          ]),
+          `无法保存模型依赖：${error instanceof Error ? error.message : String(error)}`,
         ),
-      );
+      )
     }
-  }, [cloudModelPlugins, modelBindings, modelBindingsLoaded, plugins]);
+  }, [cloudModelPlugins, modelBindings, modelBindingsLoaded, plugins])
 
   const removeModelBindings = (pluginId: string) => {
     setModelBindings((current) => {
-      if (!(pluginId in current)) return current;
-      const next = { ...current };
-      delete next[pluginId];
+      if (!(pluginId in current)) return current
+      const next = { ...current }
+      delete next[pluginId]
       if (isTauriRuntime()) {
         void replaceModelDependencyBindings(next).catch((error) =>
           setToast(
-            t("无法清理模型依赖：{0}", [
-              error instanceof Error ? error.message : String(error),
-            ]),
+            `无法清理模型依赖：${error instanceof Error ? error.message : String(error)}`,
           ),
-        );
+        )
       }
-      return next;
-    });
-  };
+      return next
+    })
+  }
 
-  const saveModelBinding = (
+  const saveModelDependencyBinding = async (
     pluginId: string,
     role: string,
     dependencyId: string,
+  ) => {
+    const next = await setModelDependencyBinding(pluginId, role, dependencyId)
+    setModelBindings(next)
+  }
+
+  const refreshModelStore = async (): Promise<void> => {
+    const [nextPlugins, nextCatalog] = await Promise.all([
+      listModelPlugins(),
+      getHarnessCatalog(),
+    ])
+    setPlugins(nextPlugins)
+    setCatalog(nextCatalog)
+  }
+  const installModelStoreModel = (
+    pluginId: string,
+    variantId?: string,
+  ) => installCatalogModel(pluginId, variantId)
+  const installModelStoreDependency = async (
+    dependencyId: string,
   ): Promise<void> => {
-    if (!isTauriRuntime()) {
-      setModelBindings((current) => ({
-        ...current,
-        [pluginId]: { ...current[pluginId], [role]: dependencyId },
-      }));
-      return Promise.resolve();
-    }
-    return setModelDependencyBinding(pluginId, role, dependencyId).then(
-      setModelBindings,
-    );
-  };
+    await installRecommendedModelDependency(dependencyId)
+  }
+  const restoreModelStoreModel = async (pluginId: string): Promise<void> => {
+    await setModelPluginSidebarVisible(pluginId, true)
+  }
+  const uninstallModelStoreModel = async (pluginId: string) => {
+    const { plugins: nextPlugins, removal } = await uninstallModelPlugin(pluginId)
+    setPlugins(nextPlugins)
+    if (removal.deleted) removeModelBindings(pluginId)
+    setCatalog(await getHarnessCatalog())
+    return removal
+  }
 
   const setCloudModelInstalled = (modelId: string, installed: boolean) => {
-    if (!installed) removeModelBindings(modelId);
+    if (!installed) removeModelBindings(modelId)
     setInstalledCloudModelIds((current) => {
       const next = installed
         ? Array.from(new Set([...current, modelId]))
-        : current.filter((id) => id !== modelId);
+        : current.filter((id) => id !== modelId)
       try {
         window.localStorage.setItem(
           CLOUD_MODELS_STORAGE_KEY,
           JSON.stringify(next),
-        );
+        )
       } catch {
         // Keep the current session state when storage is unavailable.
       }
-      return next;
-    });
-  };
+      return next
+    })
+  }
 
   const runnablePlugins = useMemo(() => {
-    const visible = new Map<string, ModelPlugin>();
+    const visible = new Map<string, ModelPlugin>()
     for (const plugin of plugins) {
       if (
         plugin.installed &&
         plugin.sidebarVisible !== false &&
         plugin.providerId
       ) {
-        visible.set(plugin.id, plugin);
+        visible.set(plugin.id, plugin)
       }
     }
-    for (const plugin of cloudModelPlugins) visible.set(plugin.id, plugin);
-    return [...visible.values()];
-  }, [cloudModelPlugins, plugins]);
+    for (const plugin of cloudModelPlugins) visible.set(plugin.id, plugin)
+    return [...visible.values()]
+  }, [cloudModelPlugins, plugins])
   const orderedRunnablePlugins = useMemo(() => {
-    return runnablePlugins;
-  }, [runnablePlugins]);
-  const selectedChatModel = getAgentSelection(selectedGeneralTask?.chatModel ?? preferredAgentModel);
-  const chosenAcpProvider = selectedChatModel.providerId;
-  const selectedAcpProvider = acpProviders.find(provider => provider.id === chosenAcpProvider);
-  const selectedAcpRequiresApiProvider = Boolean(selectedAcpProvider?.requiresApiProvider);
-  const savedAcpApiProviderId = acpApiProviderId(selectedChatModel, selectedAcpProvider);
-  const openCodeApiBinding = resolveOpenCodeApiBinding(savedAcpApiProviderId, openCodeConnections.connections);
-  const chosenAcpApiProviderId = selectedAcpRequiresApiProvider && openCodeApiBinding.isEligible
-    ? savedAcpApiProviderId
-    : undefined;
-  const chosenAcpModelCacheKey = acpModelCacheKey(chosenAcpProvider, chosenAcpApiProviderId);
-  const chosenAcpModelCatalog = acpModels[chosenAcpModelCacheKey];
-  const chosenAcpProviderModels = chosenAcpModelCatalog?.options ?? [];
-  const chosenAcpDefaultModelId = chosenAcpModelCatalog?.currentModelId;
-  const chosenAcpDefaultModelName =
-    chosenAcpProviderModels.find(model => model.id === chosenAcpDefaultModelId)?.name ??
-    chosenAcpDefaultModelId ??
-    undefined;
-  const chosenAcpSelectedModel = chosenAcpProviderModels.find(model => model.id === selectedChatModel.modelId);
-  const chosenAcpProviderAvailable = Boolean(selectedAcpProvider?.available);
-  const agentSelectionLocked = Boolean(selectedGeneralTask?.submitting);
-  const apiBindingUnavailable = selectedAcpRequiresApiProvider && !openCodeApiBinding.isEligible;
-  const chatModelLoading = Boolean(chosenAcpProvider && chosenAcpModelCatalog?.loading);
-  const chatModelError = selectedAcpRequiresApiProvider
-    ? openCodeConnections.error ?? chosenAcpModelCatalog?.error
-    : chosenAcpModelCatalog?.error;
-  const chatModelUnavailable = Boolean(
-    selectedChatModel &&
-    (!chosenAcpProviderAvailable ||
-      apiBindingUnavailable ||
-      (!chatModelLoading &&
-        (selectedAcpRequiresApiProvider
-          ? !chosenAcpSelectedModel?.available
-          : Boolean(selectedChatModel.modelId && !chosenAcpSelectedModel?.available)))),
-  );
-  const invalidateAcpModels = useCallback(() => {
-    acpModelGeneration.current += 1;
-    acpModelLoads.current.clear();
-    setAcpModels({});
-  }, []);
-  const refreshOpenCodeConnections = useCallback(async () => {
-    setOpenCodeConnections(current => ({ ...current, loading: true, error: undefined }));
-    try {
-      const connections = await listOpenCodeConnections();
-      setOpenCodeConnections({ loading: false, connections });
-    } catch (error) {
-      setOpenCodeConnections(current => ({
-        ...current,
-        loading: false,
-        error: String(error),
-      }));
+    const order = new Map(
+      sidebarModelOrder.map((pluginId, index) => [pluginId, index]),
+    )
+    const pinned = new Set(pinnedModelIds)
+    return [...runnablePlugins].sort(
+      (left, right) =>
+        Number(pinned.has(right.id)) - Number(pinned.has(left.id)) ||
+        (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+          (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+    )
+  }, [pinnedModelIds, runnablePlugins, sidebarModelOrder])
+  const sidebarModelGroups = useMemo<SidebarModelGroup[]>(() => {
+    const taxonomyGroups = new Map<string, ModelPlugin[]>()
+    for (const plugin of orderedRunnablePlugins) {
+      if (pinnedModelIds.includes(plugin.id)) continue
+      const label = modelTaxonomy(plugin).secondaryCategory
+      const models = taxonomyGroups.get(label) ?? []
+      models.push(plugin)
+      taxonomyGroups.set(label, models)
     }
-  }, []);
-  const loadAcpModels = useCallback(async (
-    provider: AcpProviderInfo,
-    apiProviderId?: string,
-    force = false,
-  ) => {
-    const cacheKey = acpModelCacheKey(provider.id, apiProviderId);
-    const generation = acpModelGeneration.current;
-    if (!force && acpModelLoads.current.get(cacheKey) === generation) return;
-    if (provider.requiresApiProvider && !apiProviderId?.trim()) {
-      setAcpModels(current => ({ ...current, [cacheKey]: { loading: false, options: [] } }));
-      return;
+    const rank = (label: string) => {
+      const index = SIDEBAR_TAXONOMY_GROUP_ORDER.indexOf(label)
+      return index === -1 ? SIDEBAR_TAXONOMY_GROUP_ORDER.length : index
     }
-    acpModelLoads.current.set(cacheKey, generation);
-    setAcpModels(current => ({ ...current, [cacheKey]: { loading: true, options: [] } }));
-    try {
-      const catalog = provider.requiresApiProvider
-        ? {
-            models: (await listOpenCodeModels(apiProviderId!)).map(id => ({ id, name: id })),
-            currentModelId: null,
-          }
-        : await inspectAcpModels(provider);
-      if (generation !== acpModelGeneration.current) return;
-      setAcpModels(current => ({ ...current, [cacheKey]: {
-        loading: false,
-        currentModelId: catalog.currentModelId,
-        options: catalog.models.map(model => ({ ...model, providerId: provider.id, available: true })),
-      } }));
-    } catch (error) {
-      if (generation !== acpModelGeneration.current) return;
-      setAcpModels(current => ({ ...current, [cacheKey]: { loading: false, options: [], error: String(error) } }));
-    } finally {
-      if (acpModelLoads.current.get(cacheKey) === generation) {
-        acpModelLoads.current.delete(cacheKey);
-      }
-    }
-  }, []);
-  useEffect(() => {
-    if (!selectedAcpRequiresApiProvider) return;
-    void refreshOpenCodeConnections();
-  }, [selectedAcpRequiresApiProvider, refreshOpenCodeConnections]);
-  useEffect(() => {
-    if (selectedAcpProvider?.available && !acpModels[chosenAcpModelCacheKey]) {
-      void loadAcpModels(selectedAcpProvider, chosenAcpApiProviderId);
-    }
-  }, [selectedAcpProvider, chosenAcpApiProviderId, chosenAcpModelCacheKey, acpModels, loadAcpModels]);
-  const requestTaskAgentReply = async (task: GeneralAgentTask, messages: GeneralAgentMessage[], workspacePlanning = false) => {
-    if (!isTauriRuntime()) throw new Error(t('ACP Agent 对话需要在桌面端运行。'));
-    if (acpTurns.current.has(task.id)) throw new Error(t('当前任务的 Agent 正在处理，请稍后重试。'));
-    const selection = resolveAcpSelection(task.chatModel, acpProviders);
-    const provider = acpProviders.find(candidate => candidate.id === selection.providerId);
-    if (!provider) throw new Error(t('未找到可用的 ACP Agent，请先安装并登录所选 Agent。'));
-    if (provider.requiresApiProvider && !resolveOpenCodeApiBinding(
-      acpApiProviderId(selection, provider),
-      openCodeConnections.connections,
-    ).isEligible) {
-      throw new Error(t('所选 Agent 需要一个可用的 API 配置。'));
-    }
-    const controller = new AbortController();
-    acpTurns.current.set(task.id, controller);
-    const startedAt = Date.now();
-    setAgentProgressByTask(current => ({
-      ...current,
-      [task.id]: [{
-        id: "agent-starting",
-        label: t("正在连接 Agent"),
-        status: "running",
-        createdAt: startedAt,
-        updatedAt: startedAt,
-      }],
-    }));
-    setActiveAcpTasks(current => [...current.filter(id => id !== task.id), task.id]);
-    try {
-      return await requestAcpConversation({ selection, provider, messages, signal: controller.signal, enableTools: !workspacePlanning,
-        onPermission: event => setAcpPermissions(current => [...current.filter(item => item.event.requestId !== event.requestId || item.event.sessionId !== event.sessionId), { taskId: task.id, event }]),
-        onQuestion: event => setAcpQuestions(current => [...current.filter(item => item.event.requestId !== event.requestId || item.event.sessionId !== event.sessionId), { taskId: task.id, event }]),
-        onPlanApproval: event => setAcpPlanApprovals(current => [...current.filter(item => item.event.requestId !== event.requestId || item.event.sessionId !== event.sessionId), { taskId: task.id, event }]),
-        onProgress: event => recordAgentProgress(task.id, event),
-      });
-    } finally {
-      acpTurns.current.delete(task.id);
-      setActiveAcpTasks(current => current.filter(id => id !== task.id));
-      setAcpPermissions(current => current.filter(item => item.taskId !== task.id));
-      setAcpQuestions(current => current.filter(item => item.taskId !== task.id));
-      setAcpPlanApprovals(current => current.filter(item => item.taskId !== task.id));
-    }
-  };
-  const reportEditorMessage = (projectId: string, message: string) => {
-    const conversation = agentConversations.find(item => item.id === projectId);
-    const task = generalTasks.find(item => item.id === conversation?.sourceTaskId);
-    if (task) reportTaskProgress(task.id, message);
-    else if (selectedAgentConversationId === projectId && selectedGeneralTask) reportTaskProgress(selectedGeneralTask.id, message);
-  };
-  const generateEditorText = async (projectId: string, prompt: string, systemPrompt: string) => {
-    const conversation = agentConversations.find(item => item.id === projectId);
-    const task = generalTasks.find(item => item.id === conversation?.sourceTaskId)
-      ?? (selectedAgentConversationId === projectId ? selectedGeneralTask : null);
-    if (!task) throw new Error(t('请先打开对应任务会话'));
-    return requestTaskAgentReply(task, [...task.messages, {
-      id: crypto.randomUUID(), role: 'user', createdAt: Date.now(),
-      content: systemPrompt + '\n\n' + prompt,
-    }], true);
-  };
-  const submitGeneralPrompt = (request: Parameters<typeof submitGeneralPromptToTask>[0]) => submitGeneralPromptToTask({
-    ...request, agentResponse: request.agentResponse ?? (messages => requestTaskAgentReply(request.task, messages)),
-  });
+    const orderedLabels = [...taxonomyGroups.keys()].sort(
+      (left, right) => rank(left) - rank(right) || left.localeCompare(right),
+    )
+    return [
+      {
+        id: 'pinned',
+        label: '已置顶',
+        models: orderedRunnablePlugins.filter((plugin) =>
+          pinnedModelIds.includes(plugin.id),
+        ),
+      },
+      ...orderedLabels.map((label) => ({
+        id: label,
+        label,
+        models: taxonomyGroups.get(label) ?? [],
+      })),
+    ]
+  }, [pinnedModelIds, orderedRunnablePlugins])
+  const sidebarAgentGroups = useMemo(() => {
+    const definitions = [
+      ...plugins,
+      ...cloudModelsFromCatalog(
+        catalog,
+        installedCloudModelIds,
+        apiModelCatalog,
+        customApiModels,
+      ),
+    ]
+    return buildPythonAgentSidebarGroups({
+      modelGroups: sidebarModelGroups,
+      agents: visiblePythonAgents,
+      definitions,
+      groupOrder: SIDEBAR_TAXONOMY_GROUP_ORDER,
+      categoryForModel: (model) => modelTaxonomy(model).secondaryCategory,
+    })
+  }, [sidebarModelGroups, visiblePythonAgents, plugins, catalog, installedCloudModelIds, apiModelCatalog, customApiModels])
   const responsiveSidebarMaxWidth = Math.max(
     MIN_SIDEBAR_WIDTH,
     Math.min(
       MAX_SIDEBAR_WIDTH,
       Math.floor(viewportWidth - MIN_WORKSPACE_WIDTH),
     ),
-  );
-  const visibleSidebarWidth = Math.min(sidebarWidth, responsiveSidebarMaxWidth);
-  const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth;
-  const compactWorkspace = viewportWidth - visibleContentOffset < 760;
-  const editorVisible = isWorkspaceTaskView && workspacePanelOpen;
-  const directWorkflow = selectedAgentConversation?.launchSource === 'workshop';
-  const editorFillsWorkspace = editorVisible && (compactWorkspace || workspacePanelFocused || directWorkflow);
+  )
+  const visibleSidebarWidth = Math.min(sidebarWidth, responsiveSidebarMaxWidth)
+  const visibleContentOffset = viewportWidth <= 900 ? 0 : visibleSidebarWidth
 
+  const toggleSidebarGroup = (groupId: string) => {
+    setCollapsedSidebarGroups((current) => {
+      const next = new Set(current)
+      if (next.has(groupId)) next.delete(groupId)
+      else next.add(groupId)
+      try {
+        window.localStorage.setItem(
+          SIDEBAR_COLLAPSED_GROUPS_KEY,
+          JSON.stringify([...next]),
+        )
+      } catch {
+        // Keep the collapsed state for the current session.
+      }
+      return next
+    })
+  }
   const selectedPlugin =
     orderedRunnablePlugins.find((plugin) => plugin.id === selectedPluginId) ??
     orderedRunnablePlugins[0] ??
-    initialPlugins[0];
+    initialPlugins[0]
 
   useEffect(() => {
     if (
-      view !== "workspace" ||
+      view !== 'workspace' ||
       !isTauriRuntime() ||
       !selectedPlugin.installed
     ) {
-      return;
+      return
     }
     const missing = recommendedDependencies(selectedPlugin).filter(
       (dependency) => {
-        if (dependency.optional) return false;
+        if (dependency.optional) return false
         const dependencyId = getModelBinding(
           modelBindings,
           selectedPlugin.id,
           dependency.role,
-          dependency.default ? dependency.pluginId : "",
+          dependency.default ? dependency.pluginId : '',
           plugins,
-        );
+        )
         return (
           dependencyId &&
           !plugins.some(
-            (candidate) => candidate.id === dependencyId && candidate.installed,
+            (candidate) =>
+              candidate.id === dependencyId &&
+              candidate.installed,
           )
-        );
+        )
       },
-    );
-    if (
-      !missing.length ||
-      repairingDependenciesRef.current.has(selectedPlugin.id)
-    ) {
-      return;
+    )
+    if (!missing.length || repairingDependenciesRef.current.has(selectedPlugin.id)) {
+      return
     }
-    repairingDependenciesRef.current.add(selectedPlugin.id);
+    repairingDependenciesRef.current.add(selectedPlugin.id)
     void (async () => {
       try {
-        notify(t("正在补齐 {0} 的配套组件", [selectedPlugin.name]));
+        notify(`正在补齐 ${selectedPlugin.name} 的配套组件`)
         for (const dependency of missing) {
           const dependencyId = getModelBinding(
             modelBindings,
             selectedPlugin.id,
             dependency.role,
-            dependency.default ? dependency.pluginId : "",
+            dependency.default ? dependency.pluginId : '',
             plugins,
-          );
-          if (dependencyId)
-            await installRecommendedModelDependency(dependencyId);
+          )
+          if (dependencyId) await installRecommendedModelDependency(dependencyId)
         }
         const [nextPlugins, nextCatalog] = await Promise.all([
           listModelPlugins(),
           getHarnessCatalog(),
-        ]);
-        setPlugins(nextPlugins);
-        setCatalog(nextCatalog);
-        notify(t("{0} 的配套组件已就绪", [selectedPlugin.name]));
+        ])
+        setPlugins(nextPlugins)
+        setCatalog(nextCatalog)
+        notify(`${selectedPlugin.name} 的配套组件已就绪`)
       } catch (error) {
-        repairingDependenciesRef.current.delete(selectedPlugin.id);
+        repairingDependenciesRef.current.delete(selectedPlugin.id)
         notify(
-          t("配套组件安装失败：{0}", [
-            error instanceof Error ? error.message : String(error),
-          ]),
-        );
+          `配套组件安装失败：${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
       }
-    })();
-  }, [modelBindings, plugins, selectedPlugin, view]);
+    })()
+  }, [modelBindings, plugins, selectedPlugin, view])
 
   const recordRun = (run: HarnessRun) => {
-    const summary = summarizeRun(run);
-    setRuns((current) => upsertRun(current, summary));
+    const summary = summarizeRun(run)
+    setRuns((current) => upsertRun(current, summary))
     setActiveRunIds((current) => {
-      const next = new Set(current);
-      if (summary.status === "running") next.add(summary.id);
-      else next.delete(summary.id);
-      return next;
-    });
-  };
+      const next = new Set(current)
+      if (summary.status === 'running') next.add(summary.id)
+      else next.delete(summary.id)
+      return next
+    })
+  }
 
   useEffect(() => {
-    if (!isTauriRuntime()) return;
+    if (!isTauriRuntime()) return
 
-    let disposed = false;
+    let disposed = false
     const refreshCatalog = () => {
       void refreshModelPlugins()
         .then((nextPlugins) => {
-          if (!disposed) setPlugins(nextPlugins);
-          return listApiModelCatalog();
+          if (!disposed) setPlugins(nextPlugins)
+          return listApiModelCatalog()
         })
         .then((nextApiModels) => {
-          if (!disposed) setApiModelCatalog(nextApiModels);
+          if (!disposed) setApiModelCatalog(nextApiModels)
         })
         .catch(() => {
           // Cached or built-in catalog remains available when the remote source is offline.
-        });
-    };
+        })
+    }
 
-    invoke<RuntimeStatus>("runtime_status")
+    invoke<RuntimeStatus>('runtime_status')
       .then(setRuntime)
-      .catch(() => setRuntime(fallbackRuntime));
-    void getHarnessCatalog()
-      .then(setCatalog)
-      .catch(() => setCatalog(null));
+      .catch(() => setRuntime(fallbackRuntime))
+    void getHarnessCatalog().then(setCatalog).catch(() => setCatalog(null))
     void listHarnessRuns()
       .then((nextRuns) => setRuns(nextRuns.map(summarizeRun)))
-      .catch(() => setRuns([]));
+      .catch(() => setRuns([]))
     void listModelPlugins()
       .then(setPlugins)
       .catch(() => setPlugins(initialPlugins))
-      .finally(() => setPluginsLoaded(true));
-    void listApiModelCatalog()
-      .then(setApiModelCatalog)
-      .catch(() => undefined);
+      .finally(() => setPluginsLoaded(true))
+    void listApiModelCatalog().then(setApiModelCatalog).catch(() => undefined)
     void getModelDependencyBindings()
       .then(setModelBindings)
       .catch(() => setModelBindings({}))
-      .finally(() => setModelBindingsLoaded(true));
-    refreshCatalog();
+      .finally(() => setModelBindingsLoaded(true))
+    refreshCatalog()
     const catalogRefreshTimer = window.setInterval(
       refreshCatalog,
       MODEL_CATALOG_REFRESH_INTERVAL_MS,
-    );
+    )
 
-    let unlisten: (() => void) | undefined;
+    let unlisten: (() => void) | undefined
     void subscribeHarnessRuns((run) => {
-      if (disposed) return;
-      recordRun(run);
+      if (disposed) return
+      recordRun(run)
     }).then((remove) => {
-      if (disposed) remove();
-      else unlisten = remove;
-    });
+      if (disposed) remove()
+      else unlisten = remove
+    })
 
-    let unlistenRemoved: (() => void) | undefined;
+    let unlistenRemoved: (() => void) | undefined
     void listen<string[]>(RUNS_REMOVED_EVENT, (event) => {
-      if (disposed) return;
-      const removed = new Set(event.payload);
+      if (disposed) return
+      const removed = new Set(event.payload)
       setRuns((current) => {
-        const next = current.filter((run) => !removed.has(run.id));
-        return next.length === current.length ? current : next;
-      });
+        const next = current.filter((run) => !removed.has(run.id))
+        return next.length === current.length ? current : next
+      })
     }).then((remove) => {
-      if (disposed) remove();
-      else unlistenRemoved = remove;
-    });
+      if (disposed) remove()
+      else unlistenRemoved = remove
+    })
 
-    let unlistenHistoryCleared: (() => void) | undefined;
+    let unlistenHistoryCleared: (() => void) | undefined
     void listen(HISTORY_CLEARED_EVENT, () => {
-      if (disposed) return;
-      setRuns((current) => (current.length ? [] : current));
+      if (disposed) return
+      setRuns((current) => (current.length ? [] : current))
+      setWorkflowTurns((current) =>
+        Object.keys(current).length ? {} : current,
+      )
     }).then((remove) => {
-      if (disposed) remove();
-      else unlistenHistoryCleared = remove;
-    });
+      if (disposed) remove()
+      else unlistenHistoryCleared = remove
+    })
 
     // Fallback: whenever this window regains focus, re-sync history from the backend so
     // clears performed in another window are reflected even if an event was missed.
     const refetchRunsOnFocus = () => {
-      if (disposed || !isTauriRuntime()) return;
+      if (disposed || !isTauriRuntime()) return
       void listHarnessRuns()
         .then((nextRuns) => {
-          if (!disposed) setRuns(nextRuns.map(summarizeRun));
+          if (!disposed) setRuns(nextRuns.map(summarizeRun))
         })
-        .catch(() => undefined);
-    };
-    window.addEventListener("focus", refetchRunsOnFocus);
+        .catch(() => undefined)
+    }
+    window.addEventListener('focus', refetchRunsOnFocus)
 
     return () => {
-      disposed = true;
-      window.clearInterval(catalogRefreshTimer);
-      window.removeEventListener("focus", refetchRunsOnFocus);
-      unlisten?.();
-      unlistenRemoved?.();
-      unlistenHistoryCleared?.();
-    };
-  }, []);
+      disposed = true
+      window.clearInterval(catalogRefreshTimer)
+      window.removeEventListener('focus', refetchRunsOnFocus)
+      unlisten?.()
+      unlistenRemoved?.()
+      unlistenHistoryCleared?.()
+    }
+  }, [])
 
   useEffect(() => {
     if (
@@ -1561,1482 +1246,283 @@ function App() {
       orderedRunnablePlugins.length &&
       !orderedRunnablePlugins.some((plugin) => plugin.id === selectedPluginId)
     ) {
-      setSelectedPluginId(orderedRunnablePlugins[0].id);
+      setSelectedPluginId(orderedRunnablePlugins[0].id)
     }
-  }, [orderedRunnablePlugins, pluginsLoaded, selectedPluginId]);
+  }, [orderedRunnablePlugins, pluginsLoaded, selectedPluginId])
 
   useEffect(() => {
     if (
       !pluginsLoaded ||
       !orderedRunnablePlugins.some((plugin) => plugin.id === selectedPluginId)
     ) {
-      return;
+      return
     }
     try {
-      window.localStorage.setItem(LAST_MODEL_STORAGE_KEY, selectedPluginId);
+      window.localStorage.setItem(LAST_MODEL_STORAGE_KEY, selectedPluginId)
     } catch {
       // Keep the current session selection when storage is unavailable.
     }
-  }, [orderedRunnablePlugins, pluginsLoaded, selectedPluginId]);
+  }, [orderedRunnablePlugins, pluginsLoaded, selectedPluginId])
 
   useEffect(() => {
-    if (!pluginsLoaded || expandedModelCategories.size > 0) return;
-    const categories = new Set<string>();
-    for (const plugin of runnablePlugins) {
-      const capability = plugin.harnessCapabilities[0];
-      if (!capability) continue;
-      categories.add(capabilityDefinition(capability).category);
-    }
-    setExpandedModelCategories(categories);
-  }, [runnablePlugins, pluginsLoaded, expandedModelCategories]);
+    setSidebarModelOrder((current) => {
+      const availableIds = new Set(runnablePlugins.map((plugin) => plugin.id))
+      const next = [
+        ...current.filter((pluginId) => availableIds.has(pluginId)),
+        ...runnablePlugins
+          .map((plugin) => plugin.id)
+          .filter((pluginId) => !current.includes(pluginId)),
+      ]
+      if (
+        next.length === current.length &&
+        next.every((pluginId, index) => pluginId === current[index])
+      ) {
+        return current
+      }
+      try {
+        window.localStorage.setItem(
+          SIDEBAR_MODEL_ORDER_KEY,
+          JSON.stringify(next),
+        )
+      } catch {
+        // Keep the current session order when storage is unavailable.
+      }
+      return next
+    })
+  }, [runnablePlugins])
 
   useEffect(() => {
-    if (!toast) return undefined;
-    const timer = window.setTimeout(() => setToast(null), 2800);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
+    if (!toast) return undefined
+    const timer = window.setTimeout(() => setToast(null), 2800)
+    return () => window.clearTimeout(timer)
+  }, [toast])
 
-  const notify = (message: string) => setToast(message);
+  useEffect(() => {
+    if (!pendingSidebarRemovalId) return undefined
+    const timer = window.setTimeout(
+      () => setPendingSidebarRemovalId(null),
+      3200,
+    )
+    return () => window.clearTimeout(timer)
+  }, [pendingSidebarRemovalId])
+
+  const notify = (message: string) => setToast(message)
 
   const downloadApplicationUpdate = async (silent = false) => {
     if (
-      appUpdateStatusRef.current === "downloading" ||
-      appUpdateStatusRef.current === "downloaded" ||
-      appUpdateStatusRef.current === "installing"
+      appUpdateStatusRef.current === 'downloading' ||
+      appUpdateStatusRef.current === 'downloaded' ||
+      appUpdateStatusRef.current === 'installing'
     ) {
-      return;
+      return
     }
-    appUpdateStatusRef.current = "downloading";
+    appUpdateStatusRef.current = 'downloading'
     setAppUpdate((current) => ({
       ...current,
-      status: "downloading",
+      status: 'downloading',
       progress: 0,
-    }));
+    }))
     try {
       await downloadAppUpdate((downloaded, total) => {
         setAppUpdate((current) => ({
           ...current,
-          status: "downloading",
+          status: 'downloading',
           progress: total
             ? Math.min(100, (downloaded / total) * 100)
             : undefined,
-        }));
-      });
-      appUpdateStatusRef.current = "downloaded";
+        }))
+      })
+      appUpdateStatusRef.current = 'downloaded'
       setAppUpdate((current) => ({
         ...current,
-        status: "downloaded",
+        status: 'downloaded',
         progress: 100,
-      }));
-      if (!silent) notify(t("更新已下载，点击“重启安装”完成更新"));
+      }))
+      if (!silent) notify('更新已下载，点击“重启安装”完成更新')
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      appUpdateStatusRef.current = "error";
-      setAppUpdate((current) => ({ ...current, status: "error", message }));
-      if (!silent) notify(t("下载更新失败：{0}", [message]));
+      const message = error instanceof Error ? error.message : String(error)
+      appUpdateStatusRef.current = 'error'
+      setAppUpdate((current) => ({ ...current, status: 'error', message }))
+      if (!silent) notify(`下载更新失败：${message}`)
     }
-  };
+  }
 
   const checkApplicationUpdate = async (silent = false) => {
     if (
-      appUpdateStatusRef.current === "checking" ||
-      appUpdateStatusRef.current === "downloading" ||
-      appUpdateStatusRef.current === "installing" ||
+      appUpdateStatusRef.current === 'checking' ||
+      appUpdateStatusRef.current === 'downloading' ||
+      appUpdateStatusRef.current === 'installing' ||
       (silent &&
-        (appUpdateStatusRef.current === "available" ||
-          appUpdateStatusRef.current === "downloaded"))
+        (appUpdateStatusRef.current === 'available' ||
+          appUpdateStatusRef.current === 'downloaded'))
     ) {
-      return;
+      return
     }
-    appUpdateStatusRef.current = "checking";
-    setAppUpdate({ status: "checking" });
+    appUpdateStatusRef.current = 'checking'
+    setAppUpdate({ status: 'checking' })
     try {
-      const result = await checkForAppUpdate();
-      if (result.status === "available") {
-        appUpdateStatusRef.current = "available";
-        setAppUpdate({ status: "available", update: result.update });
-        if (!silent)
-          notify(t("发现新版本 {0}，正在后台下载", [result.update.version]));
-        void downloadApplicationUpdate(silent);
-      } else if (result.status === "current") {
-        appUpdateStatusRef.current = "current";
-        setAppUpdate({ status: "current" });
-        if (!silent) notify(t("当前已是最新版本"));
+      const result = await checkForAppUpdate()
+      if (result.status === 'available') {
+        appUpdateStatusRef.current = 'available'
+        setAppUpdate({ status: 'available', update: result.update })
+        if (!silent) notify(`发现新版本 ${result.update.version}，正在后台下载`)
+        void downloadApplicationUpdate(silent)
+      } else if (result.status === 'current') {
+        appUpdateStatusRef.current = 'current'
+        setAppUpdate({ status: 'current' })
+        if (!silent) notify('当前已是最新版本')
       } else {
-        appUpdateStatusRef.current = "unavailable";
-        setAppUpdate({ status: "unavailable", message: result.message });
-        if (!silent) notify(result.message);
+        appUpdateStatusRef.current = 'unavailable'
+        setAppUpdate({ status: 'unavailable', message: result.message })
+        if (!silent) notify(result.message)
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      appUpdateStatusRef.current = "error";
-      setAppUpdate({ status: "error", message });
-      if (!silent) notify(t("检查更新失败：{0}", [message]));
+      const message = error instanceof Error ? error.message : String(error)
+      appUpdateStatusRef.current = 'error'
+      setAppUpdate({ status: 'error', message })
+      if (!silent) notify(`检查更新失败：${message}`)
     }
-  };
+  }
 
   const applyApplicationUpdate = async () => {
     if (activeRunIds.size > 0) {
-      notify(t("请等待当前模型任务结束后再安装更新"));
-      return;
+      notify('请等待当前模型任务结束后再安装更新')
+      return
     }
     if (
-      appUpdateStatusRef.current === "downloading" ||
-      appUpdateStatusRef.current === "installing"
+      appUpdateStatusRef.current === 'downloading' ||
+      appUpdateStatusRef.current === 'installing'
     ) {
-      return;
+      return
     }
-    if (appUpdateStatusRef.current === "available") {
-      await downloadApplicationUpdate();
+    if (appUpdateStatusRef.current === 'available') {
+      await downloadApplicationUpdate()
     }
-    if (appUpdateStatusRef.current !== "downloaded") return;
-    appUpdateStatusRef.current = "installing";
-    setAppUpdate((current) => ({ ...current, status: "installing" }));
+    if (appUpdateStatusRef.current !== 'downloaded') return
+    appUpdateStatusRef.current = 'installing'
+    setAppUpdate((current) => ({ ...current, status: 'installing' }))
     try {
       await installAppUpdate((downloaded, total) => {
         setAppUpdate((current) => ({
           ...current,
-          status: "installing",
-          progress: total
-            ? Math.min(100, (downloaded / total) * 100)
-            : undefined,
-        }));
-      });
+          status: 'installing',
+          progress: total ? Math.min(100, (downloaded / total) * 100) : undefined,
+        }))
+      })
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      appUpdateStatusRef.current = "error";
-      setAppUpdate((current) => ({ ...current, status: "error", message }));
-      notify(t("安装更新失败：{0}", [message]));
+      const message = error instanceof Error ? error.message : String(error)
+      appUpdateStatusRef.current = 'error'
+      setAppUpdate((current) => ({ ...current, status: 'error', message }))
+      notify(`安装更新失败：${message}`)
     }
-  };
+  }
 
   useEffect(() => {
-    if (!isTauriRuntime()) return undefined;
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void listen("app-update-check-requested", () => {
-      void checkApplicationUpdate();
+    if (!isTauriRuntime()) return undefined
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void listen('app-update-check-requested', () => {
+      void checkApplicationUpdate()
     }).then((cleanup) => {
       if (disposed) {
-        cleanup();
+        cleanup()
       } else {
-        unlisten = cleanup;
+        unlisten = cleanup
       }
-    });
+    })
     return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
+      disposed = true
+      unlisten?.()
+    }
+  }, [])
 
   useEffect(() => {
     if (!import.meta.env.PROD || !isTauriRuntime() || !autoUpdateCheck) {
-      return undefined;
+      return undefined
     }
     const initialTimer = window.setTimeout(
       () => void checkApplicationUpdate(true),
       10_000,
-    );
+    )
     const interval = window.setInterval(
       () => void checkApplicationUpdate(true),
       APP_UPDATE_CHECK_INTERVAL_MS,
-    );
+    )
     return () => {
-      window.clearTimeout(initialTimer);
-      window.clearInterval(interval);
-    };
+      window.clearTimeout(initialTimer)
+      window.clearInterval(interval)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoUpdateCheck]);
+  }, [autoUpdateCheck])
 
   useEffect(() => {
-    if (!isTauriRuntime()) return;
-    void setCloseBehavior(getInitialCloseBehavior());
-  }, []);
+    if (!isTauriRuntime()) return
+    void setCloseBehavior(getInitialCloseBehavior())
+  }, [])
 
   useEffect(() => {
-    if (shellPage !== "settings" || settingsSection !== "storage") return;
-    if (!isTauriRuntime() || dataDirectory !== null) return;
-    let disposed = false;
+    if (shellPage !== 'settings' || (settingsSection !== 'storage' && settingsSection !== 'all')) return
+    if (!isTauriRuntime() || dataDirectory !== null) return
+    let disposed = false
     void appDataDirectory()
       .then((dir) => {
-        if (!disposed) setDataDirectory(dir);
+        if (!disposed) setDataDirectory(dir)
       })
       .catch(() => {
-        if (!disposed) setDataDirectory("");
-      });
+        if (!disposed) setDataDirectory('')
+      })
     return () => {
-      disposed = true;
-    };
-  }, [shellPage, settingsSection, dataDirectory]);
+      disposed = true
+    }
+  }, [shellPage, settingsSection, dataDirectory])
 
   const beginSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const handle = event.currentTarget;
-    const pointerId = event.pointerId;
-    let nextWidth = sidebarWidth;
-    let finished = false;
-    document.body.classList.add("sidebar-resizing");
-    handle.setPointerCapture(pointerId);
+    if (event.button !== 0) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const pointerId = event.pointerId
+    let nextWidth = sidebarWidth
+    let finished = false
+    document.body.classList.add('sidebar-resizing')
+    handle.setPointerCapture(pointerId)
 
     function resize(pointerEvent: PointerEvent) {
       nextWidth = Math.min(
         responsiveSidebarMaxWidth,
         Math.max(MIN_SIDEBAR_WIDTH, pointerEvent.clientX),
-      );
-      setSidebarWidth(nextWidth);
+      )
+      setSidebarWidth(nextWidth)
     }
 
     function finish() {
-      if (finished) return;
-      finished = true;
-      document.body.classList.remove("sidebar-resizing");
-      window.removeEventListener("pointermove", resize);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
-      window.removeEventListener("blur", finish);
-      handle.removeEventListener("lostpointercapture", finish);
+      if (finished) return
+      finished = true
+      document.body.classList.remove('sidebar-resizing')
+      window.removeEventListener('pointermove', resize)
+      window.removeEventListener('pointerup', finish)
+      window.removeEventListener('pointercancel', finish)
+      window.removeEventListener('blur', finish)
+      handle.removeEventListener('lostpointercapture', finish)
       if (handle.hasPointerCapture(pointerId)) {
-        handle.releasePointerCapture(pointerId);
+        handle.releasePointerCapture(pointerId)
       }
       try {
-        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth));
+        window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth))
       } catch {
         // Keep the resized width for the current session.
       }
     }
 
-    window.addEventListener("pointermove", resize);
-    window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", finish);
-    window.addEventListener("blur", finish);
-    handle.addEventListener("lostpointercapture", finish);
-  };
-  const beginEditorResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    const container = event.currentTarget.parentElement;
-    if (!container) return;
-    const bounds = container.getBoundingClientRect();
-    const handle = event.currentTarget;
-    const pointerId = event.pointerId;
-    let nextRatio = editorRatio;
-    let finished = false;
-    document.body.classList.add("editor-resizing");
-    handle.setPointerCapture(pointerId);
-
-    function resize(pointerEvent: PointerEvent) {
-      if (bounds.width <= 0) return;
-      nextRatio = Math.min(
-        MAX_EDITOR_RATIO,
-        Math.max(MIN_EDITOR_RATIO, (bounds.right - pointerEvent.clientX) / bounds.width),
-      );
-      setEditorRatio(nextRatio);
-    }
-
-    function finish() {
-      if (finished) return;
-      finished = true;
-      document.body.classList.remove("editor-resizing");
-      window.removeEventListener("pointermove", resize);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
-      window.removeEventListener("blur", finish);
-      handle.removeEventListener("lostpointercapture", finish);
-      if (handle.hasPointerCapture(pointerId)) {
-        handle.releasePointerCapture(pointerId);
-      }
-      try {
-        window.localStorage.setItem(EDITOR_RATIO_KEY, String(nextRatio));
-      } catch {
-        // Keep the resized ratio for the current session.
-      }
-    }
-
-    window.addEventListener("pointermove", resize);
-    window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", finish);
-    window.addEventListener("blur", finish);
-    handle.addEventListener("lostpointercapture", finish);
-  };
+    window.addEventListener('pointermove', resize)
+    window.addEventListener('pointerup', finish)
+    window.addEventListener('pointercancel', finish)
+    window.addEventListener('blur', finish)
+    handle.addEventListener('lostpointercapture', finish)
+  }
   const changeView = (next: AppView) => {
     setView(next)
     setSidebarOpen(false)
   }
-  const materializeGeneralTask = (
-    draft: {
-      selectedModeId?: AgentCreationMode | null
-      attachment?: GeneralAgentTask['attachment']
-      attachments?: GeneralAgentAttachment[]
-    } = {},
-  ) => {
-    if (selectedGeneralTask) {
-      pendingGeneralTaskRef.current = null
-      return selectedGeneralTask
-    }
-    if (pendingGeneralTaskRef.current) return pendingGeneralTaskRef.current
-    const task = ensureGeneralTask({
-      selectedModeId: draft.selectedModeId ?? agentHomeMode,
-      attachment: draft.attachment ?? null,
-      attachments: draft.attachments ?? [],
-      chatModel: preferredAgentModel,
-    })
-    pendingGeneralTaskRef.current = task
-    return task
-  }
-  const updateAgentHomeMode = (mode: AgentCreationMode | null) => {
-    setAgentHomeMode(mode)
-    if (selectedGeneralTask || mode) {
-      const task = materializeGeneralTask({ selectedModeId: mode })
-      updateGeneralTask(task.id, { selectedModeId: mode })
-    }
-  }
-  const updateAgentHomeDraft = (prompt: string) => {
-    if (!selectedGeneralTask && !prompt.trim()) return
-    const task = materializeGeneralTask()
-    updateGeneralTask(task.id, { draftPrompt: prompt })
-  }
-  const updateAgentHomeAttachments = (
-    attachments: GeneralAgentAttachment[],
-  ) => {
-    const files = uniqueAgentFiles(attachments)
-    if (!selectedGeneralTask && files.length === 0) return
-    const attachment = files[0] ?? null
-    const task = materializeGeneralTask({ attachment, attachments: files })
-    pendingGeneralTaskRef.current = { ...task, attachment, attachments: files }
-    updateGeneralTask(task.id, { attachment, attachments: files })
-  }
-  const updateAgentChatModel = (chatModel: GeneralAgentTask['chatModel']) => {
-    const selection = getAgentSelection(chatModel);
-    saveAgentModelPreference(selection);
-    setPreferredAgentModel(selection);
-    const task = materializeGeneralTask();
-    pendingGeneralTaskRef.current = { ...task, chatModel: selection };
-    updateGeneralTask(task.id, { chatModel: selection });
-  }
-  const refreshModelStoreState = async () => {
-    const [nextPlugins, nextCatalog] = await Promise.all([
-      listModelPlugins(),
-      getHarnessCatalog(),
-    ])
-    setPlugins(nextPlugins)
-    setCatalog(nextCatalog)
-    return nextPlugins
-  }
-  const installOnDemandModel = async (
-    resolution: OnDemandModelResolution,
-  ): Promise<ModelPlugin> => {
-    const model = resolution.recommendedModel
-    if (!model) {
-      throw new Error(t('模型商店暂时没有可用于 {0} 的开源模型', [resolution.need.label]))
-    }
-    if (model.installed) return model
-    if (!model.catalogManaged || model.installable === false) {
-      throw new Error(t('{0} 不是可自动安装的模型，请打开模型商店手动处理', [model.name]))
-    }
-    if (!isTauriRuntime()) {
-      throw new Error(t('按需安装需要在桌面端运行'))
-    }
-    notify(t('正在安装按需模型 {0}', [model.name]))
-    const installed = await installCatalogModel(model.id, model.defaultVariantId)
-    await refreshModelStoreState()
-    return installed
-  }
-  const onDemandModelContext = (
-    resolution: OnDemandModelResolution,
-    model: ModelPlugin,
-  ): string =>
-    `\n\n按需模型商店：检测到用户需要「${resolution.need.label}」。` +
-    `模型商店已安装开源模型「${model.name}」（${model.id}），` +
-    `可直接使用 ${resolution.need.capability} 能力执行${resolution.need.actionLabel}。` +
-    '请在回复中明确使用该模型，并给出下一步可审阅处理计划。'
-  const latestAgentAttachments = (
-    task: GeneralAgentTask,
-    messageId: string,
-  ): GeneralAgentAttachment[] => {
-    const messageIndex = task.messages.findIndex((item) => item.id === messageId)
-    const messages = messageIndex >= 0
-      ? task.messages.slice(0, messageIndex + 1)
-      : task.messages
-    const candidates: GeneralAgentAttachment[] = []
-    if (task.attachment) candidates.push(task.attachment)
-    if (task.attachments?.length) candidates.push(...task.attachments)
-    for (const item of messages) {
-      if (item.attachment) candidates.push(item.attachment)
-      if (item.attachments?.length) candidates.push(...item.attachments)
-    }
-    return candidates.reverse().filter((file) =>
-      ['audio', 'video', 'document'].includes(agentFileKind(file)),
-    )
-  }
-  const resolveConfirmExecutionCandidates = (
-    task: GeneralAgentTask,
-    message: GeneralAgentMessage,
-    confirmationText?: string,
-  ): { attachment: GeneralAgentAttachment; candidates: OnDemandModelExecutionCandidate[] } | null => {
-    if (!message.action || message.action.kind !== 'confirm-agent-plan') return null
-    const recentContext = [
-      ...task.messages.slice(-6).map((item) => item.content),
-      confirmationText ?? message.action.confirmationText,
-    ].join('\n')
-    for (const attachment of latestAgentAttachments(task, message.id)) {
-      const candidates = resolveOnDemandModelExecutions(recentContext, plugins, attachment)
-      if (candidates.length) return { attachment, candidates }
-    }
-    return null
-  }
-  const selectOnDemandExecutionCandidate = (
-    candidates: OnDemandModelExecutionCandidate[],
-    selectedModelId?: string | null,
-  ): OnDemandModelExecutionCandidate | null =>
-    (selectedModelId
-      ? candidates.find(({ model }) => model.id === selectedModelId)
-      : null) ??
-    candidates.find(({ model }) => model.installed) ??
-    candidates.find(({ model }) => model.catalogManaged && model.installable !== false) ??
-    null
-  const resolveConfirmExecution = (
-    task: GeneralAgentTask,
-    message: GeneralAgentMessage,
-    selectedModelId?: string | null,
-    confirmationText?: string,
-  ): PendingOnDemandInstall | null => {
-    const resolved = resolveConfirmExecutionCandidates(task, message, confirmationText)
-    if (!resolved) return null
-    const candidate = selectOnDemandExecutionCandidate(resolved.candidates, selectedModelId)
-    if (!candidate) return null
-    return {
-      resolution: candidate.resolution,
-      prompt: message.action?.kind === 'confirm-agent-plan'
-        ? confirmationText ?? message.action.confirmationText
-        : '',
-      selectedModeName: null,
-      attachmentHint: `\n\n已选择素材：${resolved.attachment.name}\n文件路径：${resolved.attachment.path}`,
-      attachment: resolved.attachment,
-    }
-  }
-  const resolveMessageModelOptions = (
-    task: GeneralAgentTask,
-    message: GeneralAgentMessage,
-  ): GeneralAgentMessageModelOptions | null => {
-    const resolved = resolveConfirmExecutionCandidates(task, message)
-    if (!resolved || resolved.candidates.length < 2) return null
-    const selected =
-      selectOnDemandExecutionCandidate(resolved.candidates) ?? resolved.candidates[0]
-    return {
-      needLabel: selected.resolution.need.label,
-      actionLabel: selected.resolution.need.actionLabel,
-      selectedOptionId: selected.model.id,
-      question: {
-        id: `model:${selected.resolution.need.id}`,
-        prompt: t('选择用于{0}的模型', [selected.resolution.need.label]),
-        options: resolved.candidates.map(({ model }) => ({
-          id: model.id,
-          label: model.name,
-          description: model.description,
-          installed: model.installed,
-        })),
-      },
-    }
-  }
-  const resolveInstallMessageModelOptions = (
-    message: GeneralAgentMessage,
-  ): GeneralAgentMessageModelOptions | null => {
-    const action = message.action
-    if (action?.kind !== 'install-on-demand-model') return null
-    const selectedModel = plugins.find((candidate) => candidate.id === action.modelId) ?? null
-    const resolution: OnDemandModelResolution = {
-      need: {
-        id: action.id,
-        capability: action.capability as ModelPlugin['harnessCapabilities'][number],
-        label: action.needLabel,
-        actionLabel: action.actionLabel,
-        preferredModelIds: action.question?.options.map((option) => option.id) ?? [action.modelId],
-      },
-      installedModel: selectedModel?.installed ? selectedModel : null,
-      recommendedModel: selectedModel,
-    }
-    const candidates = resolveOnDemandModelInstallCandidates(resolution, plugins)
-    const question = action.question ?? (
-      candidates.length > 1
-        ? {
-            id: `model:${action.id}`,
-            prompt: t('选择用于{0}的模型', [action.needLabel]),
-            options: candidates.map((model) => ({
-              id: model.id,
-              label: model.name,
-              description: model.description,
-              installed: model.installed,
-            })),
-          }
-        : null
-    )
-    if (!question || question.options.length < 2) return null
-    return {
-      needLabel: action.needLabel,
-      actionLabel: action.actionLabel,
-      selectedOptionId: action.modelId,
-      question,
-    }
-  }
-  const resolveTaskMessageModelOptions = (
-    task: GeneralAgentTask | null,
-  ): Record<string, GeneralAgentMessageModelOptions> => {
-    if (!task) return {}
-    return Object.fromEntries(
-      task.messages.flatMap((message) => {
-        const options = message.action?.kind === 'confirm-agent-plan'
-          ? resolveMessageModelOptions(task, message)
-          : resolveInstallMessageModelOptions(message)
-        return options ? [[message.id, options]] : []
-      }),
-    )
-  }
-  const runOnDemandModelExecution = async (
-    pending: PendingOnDemandInstall,
-    model: ModelPlugin,
-    promptText?: string,
-  ): Promise<{ content: string; attachments: GeneralAgentAttachment[] } | null> => {
-    const plan = createOnDemandModelExecutionPlan(
-      pending.resolution,
-      model,
-      pending.attachment,
-      promptText ?? pending.prompt,
-    )
-    if (!plan) return null
-    const providerId = model.providerId ?? model.id
-    const isTextInput = TEXT_INPUT_CAPABILITIES.has(plan.capability)
-    const attachment = pending.attachment
-
-    if (isTextInput) {
-      const text = promptText?.trim() || pending.prompt.trim()
-      if (!text) return null
-      notify(t('正在使用 {0} 处理', [model.name]))
-      if (plan.capability === 'speech.synthesize') {
-        const execution = await executeHarnessTask<TtsGenerateResult>(
-          {
-            capability: plan.capability,
-            providerId,
-            conversationProviderId: providerId,
-            conversationVisible: true,
-            routing: 'local',
-            title: t('语音合成'),
-            input: { text },
-            parameters: {
-              modelId: model.version || model.id,
-              ...plan.parameters,
-            },
-          },
-          recordRun,
-        )
-        recordRun(execution.run)
-        const filePath = (execution.output as { filePath?: string }).filePath ?? ''
-        return {
-          content: t('已完成语音合成，输出文件：{0}', [filePath]),
-          attachments: filePath ? [{ path: filePath, name: filePath.split(/[\\/]/u).at(-1) ?? 'tts.wav' }] : [],
-        }
-      }
-      if (plan.capability === 'text.generate') {
-        const execution = await executeHarnessTask<TextGenerateResult | Record<string, unknown>>(
-          {
-            capability: plan.capability,
-            providerId,
-            conversationProviderId: providerId,
-            conversationVisible: true,
-            routing: 'local',
-            title: t('文本生成'),
-            input: { text },
-            parameters: {
-              modelId: model.version || model.id,
-              ...plan.parameters,
-            },
-          },
-          recordRun,
-        )
-        recordRun(execution.run)
-        const generatedText = (execution.output as { text?: string }).text?.trim() || ''
-        return {
-          content: generatedText || t('模型未返回有效文本。'),
-          attachments: [],
-        }
-      }
-      const execution = await executeHarnessTask<Record<string, unknown>>(
-        {
-          capability: plan.capability,
-          providerId,
-          conversationProviderId: providerId,
-          conversationVisible: true,
-          routing: 'local',
-          title: t('文本规范化'),
-          input: { text },
-          parameters: {
-            modelId: model.version || model.id,
-            ...plan.parameters,
-          },
-        },
-        recordRun,
-      )
-      recordRun(execution.run)
-      const outputText = (execution.output as { text?: string }).text?.trim() || JSON.stringify(execution.output)
-      return {
-        content: t('已完成文本规范化：\n\n{0}', [outputText]),
-        attachments: [],
-      }
-    }
-
-    if (!attachment) return null
-    notify(t('正在使用 {0} 处理 {1}', [model.name, attachment.name]))
-    const file = await readDroppedAudioFile(attachment.path)
-    const clip = await audioFileToClip(file)
-    const audioDataUrl =
-      plan.capability === 'speech.transcribe'
-        ? clip.transcriptionAudioUrl
-        : clip.processingAudioUrl ?? clip.transcriptionAudioUrl
-    if (!audioDataUrl) {
-      throw new Error(t('该音频无法解码为模型需要的 WAV 格式'))
-    }
-    if (plan.capability === 'speech.transcribe') {
-      const execution = await executeHarnessTask<AsrTranscriptionResult>(
-        {
-          capability: plan.capability,
-          providerId,
-          conversationProviderId: providerId,
-          conversationVisible: true,
-          routing: 'local',
-          title: t('{0} · 语音识别', [attachment.name]),
-          input: {
-            audioDataUrl,
-            clipName: attachment.name,
-            duration: clip.duration,
-          },
-          parameters: {
-            modelId: model.version || model.id,
-            ...plan.parameters,
-          },
-        },
-        recordRun,
-      )
-      recordRun(execution.run)
-      const transcript = execution.output.text.trim() || t('未识别到可用文本。')
-      return {
-        content: t('已完成语音识别，结果如下：\n\n{0}', [transcript]),
-        attachments: [],
-      }
-    }
-    if (plan.capability === 'speech.detect') {
-      const execution = await executeHarnessTask<VadDetectionResult>(
-        {
-          capability: plan.capability,
-          providerId,
-          conversationProviderId: providerId,
-          conversationVisible: true,
-          routing: 'local',
-          title: t('{0} · 语音检测', [attachment.name]),
-          input: {
-            audioDataUrl,
-            clipName: attachment.name,
-            duration: clip.duration,
-          },
-          parameters: {
-            modelId: model.version || model.id,
-            ...plan.parameters,
-          },
-        },
-        recordRun,
-      )
-      recordRun(execution.run)
-      const segments = execution.output.segments ?? []
-      const summary = segments.length
-        ? segments.map((seg: { start: number; end: number }) =>
-            `${seg.start.toFixed(2)}s - ${seg.end.toFixed(2)}s`).join('\n')
-        : t('未检测到语音活动段。')
-      return {
-        content: t('已完成语音活动检测，共 {0} 段：\n\n{1}', [String(segments.length), summary]),
-        attachments: [],
-      }
-    }
-    if (plan.capability === 'speaker.embed') {
-      const execution = await executeHarnessTask<Record<string, unknown>>(
-        {
-          capability: plan.capability,
-          providerId,
-          conversationProviderId: providerId,
-          conversationVisible: true,
-          routing: 'local',
-          title: t('{0} · 声纹识别', [attachment.name]),
-          input: {
-            audioDataUrl,
-            clipName: attachment.name,
-            duration: clip.duration,
-          },
-          parameters: {
-            modelId: model.version || model.id,
-            ...plan.parameters,
-          },
-        },
-        recordRun,
-      )
-      recordRun(execution.run)
-      return {
-        content: t('已完成声纹特征提取。'),
-        attachments: [],
-      }
-    }
-    const execution = await executeHarnessTask<AudioProcessResult>(
-      {
-        capability: plan.capability,
-        providerId,
-        conversationProviderId: providerId,
-        conversationVisible: true,
-        routing: 'local',
-        title: plan.capability === 'audio.separate'
-          ? t('{0} · 音频分离', [attachment.name])
-          : t('{0} · 音频降噪', [attachment.name]),
-        input: {
-          audioDataUrl,
-          clipName: attachment.name,
-          duration: clip.duration,
-        },
-        parameters: {
-          modelId: model.version || model.id,
-          ...plan.parameters,
-        },
-      },
-      recordRun,
-    )
-    recordRun(execution.run)
-    const actionLabel = plan.capability === 'audio.separate'
-      ? t('已完成音频分离，输出新文件 `{0}`。文件位置：{1}', [
-          execution.output.fileName,
-          execution.output.filePath,
-        ])
-      : t('已完成降噪，输出新文件 `{0}`。文件位置：{1}', [
-          execution.output.fileName,
-          execution.output.filePath,
-        ])
-    return {
-      content: actionLabel,
-      attachments: [
-        {
-          path: execution.output.filePath,
-          name: execution.output.fileName,
-        },
-      ],
-    }
-  }
-  const runOnDemandModelExecutionSequence = async (
-    pending: PendingOnDemandInstall,
-    resolutions: OnDemandModelResolution[],
-    installMissing: boolean,
-  ): Promise<{ content: string; attachments: GeneralAgentAttachment[] } | null> => {
-    let currentAttachment = pending.attachment
-    const contents: string[] = []
-    const attachments: GeneralAgentAttachment[] = []
-    for (const resolution of resolutions) {
-      const model = resolution.installedModel ?? (
-        installMissing ? await installOnDemandModel(resolution) : null
-      )
-      if (!model) return null
-      const result = await runOnDemandModelExecution({
-        ...pending,
-        resolution: {
-          ...resolution,
-          installedModel: model,
-          recommendedModel: model,
-        },
-        attachment: currentAttachment,
-      }, model)
-      if (!result) return null
-      contents.push(result.content)
-      if (result.attachments.length) {
-        attachments.push(...result.attachments)
-        currentAttachment = result.attachments[0]
-      }
-    }
-    if (contents.length === 1) {
-      return { content: contents[0], attachments }
-    }
-    return {
-      content: t('已完成 {0} 个步骤：\n\n{1}', [
-        String(contents.length),
-        contents.map((content, index) => `${index + 1}. ${content}`).join('\n\n'),
-      ]),
-      attachments,
-    }
-  }
-  const continueWithInstalledOnDemandModel = (
-    task: GeneralAgentTask,
-    pending: PendingOnDemandInstall,
-    model: ModelPlugin,
-  ) => {
-    pendingOnDemandModelRef.current.delete(task.id)
-    if (pending.chain) {
-      const resolutions = pending.chain.resolutions.map((resolution) =>
-        resolution.need.id === pending.resolution.need.id
-          ? { ...resolution, installedModel: model, recommendedModel: model }
-          : resolution,
-      )
-      void submitGeneralPrompt({
-        task,
-        content: pending.prompt,
-        selectedModeName: pending.selectedModeName,
-        attachmentHint: pending.attachmentHint,
-        attachment: pending.attachment,
-        appendUserMessage: false,
-        localResponse: async () =>
-          (await runOnDemandModelExecutionSequence(pending, resolutions, true)) ??
-          t('已安装 {0}。当前任务还需要 Agent 继续规划，请补充处理参数。', [
-            model.name,
-          ]),
-        onError: notify,
-      })
-      return
-    }
-    const directPlan = createOnDemandModelExecutionPlan(
-      pending.resolution,
-      model,
-      pending.attachment,
-      pending.prompt,
-    )
-    void submitGeneralPrompt({
-      task,
-      content: pending.prompt,
-      selectedModeName: pending.selectedModeName,
-      attachmentHint:
-        pending.attachmentHint +
-        onDemandModelContext(pending.resolution, model),
-      attachment: pending.attachment,
-      appendUserMessage: false,
-      ...(directPlan
-        ? {
-            localResponse: async () =>
-              (await runOnDemandModelExecution(pending, model, pending.prompt)) ??
-              t('已安装 {0}。当前任务还需要 Agent 继续规划，请补充处理参数。', [
-                model.name,
-              ]),
-          }
-        : {}),
-      onError: notify,
-    })
-  }
-  const executeStructuredPlan = async (
-    task: GeneralAgentTask,
-    message: GeneralAgentMessage,
-  ) => {
-    const action = message.action as GeneralAgentStructuredPlanAction | undefined
-    if (!action || action.kind !== 'structured-agent-plan') return
-    updateGeneralMessageActionStatus(task.id, message.id, 'running')
-    const attachments = (() => {
-      const candidates: GeneralAgentAttachment[] = []
-      if (task.attachment) candidates.push(task.attachment)
-      if (task.attachments?.length) candidates.push(...task.attachments)
-      const messageIndex = task.messages.findIndex((item) => item.id === message.id)
-      const previousMessages = messageIndex >= 0
-        ? task.messages.slice(0, messageIndex + 1)
-        : task.messages
-      for (const item of previousMessages) {
-        if (item.attachment) candidates.push(item.attachment)
-        if (item.attachments?.length) candidates.push(...item.attachments)
-      }
-      return candidates.reverse().filter((file) =>
-        ['audio', 'video', 'document'].includes(agentFileKind(file)),
-      )
-    })()
-    const primaryAttachment = attachments[0] ?? null
-    let previousOutput: { kind: 'text' | 'audio'; value: string; attachment?: GeneralAgentAttachment } | null = null
-    try {
-      for (const step of action.steps) {
-        updateStructuredPlanStep(task.id, message.id, step.id, { status: 'running' })
-        const isAudioInput = !TEXT_INPUT_CAPABILITIES.has(step.capability)
-        const candidateModel = step.modelPreference?.length
-          ? plugins.find((p) => step.modelPreference!.includes(p.id) && p.harnessCapabilities.includes(step.capability as ModelPlugin['harnessCapabilities'][number]))
-          : null
-        const model = candidateModel
-          ?? plugins.find((p) => p.installed && p.harnessCapabilities.includes(step.capability as ModelPlugin['harnessCapabilities'][number]))
-          ?? plugins.find((p) => p.harnessCapabilities.includes(step.capability as ModelPlugin['harnessCapabilities'][number]))
-        if (!model) {
-          updateStructuredPlanStep(task.id, message.id, step.id, {
-            status: 'failed',
-            result: t('未找到可用模型'),
-          })
-          updateGeneralMessageActionStatus(task.id, message.id, 'failed')
-          return
-        }
-        const resolvedModel = model.installed ? model : await installOnDemandModel({
-          need: {
-            id: step.capability,
-            capability: step.capability as ModelPlugin['harnessCapabilities'][number],
-            label: step.description,
-            actionLabel: step.description,
-            preferredModelIds: [model.id],
-          },
-          installedModel: null,
-          recommendedModel: model,
-        })
-        const providerId = resolvedModel.providerId ?? resolvedModel.id
-        let input: Record<string, unknown> = {}
-        if (isAudioInput) {
-          const audioSource = previousOutput?.kind === 'audio' && previousOutput.attachment
-            ? previousOutput.attachment
-            : primaryAttachment
-          if (!audioSource) {
-            updateStructuredPlanStep(task.id, message.id, step.id, {
-              status: 'failed',
-              result: t('缺少音频输入文件'),
-            })
-            updateGeneralMessageActionStatus(task.id, message.id, 'failed')
-            return
-          }
-          const file = await readDroppedAudioFile(audioSource.path)
-          const clip = await audioFileToClip(file)
-          const audioDataUrl = step.capability === 'speech.transcribe'
-            ? clip.transcriptionAudioUrl
-            : clip.processingAudioUrl ?? clip.transcriptionAudioUrl
-          if (!audioDataUrl) {
-            updateStructuredPlanStep(task.id, message.id, step.id, {
-              status: 'failed',
-              result: t('无法解码音频'),
-            })
-            updateGeneralMessageActionStatus(task.id, message.id, 'failed')
-            return
-          }
-          input = { audioDataUrl, clipName: audioSource.name, duration: clip.duration }
-        } else {
-          const text = previousOutput?.kind === 'text' ? previousOutput.value : ''
-          if (!text) {
-            updateStructuredPlanStep(task.id, message.id, step.id, {
-              status: 'failed',
-              result: t('缺少文本输入'),
-            })
-            updateGeneralMessageActionStatus(task.id, message.id, 'failed')
-            return
-          }
-          input = { text }
-        }
-        const execution = await executeHarnessTask<Record<string, unknown>>(
-          {
-            capability: step.capability as ModelPlugin['harnessCapabilities'][number],
-            providerId,
-            conversationProviderId: providerId,
-            conversationVisible: true,
-            routing: 'local',
-            title: step.description,
-            input,
-            parameters: {
-              modelId: resolvedModel.version || resolvedModel.id,
-              ...step.parameters,
-            },
-          },
-          recordRun,
-        )
-        recordRun(execution.run)
-        const output = execution.output
-        const textOutput = typeof output.text === 'string' ? output.text.trim() : ''
-        const filePath = typeof output.filePath === 'string' ? output.filePath : ''
-        const fileName = typeof output.fileName === 'string' ? output.fileName : ''
-        let resultText = ''
-        if (step.capability === 'speech.transcribe') {
-          resultText = textOutput || t('未识别到文本')
-          previousOutput = { kind: 'text', value: resultText }
-        } else if (TEXT_INPUT_CAPABILITIES.has(step.capability)) {
-          if (step.capability === 'speech.synthesize') {
-            resultText = filePath ? t('输出文件：{0}', [filePath]) : t('合成完成')
-            previousOutput = filePath
-              ? { kind: 'audio', value: filePath, attachment: { path: filePath, name: fileName || filePath.split(/[\\/]/u).at(-1) || 'tts.wav' } }
-              : null
-          } else {
-            resultText = textOutput || JSON.stringify(output)
-            previousOutput = { kind: 'text', value: resultText }
-          }
-        } else if (filePath) {
-          resultText = t('输出文件：{0}', [filePath])
-          previousOutput = {
-            kind: 'audio',
-            value: filePath,
-            attachment: { path: filePath, name: fileName || filePath.split(/[\\/]/u).at(-1) || 'output.wav' },
-          }
-        } else if (textOutput) {
-          resultText = textOutput
-          previousOutput = { kind: 'text', value: textOutput }
-        } else {
-          resultText = JSON.stringify(output).slice(0, 200)
-          previousOutput = { kind: 'text', value: resultText }
-        }
-        updateStructuredPlanStep(task.id, message.id, step.id, {
-          status: 'done',
-          result: resultText,
-        })
-      }
-      updateGeneralMessageActionStatus(task.id, message.id, 'done')
-      if (previousOutput?.kind === 'text' && previousOutput.value) {
-        void submitGeneralPrompt({
-          task,
-          content: previousOutput.value,
-          selectedModeName: null,
-          appendUserMessage: false,
-          localResponse: () => t('以上是多步执行计划的最终结果。'),
-          onError: notify,
-        })
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      const currentStep = action.steps.find((s) => s.status === 'running')
-      if (currentStep) {
-        updateStructuredPlanStep(task.id, message.id, currentStep.id, {
-          status: 'failed',
-          result: errorMessage,
-        })
-      }
-      updateGeneralMessageActionStatus(task.id, message.id, 'failed')
-      notify(t('执行计划失败：{0}', [errorMessage]))
-    }
-  }
-  const runAgentMessageAction = (
-    task: GeneralAgentTask | null,
-    message: GeneralAgentMessage,
-    selectedModelId?: string | null,
-    confirmationSelections?: Record<string, string>,
-  ) => {
-    if (!task || !message.action) return
-    if (message.action.kind === 'structured-agent-plan') {
-      void executeStructuredPlan(task, message)
-      return
-    }
-    if (message.action.kind === 'confirm-agent-plan') {
-      const action = message.action
-      const confirmationText = buildConfirmAgentResponse(action, confirmationSelections)
-      const directExecution = resolveConfirmExecution(task, message, selectedModelId, confirmationText)
-      updateGeneralMessageActionStatus(task.id, message.id, 'running')
-      void (async () => {
-        await submitGeneralPrompt({
-          task,
-          content: confirmationText,
-          selectedModeName: null,
-          attachmentHint: directExecution?.attachmentHint ?? '',
-          attachment: directExecution?.attachment ?? null,
-          ...(directExecution
-            ? {
-                localResponse: async () => {
-                  const model =
-                    directExecution.resolution.installedModel ??
-                    await installOnDemandModel(directExecution.resolution)
-                  return (
-                    (await runOnDemandModelExecution(directExecution, model)) ??
-                    t('已确认。当前任务还需要 Agent 继续规划，请补充处理参数。')
-                  )
-                },
-              }
-            : {}),
-          onError: notify,
-        })
-        updateGeneralMessageActionStatus(task.id, message.id, 'done')
-      })()
-      return
-    }
-    if (message.action.kind !== 'install-on-demand-model') return
-    const action = message.action
-    updateGeneralMessageActionStatus(task.id, message.id, 'running')
-    const selectedInstallModelId = selectedModelId ?? action.modelId
-    const model = plugins.find((candidate) => candidate.id === selectedInstallModelId)
-    const pendingFromPrompt = pendingOnDemandModelRef.current.get(task.id)
-    const preferredModelIds = action.question?.options.map((option) => option.id) ?? [action.modelId]
-    const resolution: OnDemandModelResolution = {
-      need: {
-        id: action.id,
-        capability: action.capability as ModelPlugin['harnessCapabilities'][number],
-        label: action.needLabel,
-        actionLabel: action.actionLabel,
-        preferredModelIds,
-      },
-      installedModel: model?.installed ? model : null,
-      recommendedModel: model ?? null,
-    }
-    void (async () => {
-      try {
-        const installed = await installOnDemandModel(resolution)
-        updateGeneralMessageActionStatus(task.id, message.id, 'done')
-        continueWithInstalledOnDemandModel(
-          task,
-          pendingFromPrompt?.resolution.need.id === action.id
-            ? {
-                ...pendingFromPrompt,
-                resolution,
-                chain: pendingFromPrompt.chain
-                  ? {
-                      resolutions: pendingFromPrompt.chain.resolutions.map((item) =>
-                        item.need.id === resolution.need.id
-                          ? resolution
-                          : item,
-                      ),
-                    }
-                  : undefined,
-              }
-            : {
-                resolution,
-                prompt: action.prompt,
-                selectedModeName: action.selectedModeName,
-                attachmentHint: action.attachmentHint,
-                attachment: action.attachment ?? null,
-              },
-          installed,
-        )
-      } catch (error) {
-        updateGeneralMessageActionStatus(task.id, message.id, 'failed')
-        notify(
-          t('按需模型安装失败：{0}', [error instanceof Error ? error.message : String(error)]),
-        )
-      }
-    })()
-  }
-  const submitAgentHomePrompt = (request: {
-    content: string
-    selectedModeName: string | null
-    attachmentHint: string
-    attachment: GeneralAgentAttachment | null
-    attachments: GeneralAgentAttachment[]
-  }) => {
-    const task = selectedGeneralTask ?? pendingGeneralTaskRef.current ?? createGeneralTask({
-      selectedModeId: agentHomeMode,
-      attachment: request.attachment,
-      attachments: request.attachments,
-      chatModel: preferredAgentModel,
-    })
-    pendingGeneralTaskRef.current = task
-    if (isWorkspaceTaskView && selectedAgentConversation && request.attachment?.path && request.attachment.path !== selectedAgentConversation.sourcePath) {
-      const mode = selectedAgentConversation.mode;
-      launchCreationAgent(mode, request.content, request.attachment.path);
-      return;
-    }
-    if (isWorkspaceTaskView && selectedAgentConversation && !pendingOnDemandModelRef.current.has(task.id) && !/安装/.test(request.content)) {
-      const projectId = selectedAgentConversation.id;
-      const workspaceEpoch = activeWorkspaceRef.current.epoch;
-      void submitGeneralPrompt({
-        task,
-        content: request.content,
-        selectedModeName: request.selectedModeName,
-        attachment: null,
-        localResponse: async () => runWorkspaceAgentRequest({
-          projectId,
-          prompt: request.content,
-          isCurrent: () => activeWorkspaceRef.current.id === projectId && activeWorkspaceRef.current.epoch === workspaceEpoch,
-          afterCommit: () => new Promise(resolve => {
-            const timeout = window.setTimeout(resolve, 100);
-            window.requestAnimationFrame(() => { window.clearTimeout(timeout); resolve(); });
-          }),
-          requestPlan: prompt => requestTaskAgentReply(task, [...task.messages.slice(-8), {
-            id: crypto.randomUUID(), role: 'user', content: prompt, createdAt: Date.now(),
-          }], true),
-        }),
-        onError: notify,
-      });
-      return;
-    }
-    const mode = task.selectedModeId;
-    if (mode && WORKSPACE_TASK_MODES.has(mode) && (mode === 'smart-cut' || mode === 'ai-podcast' || mode === 'video-dubbing') && request.attachment?.path) {
-      launchCreationAgent(mode, request.content, request.attachment.path);
-      return;
-    }
-    if (!isWorkspaceTaskView && mode && (mode === 'smart-cut' || mode === 'ai-podcast' || mode === 'video-dubbing') && !request.attachment?.path) {
-      void submitGeneralPrompt({
-        task, content: request.content,
-        localResponse: () => mode === 'ai-podcast'
-          ? t('请在这里添加来源文档，我会生成播客脚本和音频。')
-          : t('请在这里添加视频，我会按你的要求处理并展示结果。'),
-        onError: notify,
-      });
-      return;
-    }
-    const pendingInstall = pendingOnDemandModelRef.current.get(task.id)
-    if (pendingInstall && isInstallApproval(request.content)) {
-      pendingOnDemandModelRef.current.delete(task.id)
-      void submitGeneralPrompt({
-        task,
-        content: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: '',
-        attachment: null,
-        localResponse: async () => {
-          const model = await installOnDemandModel(pendingInstall.resolution)
-          window.setTimeout(() => continueWithInstalledOnDemandModel(task, pendingInstall, model), 0)
-          return t('已安装 {0}。正在继续处理原请求。', [
-            model.name,
-          ])
-        },
-        onError: notify,
-      })
-      return
-    }
-
-    const modelSequence = resolveOnDemandModelNeeds(request.content, plugins)
-    if (modelSequence.length > 1) {
-      const unavailable = modelSequence.find((resolution) =>
-        !resolution.installedModel && !resolution.recommendedModel,
-      )
-      if (unavailable) {
-        void submitGeneralPrompt({
-          task,
-          content: request.content,
-          selectedModeName: request.selectedModeName,
-          attachmentHint: '',
-          attachment: request.attachment,
-          attachments: request.attachments,
-          localResponse: () =>
-            t('模型商店暂时没有可用于 {0} 的开源模型', [unavailable.need.label]),
-          onError: notify,
-        })
-        return
-      }
-
-      const missing = modelSequence.find((resolution) => !resolution.installedModel)
-      const missingModel = missing?.recommendedModel ?? null
-      if (missing && agentModelInstallMode === 'ask' && missingModel) {
-        const pendingInstallRequest: PendingOnDemandInstall = {
-          resolution: missing,
-          prompt: request.content,
-          selectedModeName: request.selectedModeName,
-          attachmentHint: request.attachmentHint,
-          attachment: request.attachment,
-          chain: { resolutions: modelSequence },
-        }
-        pendingOnDemandModelRef.current.set(task.id, pendingInstallRequest)
-        void submitGeneralPrompt({
-          task,
-          content: request.content,
-          selectedModeName: request.selectedModeName,
-          attachmentHint: '',
-          attachment: request.attachment,
-          attachments: request.attachments,
-          localResponse: () => ({
-            content: t('需要先安装开源模型 {0} 才能处理「{1}」。点击下方按钮即可安装并继续，或回复“安装”。', [
-              missingModel.name,
-              missing.need.label,
-            ]),
-            action: createInstallModelAction(missing, missingModel, {
-              prompt: request.content,
-              selectedModeName: request.selectedModeName,
-              attachmentHint: request.attachmentHint,
-              attachment: request.attachment,
-              modelCandidates: resolveOnDemandModelInstallCandidates(missing, plugins),
-            }),
-          }),
-          onError: notify,
-        })
-        return
-      }
-
-      const pendingExecution: PendingOnDemandInstall = {
-        resolution: modelSequence[0],
-        prompt: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: request.attachmentHint,
-        attachment: request.attachment,
-        chain: { resolutions: modelSequence },
-      }
-      const context = modelSequence
-        .map((resolution) => {
-          const model = resolution.installedModel ?? resolution.recommendedModel
-          return model ? onDemandModelContext(resolution, model) : ''
-        })
-        .join('')
-      void submitGeneralPrompt({
-        task,
-        content: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: request.attachmentHint + context,
-        attachment: request.attachment,
-        attachments: request.attachments,
-        localResponse: async () =>
-          (await runOnDemandModelExecutionSequence(
-            pendingExecution,
-            modelSequence,
-            agentModelInstallMode === 'auto',
-          )) ??
-          t('当前任务还需要 Agent 继续规划，请补充处理参数。'),
-        onError: notify,
-      })
-      return
-    }
-
-    const modelAction = planOnDemandModelAction(
-      request.content,
-      plugins,
-      agentModelInstallMode,
-    )
-    if (modelAction.kind === 'use-installed') {
-      pendingOnDemandModelRef.current.delete(task.id)
-      const pendingExecution: PendingOnDemandInstall = {
-        resolution: modelAction.resolution,
-        prompt: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: request.attachmentHint,
-        attachment: request.attachment,
-      }
-      const directPlan = createOnDemandModelExecutionPlan(
-        pendingExecution.resolution,
-        modelAction.model,
-        pendingExecution.attachment,
-      )
-      void submitGeneralPrompt({
-        task,
-        content: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint:
-          request.attachmentHint +
-          onDemandModelContext(modelAction.resolution, modelAction.model),
-        attachment: request.attachment,
-        attachments: request.attachments,
-        ...(directPlan
-          ? {
-              localResponse: async () =>
-                (await runOnDemandModelExecution(pendingExecution, modelAction.model)) ??
-                t('模型 {0} 已就绪。当前任务还需要 Agent 继续规划，请补充处理参数。', [
-                  modelAction.model.name,
-                ]),
-            }
-          : {}),
-        onError: notify,
-      })
-      return
-    }
-
-    if (modelAction.kind === 'auto-install') {
-      pendingOnDemandModelRef.current.delete(task.id)
-      const pendingExecution: PendingOnDemandInstall = {
-        resolution: modelAction.resolution,
-        prompt: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: request.attachmentHint,
-        attachment: request.attachment,
-      }
-      void submitGeneralPrompt({
-        task,
-        content: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: '',
-        attachment: request.attachment,
-        attachments: request.attachments,
-        localResponse: async () => {
-          const model = await installOnDemandModel(modelAction.resolution)
-          const directResult = await runOnDemandModelExecution(pendingExecution, model)
-          if (directResult) return directResult
-          return t('已自动安装 {0}。当前任务还需要 Agent 继续规划，请补充处理参数。', [
-            model.name,
-          ])
-        },
-        onError: notify,
-      })
-      return
-    }
-
-    if (modelAction.kind === 'ask-install') {
-      const pendingInstallRequest: PendingOnDemandInstall = {
-        resolution: modelAction.resolution,
-        prompt: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: request.attachmentHint,
-        attachment: request.attachment,
-      }
-      pendingOnDemandModelRef.current.set(task.id, pendingInstallRequest)
-      void submitGeneralPrompt({
-        task,
-        content: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: '',
-        attachment: request.attachment,
-        attachments: request.attachments,
-        localResponse: () => ({
-          content: t('需要先安装开源模型 {0} 才能处理「{1}」。点击下方按钮即可安装并继续，或回复“安装”。', [
-            modelAction.model.name,
-            modelAction.resolution.need.label,
-          ]),
-          action: createInstallModelAction(modelAction.resolution, modelAction.model, {
-            prompt: request.content,
-            selectedModeName: request.selectedModeName,
-            attachmentHint: request.attachmentHint,
-            attachment: request.attachment,
-            modelCandidates: resolveOnDemandModelInstallCandidates(modelAction.resolution, plugins),
-          }),
-        }),
-        onError: notify,
-      })
-      return
-    }
-
-    if (modelAction.kind === 'unavailable') {
-      void submitGeneralPrompt({
-        task,
-        content: request.content,
-        selectedModeName: request.selectedModeName,
-        attachmentHint: '',
-        attachment: request.attachment,
-        attachments: request.attachments,
-        localResponse: () =>
-          t('模型商店暂时没有可用于 {0} 的开源模型', [modelAction.resolution.need.label]),
-        onError: notify,
-      })
-      return
-    }
-
-    void submitGeneralPrompt({
-      task,
-      content: request.content,
-      selectedModeName: request.selectedModeName,
-      attachmentHint: request.attachmentHint,
-      attachment: request.attachment,
-      attachments: request.attachments,
-      onError: notify,
-    })
-  }
-  const launchCreationAgent = (
-    mode: AgentCreationMode,
-    prompt: string,
-    sourcePath: string,
-    videoDubbingMode?: VideoDubbingMode,
-    videoDubbingLanguages?: VideoDubbingLanguages,
-    videoDubbingStyle?: VideoDubbingStyle,
-    launchSource?: 'workshop',
-  ) => {
-    const skill = appAgents.find((agent) => agent.workspaceEntry === mode);
-    if (!skill?.installed) {
-      notify(t("请先安装此技能，当前要求和素材已保留。"));
-      openSkills();
-      return;
-    }
-    if (!prompt.trim() || (mode !== "meeting-notes" && mode !== "agent-chat" &&
-      (!sourcePath || !skillAcceptsFile(mode, sourcePath)))) {
-      notify(t("请先填写创作要求并选择适用的素材。"));
-      return;
-    }
-    const sourceTask = materializeGeneralTask({ selectedModeId: mode });
-    const modeLabel = skill.name;
-    const normalizedPrompt = prompt.replace(/\s+/gu, " ").trim();
-    const promptTitle =
-      normalizedPrompt.length > 22
-        ? `${normalizedPrompt.slice(0, 22)}…`
-        : normalizedPrompt;
-    const request = {
-      mode,
-      title: `${modeLabel} · ${promptTitle}`,
-      prompt,
-      sourcePath,
-      videoDubbingMode,
-      videoDubbingLanguages,
-      videoDubbingStyle,
-      launchSource,
-      sourceTaskId: sourceTask.id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    const existing = matchingSkillConversation(agentConversations, request);
-    if (existing) setSelectedAgentConversationId(existing.id);
-    else createAgentConversation(request);
-    if (sourceTask.draftPrompt.trim() || !sourceTask.messages.some(message => message.role === 'user')) {
-      recordWorkspaceBrief(sourceTask.id, prompt, sourceTask.attachment);
-    }
-    pendingGeneralTaskRef.current = null;
-    setShellPage("workspace");
-    changeView(mode);
-  };
   const syncExtensionsState = useCallback(async () => {
     try {
       const [nextPlugins, nextCatalog, nextApiModels, nextBindings] =
@@ -3045,285 +1531,327 @@ function App() {
           getHarnessCatalog(),
           listApiModelCatalog(),
           getModelDependencyBindings(),
-        ]);
-      setPlugins(nextPlugins);
-      setPluginsLoaded(true);
-      setCatalog(nextCatalog);
-      setApiModelCatalog(nextApiModels);
-      setModelBindings(nextBindings);
-      setModelBindingsLoaded(true);
-      setInstalledCloudModelIds(getInitialCloudModels());
-      setCustomApiModels(getInitialCustomApiModels());
+        ])
+      setPlugins(nextPlugins)
+      setPluginsLoaded(true)
+      setCatalog(nextCatalog)
+      setApiModelCatalog(nextApiModels)
+      setModelBindings(nextBindings)
+      setModelBindingsLoaded(true)
+      setInstalledCloudModelIds(getInitialCloudModels())
+      setCustomApiModels(getInitialCustomApiModels())
     } catch (error) {
       setToast(
-        t("无法同步扩展状态：{0}", [
-          error instanceof Error ? error.message : String(error),
-        ]),
-      );
+        `无法同步扩展状态：${error instanceof Error ? error.message : String(error)}`,
+      )
     }
-  }, []);
+  }, [])
   useEffect(() => {
-    if (!isTauriRuntime()) return undefined;
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
-    void listen<{ stage: string }>("plugin-install-progress", (event) => {
-      if (!disposed && event.payload.stage === "complete") {
-        void syncExtensionsState();
+    if (!isTauriRuntime()) return undefined
+    let disposed = false
+    let unlisten: (() => void) | undefined
+    void listen<{ stage: string }>('plugin-install-progress', (event) => {
+      if (!disposed && event.payload.stage === 'complete') {
+        void syncExtensionsState()
       }
     }).then((cleanup) => {
-      if (disposed) cleanup();
-      else unlisten = cleanup;
-    });
+      if (disposed) cleanup()
+      else unlisten = cleanup
+    })
     return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, [syncExtensionsState]);
-  useEffect(() => {
-    if (!isTauriRuntime() && !import.meta.env.DEV) return undefined;
-    let disposed = false;
-    void listAcpProviders()
-      .then((providers) => {
-        if (!disposed) {
-          setAcpProviders(providers);
-          setAgentChatAvailable(providers.some(provider => provider.available));
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      disposed = true;
-    };
-  }, []);
-  const openShellPage = (page: Exclude<ShellPage, "workspace">) => {
-    if (
-      shellPage === "workspace" &&
-      document.activeElement instanceof HTMLElement
-    ) {
-      extensionsReturnFocusRef.current = document.activeElement;
+      disposed = true
+      unlisten?.()
     }
-    setShellPage(page);
-    setSidebarOpen(false);
-  };
-  const openNewTask = () => {
-    pendingGeneralTaskRef.current = null;
-    setShellPage("workspace");
-    setAgentHomeMode(null);
-    setSelectedAgentConversationId(null);
-    setWorkspacePanelOpen(false);
-    changeView("agents");
-  };
-  const openSkills = () => openShellPage("skills");
-  const openWorkshop = () => openShellPage("workshop");
-  const openModelStore = () => openShellPage("models");
-  const openExtensions = openModelStore;
+  }, [syncExtensionsState])
+  const openShellPage = (page: Exclude<ShellPage, 'workspace'>) => {
+    if (shellPage === 'workspace' && document.activeElement instanceof HTMLElement) {
+      extensionsReturnFocusRef.current = document.activeElement
+    }
+    setShellPage(page)
+    setSidebarOpen(false)
+  }
+  const openExtensions = () => openShellPage('extensions')
+  const openExtensionWorkbench = () => {
+    const resolvedPage = resolveExtensionWorkbenchPage(
+      extensionWorkbenchEnabled,
+      extensionWorkbenchPage,
+    )
+    if (!resolvedPage) return
+    setExtensionWorkbenchPage(resolvedPage)
+    openShellPage('extension-workbench')
+  }
+  const openExtensionModelStore = () => {
+    if (!extensionWorkbenchEnabled) return
+    setExtensionWorkbenchPage('models')
+    if (shellPage !== 'extension-workbench') {
+      openShellPage('extension-workbench')
+    }
+  }
   const openSettings = () => {
-    setSettingsSection("general");
-    openShellPage("settings");
-  };
+    setSettingsSection('all')
+    openShellPage('settings')
+  }
 
   const openProviderSettings = (providerId: string) => {
-    if (
-      providerId === "api.openai-compatible" ||
-      providerId.startsWith("api.custom.")
-    ) {
-      setSettingsCustomProviderId(providerId);
+    if (providerId === 'api.openai-compatible' || providerId.startsWith('api.custom.')) {
+      notify('通用自定义服务配置已移除，请在对应 Agent 中配置账号。')
+      return
     }
-    setSettingsProvider(
-      providerId === "api.openai-compatible" ||
-        providerId.startsWith("api.custom.")
-        ? "custom"
-        : "bailian",
-    );
-    setSettingsSection("api");
-    openShellPage("settings");
-  };
+    setSettingsSection('accounts')
+    openShellPage('settings')
+  }
+
+  const notifyModelStoreProviderConfiguration = (providerId: string) => {
+    const providerName =
+      catalog?.providers.find((provider) => provider.id === providerId)?.name ??
+      providerId
+    notify(t('{0} 尚未配置；请完成账号配置后返回当前模型商店。', [providerName]))
+  }
+
+  const selectPlugin = (pluginId: string) => {
+    setSelectedPythonAgent(null)
+    setSelectedPluginId(pluginId)
+    setWorkflowSelected(false)
+    changeView('workspace')
+  }
+
+  const updateWorkflowTurns = (
+    workflowId: string,
+    update: SetStateAction<WorkflowChatTurn[]>,
+  ) => {
+    setWorkflowTurns((current) => {
+      const previous = current[workflowId] ?? []
+      return {
+        ...current,
+        [workflowId]:
+          typeof update === 'function' ? update(previous) : update,
+      }
+    })
+  }
+
+  const reorderSidebarPlugin = (sourceId: string, targetId: string) => {
+    if (sourceId === targetId) return
+    setSidebarModelOrder((current) => {
+      const next = [...current]
+      const sourceIndex = next.indexOf(sourceId)
+      const targetIndex = next.indexOf(targetId)
+      if (sourceIndex < 0 || targetIndex < 0) return current
+      next.splice(sourceIndex, 1)
+      next.splice(targetIndex, 0, sourceId)
+      try {
+        window.localStorage.setItem(
+          SIDEBAR_MODEL_ORDER_KEY,
+          JSON.stringify(next),
+        )
+      } catch {
+        // Keep the reordered list for the current session.
+      }
+      return next
+    })
+  }
+
+  const togglePinnedModel = (pluginId: string) => {
+    setPinnedModelIds((current) => {
+      const next = current.includes(pluginId)
+        ? current.filter((id) => id !== pluginId)
+        : [...current, pluginId]
+      try {
+        window.localStorage.setItem(
+          SIDEBAR_PINNED_MODELS_KEY,
+          JSON.stringify(next),
+        )
+      } catch {
+        // Keep the pin state for the current session.
+      }
+      return next
+    })
+  }
 
   const clearAllHistory = async () => {
-    const removableRuns = runs.filter((run) => !activeRunIds.has(run.id));
-    if (!removableRuns.length) {
-      notify(t("当前没有历史消息"));
-      return;
+    const removableRuns = runs.filter(
+      (run) => !activeRunIds.has(run.id),
+    )
+    if (!removableRuns.length && !Object.keys(workflowTurns).length) {
+      notify('当前没有历史消息')
+      return
     }
     if (
       !window.confirm(
-        t("确定清除 {0} 条历史记录吗？此操作无法撤销。", [
-          removableRuns.length,
-        ]),
+        `确定清除 ${removableRuns.length} 条历史记录吗？此操作无法撤销。`,
       )
     ) {
-      return;
+      return
     }
-    setClearingHistory(true);
+    setClearingHistory(true)
     try {
-      await Promise.all(removableRuns.map((run) => deleteHarnessRun(run.id)));
-      const removableIds = new Set(removableRuns.map((run) => run.id));
-      setRuns((current) => current.filter((run) => !removableIds.has(run.id)));
+      await Promise.all(
+        removableRuns.map((run) => deleteHarnessRun(run.id)),
+      )
+      const removableIds = new Set(removableRuns.map((run) => run.id))
+      setRuns((current) =>
+        current.filter((run) => !removableIds.has(run.id)),
+      )
+      setWorkflowTurns({})
       if (isTauriRuntime()) {
-        void emit(HISTORY_CLEARED_EVENT, {}).catch(() => undefined);
+        void emit(HISTORY_CLEARED_EVENT, {}).catch(() => undefined)
       }
-      notify(t("历史消息已清除"));
+      notify('历史消息已清除')
     } catch (error) {
       notify(
-        t("清除失败：{0}", [
-          error instanceof Error ? error.message : String(error),
-        ]),
-      );
+        `清除失败：${error instanceof Error ? error.message : String(error)}`,
+      )
     } finally {
-      setClearingHistory(false);
+      setClearingHistory(false)
     }
-  };
+  }
 
   const runText = async (
     text: string,
     capability:
-      | "speech.synthesize"
-      | "text.generate"
-      | "text.punctuate"
-      | "text.normalize",
+      | 'speech.synthesize'
+      | 'text.generate'
+      | 'text.punctuate'
+      | 'text.normalize',
     providerId: string,
     modelId: string,
     modelParameters: Record<string, unknown>,
     dependencyRunIds: string[] = [],
     conversationVisible = true,
+    runnerMode: AppRunnerMode = 'boss',
   ): Promise<
-    HarnessExecution<
-      TtsGenerateResult | TextGenerateResult | Record<string, unknown>
-    >
+    HarnessExecution<TtsGenerateResult | TextGenerateResult | Record<string, unknown>>
   > => {
-    const executionPlugin = orderedRunnablePlugins.find(
-      (plugin) =>
-        plugin.providerId === providerId &&
-        (plugin.version === modelId || plugin.id === modelId),
-    );
-    const providerKey = providerId;
+    const attribution = resolveRunnerAttribution({
+      mode: runnerMode,
+      providerId,
+      modelId,
+      selectedPlugin,
+      plugins,
+    })
+    const providerKey = selectedPlugin.providerId ?? ''
     const history =
-      capability === "text.generate" && conversationVisible
+      capability === 'text.generate' && attribution.readsBossTextHistory
         ? (textHistory[providerKey] ?? [])
-        : [];
-    const systemPrompt =
-      typeof modelParameters.systemPrompt === "string"
-        ? modelParameters.systemPrompt.trim()
-        : "";
+        : []
+    const systemPrompt = typeof modelParameters.systemPrompt === 'string'
+      ? modelParameters.systemPrompt.trim()
+      : ''
     const messages: {
-      role: "system" | "user" | "assistant";
-      content: string;
+      role: 'system' | 'user' | 'assistant'
+      content: string
     }[] =
-      capability === "text.generate"
+      capability === 'text.generate'
         ? [
-            ...(systemPrompt
-              ? [{ role: "system" as const, content: systemPrompt }]
+            ...(attribution.includesSystemPrompt && systemPrompt
+              ? [{ role: 'system' as const, content: systemPrompt }]
               : []),
             ...history,
-            { role: "user" as const, content: text },
+            { role: 'user' as const, content: text },
           ]
-        : [];
+        : []
     const execution = await executeHarnessTask<
       TtsGenerateResult | TextGenerateResult | Record<string, unknown>
     >(
       {
         capability,
         providerId,
-        conversationProviderId: providerId,
+        conversationProviderId: attribution.conversationProviderId,
         conversationVisible,
         dependencyRunIds,
-        routing: capability === "text.generate" ? "quality" : "local",
-        title: `${executionPlugin?.name ?? modelId} · ${
-          capability === "text.generate"
-            ? t("文本生成")
-            : capability === "text.punctuate"
-              ? t("标点恢复")
-              : capability === "text.normalize"
-                ? t("文本归一化")
-                : t("音频生成")
+        routing: capability === 'text.generate' ? 'quality' : 'local',
+        title: `${attribution.titlePluginName} · ${
+          capability === 'text.generate'
+            ? '文本生成'
+            : capability === 'text.punctuate'
+              ? '标点恢复'
+              : capability === 'text.normalize'
+                ? '文本归一化'
+              : '音频生成'
         }`,
-        input: capability === "text.generate" ? { messages } : { text },
+        input:
+          capability === 'text.generate'
+            ? { messages }
+            : { text },
         parameters: {
           modelId,
-          ...(capability === "speech.synthesize"
+          ...(capability === 'speech.synthesize'
             ? { sid: 3, speed: 0.96, silenceScale: 0.2 }
             : { temperature: 0.7, maxTokens: 1024 }),
           ...modelParameters,
         },
       },
       (run) => {
-        recordRun(run);
+        recordRun(run)
       },
-    );
-    recordRun(execution.run);
-    if (capability === "text.generate" && conversationVisible) {
-      const reply = (execution.output as TextGenerateResult).text;
-      if (typeof reply === "string") {
+    )
+    recordRun(execution.run)
+    if (capability === 'text.generate' && attribution.appendsBossTextHistory) {
+      const reply = (execution.output as TextGenerateResult).text
+      if (typeof reply === 'string') {
         setTextHistory((current) => ({
           ...current,
           [providerKey]: [
             ...(current[providerKey] ?? []),
-            { role: "user" as const, content: text },
-            { role: "assistant" as const, content: reply },
+            { role: 'user' as const, content: text },
+            { role: 'assistant' as const, content: reply },
           ].slice(-40),
-        }));
+        }))
       }
     }
-    return execution;
-  };
+    return execution
+  }
 
   const clearTextHistory = (providerId: string) => {
     setTextHistory((current) => {
-      const next = { ...current };
-      delete next[providerId];
-      return next;
-    });
-  };
+      const next = { ...current }
+      delete next[providerId]
+      return next
+    })
+  }
 
   const clearConversationRuns = async (runIds: string[]): Promise<boolean> => {
-    const removableIds = runIds.filter((id) => !activeRunIds.has(id));
+    const removableIds = runIds.filter((id) => !activeRunIds.has(id))
     if (!removableIds.length) {
-      notify(t("当前没有可清除的对话记录"));
-      return false;
+      notify('当前没有可清除的对话记录')
+      return false
     }
-    if (
-      !window.confirm(
-        t("确定清除当前模型的 {0} 条对话记录吗？", [removableIds.length]),
-      )
-    ) {
-      return false;
+    if (!window.confirm(`确定清除当前模型的 ${removableIds.length} 条对话记录吗？`)) {
+      return false
     }
     try {
-      await Promise.all(removableIds.map((id) => deleteHarnessRun(id)));
-      const removed = new Set(removableIds);
-      setRuns((current) => current.filter((run) => !removed.has(run.id)));
+      await Promise.all(removableIds.map((id) => deleteHarnessRun(id)))
+      const removed = new Set(removableIds)
+      setRuns((current) => current.filter((run) => !removed.has(run.id)))
       if (isTauriRuntime()) {
-        void emit(RUNS_REMOVED_EVENT, removableIds).catch(() => undefined);
+        void emit(RUNS_REMOVED_EVENT, removableIds).catch(() => undefined)
       }
-      notify(t("当前模型的对话记录已清除"));
-      return true;
+      notify('当前模型的对话记录已清除')
+      return true
     } catch (error) {
-      notify(
-        t("清除失败：{0}", [
-          error instanceof Error ? error.message : String(error),
-        ]),
-      );
-      return false;
+      notify(`清除失败：${error instanceof Error ? error.message : String(error)}`)
+      return false
     }
-  };
+  }
 
   const runAudio = async (
     clip: AudioClip,
     capability:
-      | "speech.transcribe"
-      | "speech.detect"
-      | "audio.enhance"
-      | "audio.classify"
-      | "speech.keyword"
-      | "speech.language"
-      | "speaker.embed"
-      | "speaker.diarize"
-      | "audio.separate",
+      | 'speech.transcribe'
+      | 'speech.detect'
+      | 'audio.enhance'
+      | 'audio.classify'
+      | 'speech.keyword'
+      | 'speech.language'
+      | 'speaker.embed'
+      | 'speaker.diarize'
+      | 'audio.separate',
     providerId: string,
     modelId: string,
     modelParameters: Record<string, unknown>,
     conversationVisible = true,
     dependencyRunIds: string[] = [],
     comparisonClip?: AudioClip,
+    runnerMode: AppRunnerMode = 'boss',
   ): Promise<
     HarnessExecution<
       | AsrTranscriptionResult
@@ -3332,18 +1860,25 @@ function App() {
       | Record<string, unknown>
     >
   > => {
+    const attribution = resolveRunnerAttribution({
+      mode: runnerMode,
+      providerId,
+      modelId,
+      selectedPlugin,
+      plugins,
+    })
     const audioDataUrl =
-      capability === "speech.transcribe" || capability === "speech.detect"
+      capability === 'speech.transcribe' || capability === 'speech.detect'
         ? clip.transcriptionAudioUrl
-        : clip.processingAudioUrl;
+        : clip.processingAudioUrl
     if (!audioDataUrl) {
-      throw new Error(t("该音频无法解码为模型需要的 WAV 格式"));
+      throw new Error('该音频无法解码为模型需要的 WAV 格式')
     }
-    const comparisonAudioDataUrl = comparisonClip?.processingAudioUrl;
+    const comparisonAudioDataUrl = comparisonClip?.processingAudioUrl
     if (comparisonClip && !comparisonAudioDataUrl) {
-      throw new Error(t("第二段音频无法解码为模型需要的 WAV 格式"));
+      throw new Error('第二段音频无法解码为模型需要的 WAV 格式')
     }
-    const { speechSegments, ...executionParameters } = modelParameters;
+    const { speechSegments, ...executionParameters } = modelParameters
 
     const execution = await executeHarnessTask<
       | AsrTranscriptionResult
@@ -3354,18 +1889,18 @@ function App() {
       {
         capability,
         providerId,
-        conversationProviderId: selectedPlugin.providerId,
+        conversationProviderId: attribution.conversationProviderId,
         conversationVisible,
         dependencyRunIds,
-        routing: "local",
+        routing: 'local',
         title:
-          capability === "speaker.embed" && comparisonClip
-            ? t("{0} 与 {1} · 声纹比对", [clip.name, comparisonClip.name])
-            : capability === "speech.transcribe"
-              ? t("{0} · 语音识别", [clip.name])
-              : capability === "speech.detect"
-                ? t("{0} · 语音活动检测", [clip.name])
-                : t("{0} · 音频增强", [clip.name]),
+          capability === 'speaker.embed' && comparisonClip
+            ? `${clip.name} 与 ${comparisonClip.name} · 声纹比对`
+            : capability === 'speech.transcribe'
+            ? `${clip.name} · 语音识别`
+            : capability === 'speech.detect'
+              ? `${clip.name} · 语音活动检测`
+            : `${clip.name} · 音频增强`,
         input: {
           audioDataUrl,
           clipName: clip.name,
@@ -3376,19 +1911,21 @@ function App() {
                 comparisonClipName: comparisonClip.name,
               }
             : {}),
-          ...(Array.isArray(speechSegments) ? { speechSegments } : {}),
+          ...(Array.isArray(speechSegments)
+            ? { speechSegments }
+            : {}),
         },
         parameters:
-          capability === "audio.enhance"
+          capability === 'audio.enhance'
             ? {
-                operations: ["denoise", "normalize", "fade"],
+                operations: ['denoise', 'normalize', 'fade'],
                 denoiseStrength: 0.58,
                 targetLoudnessDb: -16,
                 fadeMs: 20,
                 modelId,
                 ...executionParameters,
               }
-            : capability === "speech.detect"
+            : capability === 'speech.detect'
               ? {
                   threshold: 0.25,
                   minSpeechDuration: 0.18,
@@ -3402,518 +1939,570 @@ function App() {
                 },
       },
       (run) => {
-        recordRun(run);
+        recordRun(run)
       },
-    );
-    recordRun(execution.run);
-    return execution;
-  };
+    )
+    recordRun(execution.run)
+    return execution
+  }
 
-  const archivedTasks = [
-    ...generalTasks.filter(task => task.archived && !agentConversations.some(conversation =>
-      conversation.sourceTaskId === task.id)),
-    ...agentConversations.filter(task => task.archived),
-  ];
-  const handleProviderCatalogChanged = useCallback((nextCatalog: HarnessCatalog) => {
-    setCatalog(nextCatalog);
-    invalidateAcpModels();
-    void refreshOpenCodeConnections();
-  }, [invalidateAcpModels, refreshOpenCodeConnections]);
-  const settingsRows: Record<SettingsSection, ReactNode> = {
-    archived: (
-      <div className="settings-archived-tasks">
-        {archivedTasks.length === 0 && <p>{t('暂无归档任务')}</p>}
-        {archivedTasks.map(task => (
-          <div className="settings-archived-task" key={task.id}>
-            <span title={task.title}>{task.title}</span>
-            <button type="button" aria-label={`${t('恢复任务')}：${task.title}`} onClick={() => setTaskArchived(task.id, false)}>
-              <ArchiveRestore size={15} />{t('恢复任务')}
+  const runWorkbenchText: ExtensionExecutionContext['runText'] = (
+    text,
+    capability,
+    providerId,
+    modelId,
+    modelParameters,
+    dependencyRunIds,
+    conversationVisible,
+  ) =>
+    runText(
+      text,
+      capability,
+      providerId,
+      modelId,
+      modelParameters,
+      dependencyRunIds,
+      conversationVisible,
+      'workbench',
+    )
+  const runWorkbenchAudio: ExtensionExecutionContext['runAudio'] = (
+    clip,
+    capability,
+    providerId,
+    modelId,
+    modelParameters,
+    conversationVisible,
+    dependencyRunIds,
+    comparisonClip,
+  ) =>
+    runAudio(
+      clip,
+      capability,
+      providerId,
+      modelId,
+      modelParameters,
+      conversationVisible,
+      dependencyRunIds,
+      comparisonClip,
+      'workbench',
+    )
+
+  const extensionExecutionContext: ExtensionExecutionContext = {
+    models: orderedRunnablePlugins,
+    catalog,
+    runText: runWorkbenchText,
+    runAudio: runWorkbenchAudio,
+    openModelStore: openExtensionModelStore,
+    notify,
+  }
+
+  const renderPluginSidebarEntry = (plugin: ModelPlugin) => {
+    const active =
+      view === 'workspace' &&
+      !workflowSelected &&
+      !activePythonAgent &&
+      selectedPlugin.id === plugin.id
+    const apiPlugin = plugin.providerId?.startsWith('api.') === true
+    const pinned = pinnedModelIds.includes(plugin.id)
+    const running = runs.some(
+      (run) =>
+        run.conversationVisible !== false &&
+        activeRunIds.has(run.id) &&
+        (run.conversationProviderId ?? run.providerId) === plugin.providerId &&
+        (!apiPlugin || run.modelId === plugin.version),
+    )
+    return (
+      <div
+        className={`installed-model-entry${draggingModelId === plugin.id ? ' dragging' : ''}${dropTargetModelId === plugin.id ? ' drop-target' : ''}`}
+        draggable
+        key={plugin.id}
+        onDragStart={(event) => {
+          setDraggingModelId(plugin.id)
+          event.dataTransfer.effectAllowed = 'move'
+          event.dataTransfer.setData(
+            'application/cosy-sidebar-model',
+            plugin.id,
+          )
+        }}
+        onDragOver={(event) => {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'move'
+          if (draggingModelId !== plugin.id) {
+            setDropTargetModelId(plugin.id)
+          }
+        }}
+        onDragLeave={() => {
+          if (dropTargetModelId === plugin.id) {
+            setDropTargetModelId(null)
+          }
+        }}
+        onDrop={(event) => {
+          event.preventDefault()
+          const sourceId =
+            event.dataTransfer.getData('application/cosy-sidebar-model') ||
+            draggingModelId
+          if (sourceId) reorderSidebarPlugin(sourceId, plugin.id)
+          setDraggingModelId(null)
+          setDropTargetModelId(null)
+        }}
+        onDragEnd={() => {
+          setDraggingModelId(null)
+          setDropTargetModelId(null)
+        }}
+      >
+        <button
+          className={`installed-model-button${active ? ' active' : ''}`}
+          type="button"
+          aria-label={plugin.name}
+          title={plugin.name}
+          aria-current={active ? 'page' : undefined}
+          onMouseEnter={(event) => {
+            startModelNameScroll(event.currentTarget)
+          }}
+          onMouseLeave={(event) => {
+            stopModelNameScroll(event.currentTarget)
+          }}
+          onFocus={(event) => {
+            startModelNameScroll(event.currentTarget)
+          }}
+          onBlur={(event) => {
+            stopModelNameScroll(event.currentTarget)
+          }}
+          onClick={() => {
+            setSelectedPythonAgent(null)
+            selectPlugin(plugin.id)
+          }}
+        >
+          <span className="activity-model-name">
+            <span className="activity-model-name-text">
+              {plugin.name}
+            </span>
+          </span>
+        </button>
+        {running && (
+          <span
+            className="installed-model-running"
+            aria-label={`${plugin.name} 运行中`}
+          >
+            <LoaderCircle className="sidebar-model-spinner" size={14} />
+          </span>
+        )}
+        {draggingModelId === null && (
+          <div className={`installed-model-actions${pinned ? ' pinned' : ''}`}>
+            <button
+              className="installed-model-pin"
+              type="button"
+              aria-label={`${pinned ? '取消置顶' : '置顶'} ${plugin.name}`}
+              title={pinned ? '取消置顶' : '置顶'}
+              aria-pressed={pinned}
+              draggable={false}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                togglePinnedModel(plugin.id)
+              }}
+            >
+              <Pin
+                size={14}
+                strokeWidth={1.45}
+                fill={pinned ? 'currentColor' : 'none'}
+              />
+            </button>
+            <button
+              className={`installed-model-remove${pendingSidebarRemovalId === plugin.id ? ' confirming' : ''}`}
+              type="button"
+              aria-label={`删除 ${plugin.name}`}
+              title={
+                running
+                  ? '模型运行中，暂时无法删除'
+                  : pendingSidebarRemovalId === plugin.id
+                    ? '再次点击确认删除'
+                    : '删除模型'
+              }
+              disabled={running}
+              draggable={false}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                const references = referencingModels(plugin.id, [
+                  ...plugins,
+                  ...cloudModelPlugins,
+                ], modelBindings)
+                if (pendingSidebarRemovalId !== plugin.id) {
+                  setPendingSidebarRemovalId(plugin.id)
+                  notify(
+                    apiPlugin
+                      ? `再次点击垃圾桶确认从工作台移除 ${plugin.name}`
+                      : references.length
+                      ? `${plugin.name} 仍被引用；再次点击将隐藏模型并保留权重`
+                      : `再次点击垃圾桶确认删除 ${plugin.name} 的模型权重`,
+                  )
+                  return
+                }
+                setPendingSidebarRemovalId(null)
+                if (apiPlugin) {
+                  void refreshThenPersistCloudModelState({
+                    refreshModels: refreshModelStore,
+                    persistCloudState: () =>
+                      setCloudModelInstalled(plugin.id, false),
+                  })
+                    .then(() => notify(`${plugin.name} 已从侧栏移除`))
+                    .catch((error) =>
+                      notify(
+                        `移除失败：${
+                          error instanceof Error ? error.message : String(error)
+                        }`,
+                      ),
+                    )
+                } else {
+                  void uninstallModelPlugin(plugin.id)
+                    .then(({ plugins: next, removal }) => {
+                      setPlugins(next)
+                      if (removal.deleted) removeModelBindings(plugin.id)
+                      notify(
+                        removal.retained
+                          ? `${plugin.name} 已隐藏；共享权重仍被 ${removal.referencedBy.length} 个模型引用`
+                          : `${plugin.name} 的模型权重已删除`,
+                      )
+                    })
+                    .catch((error) => {
+                      notify(
+                        `删除失败：${
+                          error instanceof Error ? error.message : String(error)
+                        }`,
+                      )
+                    })
+                }
+              }}
+            >
+              <Trash2 size={14} strokeWidth={1.45} />
             </button>
           </div>
-        ))}
+        )}
       </div>
-    ),
-    api: (
-      <ProviderSettings
-        provider={settingsProvider}
-        onProviderChange={setSettingsProvider}
-        runtime={runtime}
-        catalog={catalog}
-        onCatalogChanged={handleProviderCatalogChanged}
-        onAction={notify}
-        customProviderId={settingsCustomProviderId}
-      />
-    ),
+    )
+  }
+
+  const settingsRows: Record<SettingsSection, ReactNode> = {
+    accounts: <div className="provider-account-dialog provider-account-page">
+      <p className="account-dialog-description">管理 Agent 使用的云端服务账号。配置后返回 Agent 即可使用。</p>
+      <ProviderSettings onCatalogChanged={setCatalog} onAction={notify} />
+    </div>,
     general: (
       <>
         <div className="settings-card">
-          <div className="settings-row">
-            <span>
-              <strong>{t("界面语言")}</strong>
-              <small>{t("选择界面显示语言，立即生效")}</small>
-            </span>
-            <div className="settings-segmented" aria-label={t("界面语言")}>
-              {(
-                [
-                  ["zh-CN", "简体中文"],
-                  ["en", "English"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  lang={value}
-                  className={locale === value ? "active" : ""}
-                  aria-pressed={locale === value}
-                  onClick={() => setLocale(value)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="settings-row">
-            <span>
-              <strong>{t("关闭窗口时")}</strong>
-              <small>{t("隐藏到程序坞可以快速唤回，退出则完全关闭应用")}</small>
-            </span>
-            <div className="settings-segmented" aria-label={t("关闭窗口时")}>
-              {(
-                [
-                  [false, t("隐藏到程序坞")],
-                  [true, t("退出应用")],
-                ] as const
-              ).map(([quit, label]) => (
-                <button
-                  className={quitOnClose === quit ? "active" : ""}
-                  type="button"
-                  key={label}
-                  aria-pressed={quitOnClose === quit}
-                  onClick={() => selectCloseBehavior(quit)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="settings-row">
-            <span>
-              <strong>{t("自动检查更新")}</strong>
-              <small>{t("应用运行期间定期检查是否有新版本")}</small>
-            </span>
-            <button
-              className="settings-switch"
-              type="button"
-              role="switch"
-              aria-checked={autoUpdateCheck}
-              aria-label={t("自动检查更新")}
-              onClick={() => selectAutoUpdateCheck(!autoUpdateCheck)}
-            />
-          </div>
-	        </div>
-	        <div className="settings-group-label">{t("Agent 设置")}</div>
-	        <div className="settings-card">
-	          <div className="settings-row">
-	            <span>
-	              <strong>{t("ACP Agent")}</strong>
-	              <small>{t("选择用于对话和任务规划的本地 ACP Agent")}</small>
-	            </span>
-	            <select
-	              className="settings-select-control"
-	              value={selectedChatModel.providerId}
-	              disabled={agentSelectionLocked}
-	              aria-label={t("ACP Agent")}
-	              onChange={(event) => {
-	                invalidateAcpModels();
-	                updateAgentChatModel({
-	                  transport: "acp",
-	                  providerId: event.target.value,
-	                  apiProviderId: "",
-	                  modelId: "",
-	                });
-	              }}
-	            >
-	              {!acpProviders.some(provider => provider.id === selectedChatModel.providerId) && (
-	                <option value={selectedChatModel.providerId} disabled>
-	                  {selectedChatModel.providerId} · {t("不可用")}
-	                </option>
-	              )}
-	              {acpProviders.map(provider => (
-	                <option key={provider.id} value={provider.id} disabled={!provider.available}>
-	                  {provider.name}{provider.available ? "" : ` · ${t("不可用")}`}
-	                </option>
-	              ))}
-	            </select>
-	          </div>
-	          {selectedAcpRequiresApiProvider && (
-	            <div className="settings-row">
-	              <span>
-	                <strong>{t("API 配置")}</strong>
-	                <small>
-	                  {openCodeConnections.loading
-	                    ? t("正在读取 API 配置…")
-	                    : openCodeConnections.error
-	                      ? t("无法读取 API 配置：{0}", [openCodeConnections.error])
-	                      : openCodeApiBinding.eligible.length === 0
-	                        ? t("没有可用于此 Agent 的 API 配置")
-	                        : apiBindingUnavailable
-	                          ? openCodeApiBinding.selected?.reason ?? t("请选择一个可用的 API 配置")
-	                          : t("内置 Agent 将通过此 API 配置读取并调用模型。")}
-	                </small>
-	              </span>
-	              <div className="settings-control-stack">
-	                <select
-	                  className="settings-select-control"
-	                  value={savedAcpApiProviderId ?? ""}
-	                  disabled={agentSelectionLocked || openCodeConnections.loading}
-	                  aria-label={t("API 配置")}
-	                  onChange={(event) => {
-	                    invalidateAcpModels();
-	                    updateAgentChatModel({
-	                      ...selectedChatModel,
-	                      apiProviderId: event.target.value,
-	                      modelId: "",
-	                    });
-	                  }}
-	                >
-	                  <option value="">{t("请选择 API 配置")}</option>
-	                  {savedAcpApiProviderId && !openCodeApiBinding.selected && (
-	                    <option value={savedAcpApiProviderId} disabled>
-	                      {savedAcpApiProviderId} · {t("不可用")}
-	                    </option>
-	                  )}
-	                  {openCodeConnections.connections.map(connection => (
-	                    <option key={connection.id} value={connection.id} disabled={!connection.eligible}>
-	                      {connection.name}{connection.eligible ? "" : ` · ${connection.reason ?? t("不可用")}`}
-	                    </option>
-	                  ))}
-	                </select>
-	                <button
-	                  type="button"
-	                  className="settings-update-action compact"
-	                  disabled={agentSelectionLocked || openCodeConnections.loading}
-	                  onClick={() => void refreshOpenCodeConnections()}
-	                >
-	                  {openCodeConnections.loading ? <LoaderCircle className="model-spin" size={13} /> : <RefreshCw size={13} />}
-	                  {t("刷新 API 配置")}
-	                </button>
-	                {!openCodeConnections.loading && openCodeApiBinding.eligible.length === 0 && (
-	                  <button
-	                    type="button"
-	                    className="settings-update-action compact"
-	                    disabled={agentSelectionLocked}
-			                    onClick={() => setSettingsSection("api")}
-	                  >
-	                    {t("打开 API 配置")}
-	                  </button>
-	                )}
-	              </div>
-	            </div>
-	          )}
-	          <div className="settings-row">
-	            <span>
-	              <strong>{t("Agent 模型")}</strong>
-	              <small>
-	                {apiBindingUnavailable
-	                  ? t("请先选择一个可用的 API 配置")
-	                  : chatModelError ??
-	                    (agentSelectionLocked
-	                      ? t("任务进行中不可切换 Agent")
-	                      : selectedAcpRequiresApiProvider
-	                        ? t("模型列表由所选 API 配置提供。")
-	                        : t("模型列表由桌面端 ACP Agent 提供。"))}
-	              </small>
-	            </span>
-	            <div className="settings-control-stack">
-	              <select
-	                className="settings-select-control"
-	                value={selectedChatModel.modelId}
-	                disabled={agentSelectionLocked || apiBindingUnavailable || chatModelLoading || chosenAcpProviderModels.length === 0}
-	                aria-label={t("Agent 模型")}
-	                onChange={(event) =>
-	                  updateAgentChatModel({
-	                    ...selectedChatModel,
-	                    modelId: event.target.value,
-	                  })
-	                }
-	              >
-	                <option value="">
-	                  {chatModelLoading
-	                    ? t("正在读取…")
-	                    : chosenAcpDefaultModelName || t("Agent 默认模型")}
-	                </option>
-	                {selectedChatModel.modelId && !chosenAcpSelectedModel && (
-	                  <option value={selectedChatModel.modelId} disabled>
-	                    {selectedChatModel.modelId} · {t("不可用")}
-	                  </option>
-	                )}
-	                {chosenAcpProviderModels
-	                  .filter(model => model.id !== chosenAcpDefaultModelId || model.id === selectedChatModel.modelId)
-	                  .map(model => (
-	                    <option key={model.id} value={model.id} disabled={!model.available}>
-	                      {model.name}
-	                    </option>
-	                  ))}
-	              </select>
-	              <button
-	                type="button"
-	                className="settings-update-action compact"
-	                disabled={agentSelectionLocked || !selectedAcpProvider || apiBindingUnavailable || chatModelLoading}
-	                onClick={() => selectedAcpProvider && void loadAcpModels(selectedAcpProvider, chosenAcpApiProviderId, true)}
-	              >
-	                {chatModelLoading ? <LoaderCircle className="model-spin" size={13} /> : <RefreshCw size={13} />}
-	                {t("刷新模型")}
-	              </button>
-	            </div>
-	          </div>
-	        </div>
-	        <div className="settings-group-label">{t("更新与数据")}</div>
-	        <div className="settings-card">
-          <div className="settings-row">
-            <span>
-              <strong>{t("软件更新")}</strong>
-              <small>
-                {appUpdate.status === "available"
-                  ? t("版本 {0} 已可用", [appUpdate.update?.version])
-                  : appUpdate.status === "downloading"
-                    ? appUpdate.progress === undefined
-                      ? t("正在下载安装包")
-                      : t("正在下载 {0}%", [Math.round(appUpdate.progress)])
-                    : appUpdate.status === "downloaded"
-                      ? t("版本 {0} 已下载，点击重启安装", [
-                          appUpdate.update?.version,
-                        ])
-                      : appUpdate.status === "installing"
-                        ? t("正在安装更新")
-                        : appUpdate.status === "current"
-                          ? t("QwenAudio Toolkits {0} 已是最新版", [
-                              runtime.version,
-                            ])
-                          : (appUpdate.message ??
-                            t("当前版本 {0}", [runtime.version]))}
-              </small>
-            </span>
-            <button
-              className="settings-update-action"
-              type="button"
-              disabled={
-                appUpdate.status === "checking" ||
-                appUpdate.status === "downloading" ||
-                appUpdate.status === "installing" ||
-                appUpdate.status === "unavailable"
-              }
-              onClick={() =>
-                appUpdate.status === "available" ||
-                appUpdate.status === "downloaded"
-                  ? void applyApplicationUpdate()
-                  : void checkApplicationUpdate()
-              }
-            >
-              {appUpdate.status === "checking" ||
-              appUpdate.status === "downloading" ||
-              appUpdate.status === "installing" ? (
-                <LoaderCircle className="model-spin" size={13} />
-              ) : appUpdate.status === "available" ||
-                appUpdate.status === "downloaded" ? (
-                <Download size={13} />
-              ) : (
-                <RefreshCw size={13} />
-              )}
-              {appUpdate.status === "available"
-                ? t("下载并安装")
-                : appUpdate.status === "downloaded"
-                  ? t("重启安装")
-                  : appUpdate.status === "checking"
-                    ? t("检查中")
-                    : appUpdate.status === "downloading"
-                      ? t("下载中")
-                      : appUpdate.status === "installing"
-                        ? t("安装中")
-                        : appUpdate.status === "unavailable"
-                          ? t("开发版本")
-                          : t("检查更新")}
-            </button>
-          </div>
-          <div className="settings-row">
-            <span>
-              <strong>{t("任务数据")}</strong>
-              <small>{t("输入、结果和运行记录仅保存在本机")}</small>
-            </span>
-            <button
-              className="settings-danger-action"
-              type="button"
-              disabled={clearingHistory}
-              onClick={() => void clearAllHistory()}
-            >
-              {clearingHistory ? (
-                <LoaderCircle className="model-spin" size={13} />
-              ) : (
-                <Trash2 size={13} />
-              )}
-              {t("清除历史")}
-            </button>
-          </div>
-          <div className="settings-row">
-            <span>
-              <strong>{t("应用版本")}</strong>
-              <small>{t("QwenAudio Toolkits 桌面版")}</small>
-            </span>
-            <span className="settings-value">v{runtime.version}</span>
+        <div className="settings-row">
+          <span>
+            <strong>界面语言</strong>
+            <small>选择界面显示语言，立即生效</small>
+          </span>
+          <div className="settings-segmented" aria-label="界面语言">
+            {LOCALE_OPTIONS.map(([value, label]) => (
+              <button
+                className={locale === value ? 'active' : ''}
+                type="button"
+                key={value}
+                lang={value}
+                aria-pressed={locale === value}
+                onClick={() => setLocale(value)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="settings-group-label">{t("运行环境")}</div>
-        <div className="settings-card">
-          <div className="settings-row">
-            <span>
-              <strong>Harness Runtime</strong>
-              <small>{runtime.backend}</small>
-            </span>
-            <span className="settings-value ready">{runtime.apiUrl}</span>
+        <div className="settings-row">
+          <span>
+            <strong>关闭窗口时</strong>
+            <small>隐藏到程序坞可以快速唤回，退出则完全关闭应用</small>
+          </span>
+          <div className="settings-segmented" aria-label="关闭窗口时">
+            {(
+              [
+                [false, '隐藏到程序坞'],
+                [true, '退出应用'],
+              ] as const
+            ).map(([quit, label]) => (
+              <button
+                className={quitOnClose === quit ? 'active' : ''}
+                type="button"
+                key={label}
+                aria-pressed={quitOnClose === quit}
+                onClick={() => selectCloseBehavior(quit)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-	          <div className="settings-row">
-	            <span>
-	              <strong>{t("运行设备")}</strong>
-	              <small>{runtime.platform}</small>
-	            </span>
-	            <span className="settings-value">{runtime.device}</span>
-	          </div>
-	        </div>
+        </div>
+        <div className="settings-row">
+          <span>
+            <strong>自动检查更新</strong>
+            <small>应用运行期间定期检查是否有新版本</small>
+          </span>
+          <button
+            className="settings-switch"
+            type="button"
+            role="switch"
+            aria-checked={autoUpdateCheck}
+            aria-label="自动检查更新"
+            onClick={() => selectAutoUpdateCheck(!autoUpdateCheck)}
+          />
+        </div>
+        <div className="settings-row">
+          <span>
+            <strong>{t('扩展工作台')}</strong>
+            <small>{t('启用后可从程序坞访问扩展工具')}</small>
+          </span>
+          <button
+            className="settings-switch"
+            type="button"
+            role="switch"
+            aria-checked={extensionWorkbenchEnabled}
+            aria-label={t('扩展工作台')}
+            onClick={() =>
+              selectExtensionWorkbenchEnabled(!extensionWorkbenchEnabled)
+            }
+          />
+        </div>
+        </div>
+        <div className="settings-group-label">更新与数据</div>
+        <div className="settings-card">
+        <div className="settings-row">
+        <span>
+          <strong>软件更新</strong>
+          <small>
+            {appUpdate.status === 'available'
+              ? `版本 ${appUpdate.update?.version} 已可用`
+              : appUpdate.status === 'downloading'
+                ? appUpdate.progress === undefined
+                  ? '正在下载安装包'
+                  : `正在下载 ${Math.round(appUpdate.progress)}%`
+                : appUpdate.status === 'downloaded'
+                  ? `版本 ${appUpdate.update?.version} 已下载，点击重启安装`
+                  : appUpdate.status === 'installing'
+                    ? '正在安装更新'
+                    : appUpdate.status === 'current'
+                      ? `QwenAudio Toolkits ${runtime.version} 已是最新版`
+                      : appUpdate.message ?? `当前版本 ${runtime.version}`}
+          </small>
+        </span>
+        <button
+          className="settings-update-action"
+          type="button"
+          disabled={
+            appUpdate.status === 'checking' ||
+            appUpdate.status === 'downloading' ||
+            appUpdate.status === 'installing' ||
+            appUpdate.status === 'unavailable'
+          }
+          onClick={() =>
+            appUpdate.status === 'available' ||
+            appUpdate.status === 'downloaded'
+              ? void applyApplicationUpdate()
+              : void checkApplicationUpdate()
+          }
+        >
+          {appUpdate.status === 'checking' ||
+          appUpdate.status === 'downloading' ||
+          appUpdate.status === 'installing' ? (
+            <LoaderCircle className="model-spin" size={13} />
+          ) : appUpdate.status === 'available' ||
+            appUpdate.status === 'downloaded' ? (
+            <Download size={13} />
+          ) : (
+            <RefreshCw size={13} />
+          )}
+          {appUpdate.status === 'available'
+            ? '下载并安装'
+            : appUpdate.status === 'downloaded'
+              ? '重启安装'
+              : appUpdate.status === 'checking'
+                ? '检查中'
+                : appUpdate.status === 'downloading'
+                  ? '下载中'
+                  : appUpdate.status === 'installing'
+                    ? '安装中'
+                    : appUpdate.status === 'unavailable'
+                      ? '开发版本'
+                      : '检查更新'}
+        </button>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>任务数据</strong>
+          <small>输入、结果和运行记录仅保存在本机</small>
+        </span>
+        <button
+          className="settings-danger-action"
+          type="button"
+          disabled={clearingHistory}
+          onClick={() => void clearAllHistory()}
+        >
+          {clearingHistory ? (
+            <LoaderCircle className="model-spin" size={13} />
+          ) : (
+            <Trash2 size={13} />
+          )}
+          清除历史
+        </button>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>应用版本</strong>
+          <small>QwenAudio Toolkits 桌面版</small>
+        </span>
+        <span className="settings-value">v{runtime.version}</span>
+      </div>
+      </div>
+      <div className="settings-group-label">运行环境</div>
+      <div className="settings-card">
+      <div className="settings-row">
+        <span>
+          <strong>Harness Runtime</strong>
+          <small>{runtime.backend}</small>
+        </span>
+        <span className="settings-value ready">{runtime.apiUrl}</span>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>运行设备</strong>
+          <small>{runtime.platform}</small>
+        </span>
+        <span className="settings-value">{runtime.device}</span>
+      </div>
+      </div>
       </>
     ),
     appearance: (
       <>
         <div className="settings-card">
-          <div className="settings-row theme-settings-row">
-            <span>
-              <strong>{t("外观主题")}</strong>
-              <small>{t("使用系统外观，或固定浅色与深色模式")}</small>
-            </span>
-            <div className="theme-segmented" aria-label={t("外观主题")}>
-              {(
-                [
-                  ["system", Monitor, t("跟随系统")],
-                  ["light", Sun, t("浅色")],
-                  ["dark", Moon, t("深色")],
-                ] as const
-              ).map(([theme, Icon, label]) => (
-                <button
-                  className={themePreference === theme ? "active" : ""}
-                  type="button"
-                  key={theme}
-                  title={label}
-                  aria-label={label}
-                  aria-pressed={themePreference === theme}
-                  onClick={() => selectTheme(theme)}
-                >
-                  <Icon size={14} />
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="settings-row">
-            <span>
-              <strong>{t("强调色")}</strong>
-              <small>{t("按钮、选中项与高亮状态使用的主题色")}</small>
-            </span>
-            <div className="accent-swatches" aria-label={t("强调色")}>
-              {ACCENT_OPTIONS.map(({ id, label, swatch }) => (
-                <button
-                  className={`accent-swatch${accent === id ? " active" : ""}`}
-                  type="button"
-                  key={id}
-                  title={label}
-                  aria-label={label}
-                  aria-pressed={accent === id}
-                  style={{ "--swatch": swatch } as CSSProperties}
-                  onClick={() => selectAccent(id)}
-                >
-                  {accent === id && <Check size={12} strokeWidth={3} />}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="settings-row">
-            <span>
-              <strong>{t("侧边栏密度")}</strong>
-              <small>{t("紧凑模式可以在模型列表中显示更多条目")}</small>
-            </span>
-            <div className="settings-segmented" aria-label={t("侧边栏密度")}>
-              {SIDEBAR_DENSITY_OPTIONS.map(({ id, label }) => (
-                <button
-                  className={sidebarDensity === id ? "active" : ""}
-                  type="button"
-                  key={id}
-                  aria-pressed={sidebarDensity === id}
-                  onClick={() => selectSidebarDensity(id)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="settings-row theme-settings-row">
+        <span>
+          <strong>外观主题</strong>
+          <small>使用系统外观，或固定浅色与深色模式</small>
+        </span>
+        <div className="theme-segmented" aria-label="外观主题">
+          {(
+            [
+              ['system', Monitor, '跟随系统'],
+              ['light', Sun, '浅色'],
+              ['dark', Moon, '深色'],
+            ] as const
+          ).map(([theme, Icon, label]) => (
+            <button
+              className={themePreference === theme ? 'active' : ''}
+              type="button"
+              key={theme}
+              title={label}
+              aria-label={label}
+              aria-pressed={themePreference === theme}
+              onClick={() => selectTheme(theme)}
+            >
+              <Icon size={14} />
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>强调色</strong>
+          <small>按钮、选中项与高亮状态使用的主题色</small>
+        </span>
+        <div className="accent-swatches" aria-label="强调色">
+          {ACCENT_OPTIONS.map(({ id, label, swatch }) => (
+            <button
+              className={`accent-swatch${accent === id ? ' active' : ''}`}
+              type="button"
+              key={id}
+              title={label}
+              aria-label={label}
+              aria-pressed={accent === id}
+              style={{ '--swatch': swatch } as CSSProperties}
+              onClick={() => selectAccent(id)}
+            >
+              {accent === id && <Check size={12} strokeWidth={3} />}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="settings-row">
+        <span>
+          <strong>侧边栏密度</strong>
+          <small>紧凑模式可以在模型列表中显示更多条目</small>
+        </span>
+        <div className="settings-segmented" aria-label="侧边栏密度">
+          {SIDEBAR_DENSITY_OPTIONS.map(({ id, label }) => (
+            <button
+              className={sidebarDensity === id ? 'active' : ''}
+              type="button"
+              key={id}
+              aria-pressed={sidebarDensity === id}
+              onClick={() => selectSidebarDensity(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      </div>
       </>
     ),
     storage: (
       <>
         <div className="settings-card">
-          <div className="settings-row">
-            <span>
-              <strong>{t("模型与数据目录")}</strong>
-              <small>
-                {dataDirectory === null
-                  ? t("正在读取目录位置…")
-                  : dataDirectory || t("仅桌面版可查看数据目录")}
-              </small>
-            </span>
-            <button
-              className="settings-update-action"
-              type="button"
-              disabled={!dataDirectory}
-              onClick={() => void revealDataDirectory()}
-            >
-              {t("在访达中显示")}
-            </button>
-          </div>
-          <div className="settings-row">
-            <span>
-              <strong>{t("下载缓存")}</strong>
-              <small>
-                {t("已完成的模型安装包会保留在本地，可手动清理以释放空间")}
-              </small>
-            </span>
-            <button
-              className="settings-update-action"
-              type="button"
-              disabled={cleaningCache || !isTauriRuntime()}
-              onClick={() => void cleanDownloadCache()}
-            >
-              {cleaningCache ? (
-                <LoaderCircle className="model-spin" size={13} />
-              ) : null}
-              {t("清理缓存")}
-            </button>
-          </div>
+        <div className="settings-row">
+          <span>
+            <strong>模型与数据目录</strong>
+            <small>
+              {dataDirectory === null
+                ? '正在读取目录位置…'
+                : dataDirectory || '仅桌面版可查看数据目录'}
+            </small>
+          </span>
+          <button
+            className="settings-update-action"
+            type="button"
+            disabled={!dataDirectory}
+            onClick={() => void revealDataDirectory()}
+          >
+            在访达中显示
+          </button>
+        </div>
+        <div className="settings-row">
+          <span>
+            <strong>下载缓存</strong>
+            <small>已完成的模型安装包会保留在本地，可手动清理以释放空间</small>
+          </span>
+          <button
+            className="settings-update-action"
+            type="button"
+            disabled={cleaningCache || !isTauriRuntime()}
+            onClick={() => void cleanDownloadCache()}
+          >
+            {cleaningCache ? (
+              <LoaderCircle className="model-spin" size={13} />
+            ) : null}
+            清理缓存
+          </button>
+        </div>
         </div>
       </>
     ),
-  };
+  }
   const activeSettingsSection =
     SETTINGS_SECTIONS.find((section) => section.id === settingsSection) ??
-    SETTINGS_SECTIONS[0];
-
-  if (!workspaceReady) {
-    return <main className="workspace-restoring" role="status"><LoaderCircle className="model-spin" size={20} />{t("正在恢复任务…")}</main>;
-  }
+    { label: '全部' }
 
   return (
     <div
-      className={`app-shell model-shell${usesOverlayTitlebar ? " native-titlebar-enabled" : ""} shell-page-${shellPage}`}
+      className={`app-shell model-shell${usesOverlayTitlebar ? ' native-titlebar-enabled' : ''} shell-page-${shellPage}`}
       data-theme={resolvedTheme}
       style={
         {
-          "--model-sidebar-width": `${visibleSidebarWidth}px`,
-          "--model-content-offset": `${visibleContentOffset}px`,
+          '--model-sidebar-width': `${visibleSidebarWidth}px`,
+          '--model-content-offset': `${visibleContentOffset}px`,
         } as CSSProperties
       }
     >
@@ -3925,362 +2514,202 @@ function App() {
         />
       )}
       <aside
-        id="app-navigation"
-        className={`app-sidebar model-sidebar${sidebarOpen ? " open" : ""}`}
-        inert={viewportWidth <= 900 && !sidebarOpen}
+        className={`app-sidebar model-sidebar${sidebarOpen ? ' open' : ''}`}
       >
         <div className="activity-rail-title-spacer" data-tauri-drag-region />
 
-        <div className="sidebar-brand">
-          <span className="sidebar-brand-mark app-icon">
-            <img src={appIconUrl} alt="QwenAudio Toolkits" />
-          </span>
-          <span className="sidebar-brand-name">QwenAudio Toolkits</span>
-        </div>
-        {demoMode && (
-          <div className="sidebar-demo-badge">
-            Demo Mode — UI Preview
-          </div>
-        )}
-
-        {shellPage === "settings" ? (
-          <nav
-            className="sidebar-primary-nav sidebar-return-nav"
-            aria-label={t("应用导航")}
-          >
+        {shellPage !== 'workspace' && (
+          <div className="sidebar-page-nav">
             <button
-              className="sidebar-primary-button sidebar-return-button"
+              className="sidebar-back-button"
               type="button"
+              autoFocus
               onClick={leaveShellPage}
             >
-              <ArrowLeft size={17} />
-              <span>{t("返回应用")}</span>
+              <ArrowLeft size={15} />
+              <span>返回</span>
             </button>
-          </nav>
-        ) : (
-          <nav className="sidebar-primary-nav" aria-label={t("主导航")}>
+            {shellPage === 'extensions' ? (
+              <nav className="sidebar-page-nav-body settings-nav" aria-label="Agent 分类">
+                {[['all', '全部'], ['Audio', '音频'], ['Text', '文本'], ['Vision', '视觉'], ['Multimodal', '多模态']].map(([id, label]) => {
+                  const selected = agentCategory === id
+                  const expanded = expandedAgentCategory === id
+                  const models = [...new Map([...plugins, ...cloudModelsFromCatalog(catalog, installedCloudModelIds, apiModelCatalog, customApiModels)].map(p => [p.id, p])).values()]
+                  const children = [...new Set(models.filter(p => modelTaxonomy(p).primaryCategory === id.toLowerCase()).map(p => modelTaxonomy(p).secondaryCategory))].sort()
+                  return <div key={id}>
+                    <button className={selected ? 'active' : ''} aria-expanded={id === 'all' ? undefined : expanded} onClick={() => { setExpandedAgentCategory(current => id === 'all' || current === id ? null : id); setAgentCategory(id); setAgentSecondary('all') }} aria-current={selected && agentSecondary === 'all' ? 'page' : undefined}><span aria-hidden="true">{id === 'all' ? '' : expanded ? '⌄' : '›'}</span><span>{label}</span></button>
+                    {expanded && id !== 'all' && <div className="taxonomy-secondary-group">{children.map(child => <button key={child} className={agentSecondary === child ? 'active' : ''} aria-current={agentSecondary === child ? 'page' : undefined} onClick={() => setAgentSecondary(child)}>{child}</button>)}</div>}
+                  </div>
+                })}
+              </nav>
+            ) : shellPage === 'settings' ? (
+              <nav
+                className="sidebar-page-nav-body settings-nav"
+                aria-label="设置分类"
+              >
+                <button
+                  className={settingsSection === 'all' ? 'active' : ''}
+                  type="button"
+                  aria-current={settingsSection === 'all' ? 'page' : undefined}
+                  onClick={() => setSettingsSection('all')}
+                >
+                  <span>全部</span>
+                </button>
+                {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
+                  <button
+                    key={id}
+                    className={settingsSection === id ? 'active' : ''}
+                    type="button"
+                    aria-current={settingsSection === id ? 'page' : undefined}
+                    onClick={() => setSettingsSection(id)}
+                  >
+                    <Icon size={15} />
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </nav>
+            ) : null}
+          </div>
+        )}
+
+
+        {shellPage === 'workspace' && (
+        <nav className="installed-models" aria-label="已安装 Agents">
+          {sidebarAgentGroups.map((group) => {
+            const models = group.models
+            const collapsed = collapsedSidebarGroups.has(group.id)
+            return (
+              <section
+                className="sidebar-model-group"
+                key={group.id}
+                aria-label={group.label}
+              >
+                <button
+                  className="sidebar-model-group-label"
+                  type="button"
+                  aria-expanded={!collapsed}
+                  onClick={() => toggleSidebarGroup(group.id)}
+                >
+                  <span>{group.label}</span>
+                  <span className="sidebar-group-count">{models.length + group.agents.length}</span>
+                </button>
+                {!collapsed && (
+                  <div className="sidebar-model-group-items">
+                    {models.map(renderPluginSidebarEntry)}
+                    {group.agents.map(agent => <div key={agent.uiId} className="installed-model-entry python-agent-entry">
+                      <button className={`installed-model-button${activePythonAgent === agent.uiId ? ' active' : ''}`} title={agent.error ?? agent.title} disabled={agent.status === 'installing' || agent.status === 'uninstalling'} aria-current={activePythonAgent === agent.uiId ? 'page' : undefined} onClick={() => { if (agent.status === 'error') { openExtensions(); return }; setSelectedPythonAgent(agent.uiId); setView('workspace'); setWorkflowSelected(false) }}><span className="activity-model-name"><span className="activity-model-name-text">{agent.title}</span></span></button>
+                      <span className="python-agent-action">{agent.status === 'installing' ? <span className="python-agent-progress" title="安装中"><LoaderCircle size={14} className="model-spin" /><span className="agent-install-label">安装中</span></span> : agent.status === 'error' ? <span className="agent-install-label" title={agent.error}>安装失败</span> : <button className="installed-model-pin" aria-label={`卸载 ${agent.title}`} title="卸载" disabled={agent.status === 'uninstalling'} onClick={() => {
+                        void uninstallAgentUi(agent.uiId).then(() => {
+                          if (selectedPythonAgent === agent.uiId) setSelectedPythonAgent(null)
+                          notify(`${agent.title} 已卸载`)
+                        }).catch(error => notify(`卸载失败：${String(error)}`))
+                      }}>{agent.status === 'uninstalling' ? <LoaderCircle size={14} className="model-spin" /> : <Trash2 size={14} />}</button>}</span>
+                    </div>)}
+                  </div>
+                )}
+              </section>
+            )
+          })}
+        </nav>
+        )}
+
+        {shellPage === 'workspace' && <div className="sidebar-spacer" />}
+
+        <nav className="sidebar-dock" aria-label="资源与设置">
+          <button
+            ref={extensionsTriggerRef}
+            className={`sidebar-dock-button${shellPage === 'extensions' ? ' active' : ''}`}
+            type="button"
+            aria-label="Agents"
+            aria-pressed={shellPage === 'extensions'}
+            data-tooltip="Agents"
+            onClick={shellPage === 'extensions' ? leaveShellPage : openExtensions}
+          >
+            <ShoppingBag size={18} />
+          </button>
+          {extensionWorkbenchEnabled && (
             <button
-              className={`sidebar-primary-button${
-                shellPage === "workspace" && view === "agents" && !selectedAgentConversationId
-                  ? " active"
-                  : ""
+              ref={extensionWorkbenchTriggerRef}
+              className={`sidebar-dock-button${
+                shellPage === 'extension-workbench' ? ' active' : ''
               }`}
               type="button"
-              aria-current={
-                shellPage === "workspace" && view === "agents" && !selectedAgentConversationId
-                  ? "page"
-                  : undefined
+              aria-label={t('扩展工作台')}
+              aria-pressed={shellPage === 'extension-workbench'}
+              data-tooltip={t('扩展工作台')}
+              onClick={
+                shellPage === 'extension-workbench'
+                  ? leaveShellPage
+                  : openExtensionWorkbench
               }
-              onClick={openNewTask}
             >
-              <SquarePen size={17} />
-              <span>{t("新任务")}</span>
+              <Settings2 size={18} />
             </button>
-            <button
-              className={`sidebar-primary-button${shellPage === "workshop" ? " active" : ""}`}
-              type="button"
-              aria-current={shellPage === "workshop" ? "page" : undefined}
-              onClick={shellPage === "workshop" ? leaveShellPage : openWorkshop}
-            >
-              <WandSparkles size={17} />
-              <span>{t("创意工坊")}</span>
-            </button>
-            <button
-              ref={extensionsTriggerRef}
-              className={`sidebar-primary-button${shellPage === "skills" ? " active" : ""}`}
-              type="button"
-              aria-current={shellPage === "skills" ? "page" : undefined}
-              onClick={shellPage === "skills" ? leaveShellPage : openSkills}
-            >
-              <Sparkles size={17} />
-              <span>{t("技能")}</span>
-            </button>
-            <button
-              className={`sidebar-primary-button${shellPage === "models" ? " active" : ""}`}
-              type="button"
-              aria-current={shellPage === "models" ? "page" : undefined}
-              onClick={shellPage === "models" ? leaveShellPage : openModelStore}
-            >
-              <ShoppingBag size={17} />
-              <span>{t("模型商店")}</span>
-            </button>
-          </nav>
-        )}
-
-        {shellPage === "settings" && (
-          <nav
-            className="sidebar-settings-nav settings-nav"
-            aria-label={t("设置分类")}
-          >
-            {SETTINGS_SECTIONS.map(({ id, label, Icon }) => (
-              <button
-                key={id}
-                className={settingsSection === id ? "active" : ""}
-                type="button"
-                aria-current={settingsSection === id ? "page" : undefined}
-                onClick={() => {
-                  setSettingsSection(id);
-                  setSidebarOpen(false);
-                }}
-              >
-                <Icon size={15} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </nav>
-        )}
-
-        {SHOW_INSTALLED_MODELS_SIDEBAR && shellPage !== "settings" && (
-          <nav className="installed-models" aria-label={t("已安装模型")}>
-            <div className="sidebar-agent-history-header">
-              <button
-                className="sidebar-agents-entry"
-                type="button"
-                onClick={() => setInstalledModelsExpanded((open) => !open)}
-                aria-expanded={installedModelsExpanded}
-              >
-                <span>{t("已安装模型")}</span>
-                <ChevronDown
-                  size={14}
-                  className={installedModelsExpanded ? "" : "collapsed"}
-                />
-              </button>
-            </div>
-            {installedModelsExpanded && (
-              <div
-                className="sidebar-agent-conversations"
-                aria-label={t("已安装模型")}
-              >
-                {(() => {
-                  const groups = new Map<string, typeof runnablePlugins>();
-                  for (const plugin of runnablePlugins) {
-                    const capability = plugin.harnessCapabilities[0];
-                    const category = capability
-                      ? capabilityDefinition(capability).category
-                      : t("其他");
-                    const list = groups.get(category) ?? [];
-                    list.push(plugin);
-                    groups.set(category, list);
-                  }
-                  return [...groups.entries()].map(([category, plugins]) => (
-                    <div key={category} className="sidebar-model-group">
-                      <button
-                        className="sidebar-model-group-label"
-                        type="button"
-                        onClick={() =>
-                          setExpandedModelCategories((current) => {
-                            const next = new Set(current);
-                            if (next.has(category)) {
-                              next.delete(category);
-                            } else {
-                              next.add(category);
-                            }
-                            return next;
-                          })
-                        }
-                        aria-expanded={expandedModelCategories.has(category)}
-                      >
-                        <ChevronDown
-                          size={14}
-                          className={
-                            expandedModelCategories.has(category)
-                              ? ""
-                              : "collapsed"
-                          }
-                        />
-                        <span>{t(category)}</span>
-                      </button>
-                      {expandedModelCategories.has(category) && (
-                        <div className="sidebar-model-group-items">
-                          {plugins.map((plugin) => {
-                            const active =
-                              shellPage === "workspace" &&
-                              view === "workspace" &&
-                              selectedPluginId === plugin.id;
-                            return (
-                              <button
-                                className={`installed-model-button${
-                                  active ? " active" : ""
-                                }`}
-                                type="button"
-                                key={plugin.id}
-                                title={plugin.name}
-                                aria-current={active ? "page" : undefined}
-                                onClick={() => {
-                                  setSelectedPluginId(plugin.id);
-                                  setAgentHomeMode(null);
-                                  setSelectedAgentConversationId(null);
-                                  setShellPage("workspace");
-                                  changeView("workspace");
-                                }}
-                              >
-                                <span>{plugin.name}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ));
-                })()}
-              </div>
-            )}
-          </nav>
-        )}
-
-        {shellPage !== 'settings' && (
-        <nav className="installed-models sidebar-recent-tasks" aria-label={t("最近任务")}>
-          <div className="sidebar-agent-history-header">
-            <button
-              className="sidebar-agents-entry"
-              type="button"
-              aria-expanded={recentTasksExpanded}
-              aria-controls="recent-task-list"
-              onClick={() => setRecentTasksExpanded((expanded) => !expanded)}
-            >
-              <span>{t('最近')}</span>
-              <ChevronDown size={14} className={recentTasksExpanded ? '' : 'collapsed'} />
-            </button>
-            <button
-              className="sidebar-new-agent-conversation"
-              type="button"
-              aria-label={t('新建会话')}
-              title={t('新建会话')}
-              onClick={openNewTask}
-            >
-              <SquarePen size={16} />
-            </button>
-          </div>
-          <div id="recent-task-list" hidden={!recentTasksExpanded}>
-          {(generalTasks.length > 0 || agentConversations.length > 0) && (
-            <div className="sidebar-agent-conversations" aria-label={t('最近任务')}>
-              {generalTasks.filter(task => !task.archived && !agentConversations.some(conversation =>
-                conversation.sourceTaskId === task.id,
-              )).map((task) => {
-                const active = shellPage === 'workspace' && selectedAgentConversationId === task.id && view === 'agents'
-                return (
-                  <div className="sidebar-task-row" key={task.id}>
-                  <button
-                    className={`installed-model-button agent-conversation-button${active ? ' active' : ''}`}
-                    type="button"
-                    title={task.title}
-                    aria-current={active ? 'page' : undefined}
-                    onClick={() => {
-                      pendingGeneralTaskRef.current = null
-                      setShellPage('workspace')
-                      setAgentHomeMode(task.selectedModeId)
-                      setSelectedAgentConversationId(task.id)
-                      changeView('agents')
-                    }}
-                  >
-                    <MessageSquareText className="recent-task-icon" size={14} />
-                    <span>{task.title}</span>
-                    {task.submitting && <LoaderCircle className="model-spin" size={13} aria-label={t('运行中')} />}
-                  </button>
-                  <button className="sidebar-task-archive" type="button"
-                    title={t('归档任务')}
-                    aria-label={`${t('归档任务')}：${task.title}`}
-                    onClick={() => setTaskArchived(task.id, true)}>
-                    {<Archive size={14} />}
-                  </button>
-                  </div>
-                )
-              })}
-              {agentConversations.filter(conversation => !conversation.archived).map((conversation) => {
-                const active =
-                  shellPage === 'workspace' &&
-                  selectedAgentConversationId === conversation.id &&
-                  view === conversation.mode
-                const fileName = conversation.sourcePath
-                  ? conversation.sourcePath.split(/[\\/]/u).at(-1) ?? conversation.sourcePath
-                  : conversation.mode === 'agent-chat'
-                    ? t('Agent 对话')
-                    : conversation.mode === 'meeting-notes' ? t('实时会议') : ''
-                return (
-                  <div className="sidebar-task-row" key={conversation.id}>
-                  <button
-                    className={`installed-model-button agent-conversation-button${active ? ' active' : ''}`}
-                    type="button"
-                    title={`${conversation.title}\n${fileName}`}
-                    aria-current={active ? 'page' : undefined}
-                    onClick={() => {
-                      pendingGeneralTaskRef.current = null
-                      setShellPage('workspace')
-                      setSelectedAgentConversationId(conversation.id)
-                      changeView(conversation.mode)
-                    }}
-                  >
-                    <Sparkles className="recent-task-icon" size={14} />
-                    <span>{conversation.title}</span>
-                  </button>
-                  <button className="sidebar-task-archive" type="button"
-                    title={t('归档任务')}
-                    aria-label={`${t('归档任务')}：${conversation.title}`}
-                    onClick={() => setTaskArchived(conversation.id, true)}>
-                    {<Archive size={14} />}
-                  </button>
-                  </div>
-                )
-              })}
-            </div>
           )}
-          {!generalTasks.some(task => !task.archived) && !agentConversations.some(task => !task.archived) && (
-            <p className="sidebar-recent-empty">{t('暂无最近任务')}</p>
-          )}
-          </div>
-        </nav>        )}
-
-        <div className="sidebar-spacer" />
-
-        <nav className="sidebar-dock" aria-label={t("资源与设置")}>
           <button
             ref={settingsTriggerRef}
-            className={`sidebar-dock-button${shellPage === "settings" ? " active" : ""}`}
+            className={`sidebar-dock-button${shellPage === 'settings' ? ' active' : ''}`}
             type="button"
-            aria-label={t("设置")}
-            aria-pressed={shellPage === "settings"}
-            data-tooltip={t("设置")}
-            onClick={openSettings}
+            aria-label="设置"
+            aria-pressed={shellPage === 'settings'}
+            data-tooltip="设置"
+            onClick={shellPage === 'settings' ? leaveShellPage : openSettings}
           >
             <Settings size={18} />
           </button>
-          {(appUpdate.status === "available" ||
-            appUpdate.status === "downloading" ||
-            appUpdate.status === "downloaded" ||
-            appUpdate.status === "installing") && (
+          {WORKFLOWS_ENABLED && (
+            <button
+              className={`sidebar-dock-button${
+                shellPage === 'workspace' && view === 'workflows' ? ' active' : ''
+              }`}
+              type="button"
+              aria-label="流程编排"
+              data-tooltip="流程编排"
+              onClick={() => {
+                setEditingWorkflowId(null)
+                changeView('workflows')
+              }}
+            >
+              <GitBranch size={18} />
+            </button>
+          )}
+          {(appUpdate.status === 'available' ||
+            appUpdate.status === 'downloading' ||
+            appUpdate.status === 'downloaded' ||
+            appUpdate.status === 'installing') && (
             <button
               className={`sidebar-dock-button sidebar-update-icon${
-                appUpdate.status === "downloading" ? " downloading" : ""
+                appUpdate.status === 'downloading' ? ' downloading' : ''
               }`}
               type="button"
               data-tooltip={
-                appUpdate.status === "downloading"
+                appUpdate.status === 'downloading'
                   ? appUpdate.progress === undefined
-                    ? t("正在下载安装包")
-                    : t("正在下载 {0}%", [Math.round(appUpdate.progress)])
-                  : appUpdate.status === "installing"
-                    ? t("正在安装更新")
-                    : appUpdate.status === "downloaded"
-                      ? t("重启安装 {0}", [appUpdate.update?.version ?? ""])
-                      : t("后台下载更新 {0}", [appUpdate.update?.version ?? ""])
+                    ? '正在下载安装包'
+                    : `正在下载 ${Math.round(appUpdate.progress)}%`
+                  : appUpdate.status === 'installing'
+                    ? '正在安装更新'
+                    : appUpdate.status === 'downloaded'
+                      ? `重启安装 ${appUpdate.update?.version ?? ''}`
+                      : `后台下载更新 ${appUpdate.update?.version ?? ''}`
               }
               aria-label={
-                appUpdate.status === "downloading"
-                  ? t("正在下载安装包")
-                  : appUpdate.status === "installing"
-                    ? t("正在安装更新")
-                    : appUpdate.status === "downloaded"
-                      ? t("重启安装新版本")
-                      : t("下载新版本")
+                appUpdate.status === 'downloading'
+                  ? '正在下载安装包'
+                  : appUpdate.status === 'installing'
+                    ? '正在安装更新'
+                    : appUpdate.status === 'downloaded'
+                      ? '重启安装新版本'
+                      : '下载新版本'
               }
               disabled={
-                appUpdate.status === "downloading" ||
-                appUpdate.status === "installing"
+                appUpdate.status === 'downloading' ||
+                appUpdate.status === 'installing'
               }
               onClick={applyApplicationUpdate}
             >
-              {appUpdate.status === "downloading" ||
-              appUpdate.status === "installing" ? (
+              {appUpdate.status === 'downloading' ||
+              appUpdate.status === 'installing' ? (
                 <LoaderCircle className="model-spin" size={16} />
               ) : (
                 <Download size={16} strokeWidth={2.2} />
@@ -4292,22 +2721,28 @@ function App() {
           className="sidebar-resize-handle"
           role="separator"
           tabIndex={0}
-          aria-label={t("调整左侧栏宽度")}
+          aria-label="调整左侧栏宽度"
           aria-orientation="vertical"
           aria-valuemin={MIN_SIDEBAR_WIDTH}
           aria-valuemax={responsiveSidebarMaxWidth}
           aria-valuenow={visibleSidebarWidth}
           onKeyDown={(event) => {
-            if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-            event.preventDefault();
-            const direction = event.key === "ArrowLeft" ? -1 : 1;
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+            event.preventDefault()
+            const direction = event.key === 'ArrowLeft' ? -1 : 1
             const nextWidth = Math.min(
               responsiveSidebarMaxWidth,
-              Math.max(MIN_SIDEBAR_WIDTH, visibleSidebarWidth + direction * 16),
-            );
-            setSidebarWidth(nextWidth);
+              Math.max(
+                MIN_SIDEBAR_WIDTH,
+                visibleSidebarWidth + direction * 16,
+              ),
+            )
+            setSidebarWidth(nextWidth)
             try {
-              window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(nextWidth));
+              window.localStorage.setItem(
+                SIDEBAR_WIDTH_KEY,
+                String(nextWidth),
+              )
             } catch {
               // Keep the resized width for the current session.
             }
@@ -4320,389 +2755,168 @@ function App() {
         <button
           className="sidebar-scrim"
           type="button"
-          aria-label={t("关闭导航")}
-          onClick={closeSidebar}
+          aria-label="关闭导航"
+          onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      <div className="app-frame model-app-frame" inert={viewportWidth <= 900 && sidebarOpen}>
+      <div className="app-frame model-app-frame">
         <header className="topbar model-topbar" data-tauri-drag-region>
           <button
-            ref={sidebarTriggerRef}
             className="mobile-menu-button"
             type="button"
-            aria-label={t("打开导航")}
-            aria-controls="app-navigation"
-            aria-expanded={sidebarOpen}
+            aria-label="打开导航"
             onClick={() => setSidebarOpen(true)}
           >
             <Menu size={19} />
           </button>
           <div className="topbar-title">
             <span>
-              {shellPage === "skills"
-                ? t("技能")
-                : shellPage === "models"
-                  ? t("模型商店")
-                  : shellPage === "settings"
-                    ? t("设置 · {0}", [activeSettingsSection.label])
-                    : isWorkspaceTaskView
-                      ? (selectedAgentConversation?.title ?? t("新任务"))
-                      : view === "agents"
-                        ? (selectedGeneralTask?.title ?? t("新任务"))
-                        : view === "agent-chat"
-                          ? (selectedAgentConversation?.title ?? t("技能任务"))
-                          : view === "workspace"
-                            ? selectedPlugin.name
-                            : t("新任务")}
+              {shellPage === 'extensions'
+                ? 'Agents'
+                : shellPage === 'extension-workbench'
+                  ? t(extensionWorkbenchPageLabels[extensionWorkbenchPage])
+                  : shellPage === 'settings'
+                    ? `设置 · ${activeSettingsSection.label}`
+                    : view === 'workspace'
+                ? WORKFLOWS_ENABLED && workflowSelected
+                  ? workflows.find(
+                      (workflow) => workflow.id === selectedWorkflowId,
+                    )?.name ?? '虚拟模型'
+                  : pythonAgents.find(agent => agent.uiId === activePythonAgent)?.title ?? selectedPlugin.name
+                : '流程编排'}
             </span>
           </div>
           <div className="topbar-actions">
-            {traceRecordingId && (
-              <button
-                type="button"
-                className="trace-record-stop"
-                onClick={() => {
-                  void saveRecording(traceRecordingId, ['smart-cut']).then(
-                    () => notify(t('录制已保存：{0}', [traceRecordingId])),
-                    error => notify(String(error)),
-                  )
-                }}
-              >
-                {t('保存录制')}
-              </button>
-            )}
-            {shellPage === "workspace" && isWorkspaceTaskView && !directWorkflow && (
-              <button
-                type="button"
-                className="icon-button workspace-editor-toggle"
-                aria-pressed={workspacePanelOpen}
-                aria-label={workspacePanelOpen ? t('收起结果，继续对话') : t('打开编辑器')}
-                title={workspacePanelOpen ? t('收起结果，继续对话') : t('打开编辑器')}
-                onClick={() => {
-                  setWorkspacePanelOpen(open => !open);
-                  setWorkspacePanelFocused(false);
-                }}
-              >
-                <PanelRight size={16} />
-              </button>
-            )}
+            <span className="model-runtime-state">
+              <i />
+              {isTauriRuntime() ? '本地运行' : '界面预览'}
+            </span>
           </div>
         </header>
 
         <div
-          className={`view-container model-view-container${shellPage !== "workspace" ? ` page-${shellPage}` : ""}`}
+          className={`view-container model-view-container${shellPage !== 'workspace' ? ` page-${shellPage}` : ''}`}
         >
           <Suspense
             fallback={
-              <div className="app-view-loading" aria-label={t("正在加载")}>
+              <div className="app-view-loading" aria-label="正在加载">
                 <LoaderCircle className="model-spin" size={19} />
               </div>
             }
           >
-            {shellPage === "skills" && (
-              <PluginsView
-                catalogKind="skills"
-                plugins={plugins}
-                modelBindings={modelBindings}
-                runtime={runtime}
-                catalog={catalog}
-                apiModelCatalog={apiModelCatalog}
-                customApiModels={customApiModels}
-                appAgents={appAgents}
-                installedCloudModelIds={installedCloudModelIds}
-                onConfigureProvider={openProviderSettings}
-                onPluginsChanged={setPlugins}
-                onModelBindingsChanged={setModelBindings}
-                onRemoveModelBindings={removeModelBindings}
-                onSetModelBinding={saveModelBinding}
-                onCatalogChanged={setCatalog}
-                onCloudModelInstalled={setCloudModelInstalled}
-                onAppAgentInstalled={setAppAgentInstalled}
-                onAction={notify}
-              />
-            )}
-            {shellPage === "workshop" && (
-              <CreativeWorkshopView
-                appAgents={appAgents}
-                onOpenSkills={openSkills}
-                onLaunch={({ mode, prompt, sourcePath, videoDubbingMode, videoDubbingLanguages, videoDubbingStyle }) =>
-                  launchCreationAgent(mode, prompt, sourcePath, videoDubbingMode, videoDubbingLanguages, videoDubbingStyle, 'workshop')
-                }
-              />
-            )}
-            {shellPage === "models" && (
-              <PluginsView
-                catalogKind="models"
-                plugins={plugins}
-                modelBindings={modelBindings}
-                runtime={runtime}
-                catalog={catalog}
-                apiModelCatalog={apiModelCatalog}
-                customApiModels={customApiModels}
-                appAgents={appAgents}
-                installedCloudModelIds={installedCloudModelIds}
-                onConfigureProvider={openProviderSettings}
-                onPluginsChanged={setPlugins}
-                onModelBindingsChanged={setModelBindings}
-                onRemoveModelBindings={removeModelBindings}
-                onSetModelBinding={saveModelBinding}
-                onCatalogChanged={setCatalog}
-                onCloudModelInstalled={setCloudModelInstalled}
-                onAppAgentInstalled={setAppAgentInstalled}
-                onAction={notify}
-              />
-            )}
-            {shellPage === "settings" && (
-              <section
-                className={`settings-page${settingsSection === "api" ? " settings-api-page" : ""}`}
-                aria-labelledby="settings-page-title"
-              >
-                <header className="settings-page-heading">
-                  <h2 id="settings-page-title">
-                    {activeSettingsSection.label}
-                  </h2>
-                </header>
-                {settingsRows[settingsSection]}
-              </section>
-            )}
-            {/* Keep draft inputs and live sessions alive while changing settings. */}
-            <div
-              className={`workspace-session${editorVisible ? ' editor-open' : ''}${editorFillsWorkspace ? ' editor-focused' : ''}`}
-              hidden={shellPage !== "workspace"}
-              inert={shellPage !== "workspace"}
-              style={editorVisible && !editorFillsWorkspace
-                ? ({
-                    gridTemplateColumns: `${(1 - editorRatio).toFixed(4)}fr 7px ${editorRatio.toFixed(4)}fr`,
-                  } as React.CSSProperties)
-                : undefined}
-            >
-              <div className="workspace-center" inert={editorFillsWorkspace}>
-              <div
-                className="agent-workspace-session"
-                hidden={view !== "agents" && view !== "agent-chat" && !isWorkspaceTaskView}
-                inert={view !== "agents" && view !== "agent-chat" && !isWorkspaceTaskView}
-              >
-                <AgentHomeView
-                  skills={appAgents}
-                  chatModelUnavailable={chatModelUnavailable}
-                  chatModelOptions={chosenAcpProviderModels}
-                  chatModelId={selectedChatModel.modelId}
-                  chatModelDefaultName={chosenAcpDefaultModelName}
-                  chatModelLoading={chatModelLoading}
-                  chatModelLocked={agentSelectionLocked || apiBindingUnavailable}
-                  onChatModelChange={(modelId) => updateAgentChatModel({
-                    ...selectedChatModel,
-                    modelId,
-                  })}
-                  acpPermissions={acpPermissions.filter(item => item.taskId === selectedGeneralTask?.id).map(item => item.event)}
-                  onAcpPermission={(event, optionId) => {
-                    if (!event.requestId) return;
-                    void respondAcpPermission(event.sessionId, event.requestId, optionId).then(() =>
-                      setAcpPermissions(current => current.filter(item => item.event.sessionId !== event.sessionId || item.event.requestId !== event.requestId)),
-                    ).catch(error => notify(String(error)));
-	                  }}
-                  acpQuestions={acpQuestions.filter(item => item.taskId === selectedGeneralTask?.id).map(item => item.event)}
-                  onAcpQuestion={(event, answers) => {
-                    if (!event.requestId) return;
-                    void respondAcpQuestion(event.sessionId, event.requestId, answers).then(() =>
-                      setAcpQuestions(current => current.filter(item => item.event.sessionId !== event.sessionId || item.event.requestId !== event.requestId)),
-                    ).catch(error => notify(String(error)));
-	                  }}
-                  acpPlanApprovals={acpPlanApprovals.filter(item => item.taskId === selectedGeneralTask?.id).map(item => item.event)}
-                  onAcpPlanApproval={(event, accepted) => {
-                    if (!event.requestId) return;
-                    void respondAcpPlanApproval(event.sessionId, event.requestId, accepted).then(() =>
-                      setAcpPlanApprovals(current => current.filter(item => item.event.sessionId !== event.sessionId || item.event.requestId !== event.requestId)),
-                    ).catch(error => notify(String(error)));
-	                  }}
-	                  acpRunning={Boolean(selectedGeneralTask && activeAcpTasks.includes(selectedGeneralTask.id))}
-	                  onCancelAcp={() => { if (selectedGeneralTask) acpTurns.current.get(selectedGeneralTask.id)?.abort(); }}
-	                  workspaceTitle={isWorkspaceTaskView ? selectedAgentConversation?.title : undefined}
-                  workspaceCanOperate={isWorkspaceTaskView && Boolean(workspacePresentation?.hasArtifact)}
-                  taskId={selectedGeneralTask?.id ?? null}
-	                  messages={selectedGeneralTask?.messages ?? []}
-	                  draftPrompt={selectedGeneralTask?.draftPrompt ?? ""}
-	                  attachment={selectedGeneralTask?.attachment ?? null}
-	                  attachments={selectedGeneralTask?.attachments ?? []}
-	                  submitting={selectedGeneralTask?.submitting ?? false}
-	                  agentProgress={selectedGeneralTask ? agentProgressByTask[selectedGeneralTask.id] ?? [] : []}
-	                  modelInstallMode={agentModelInstallMode}
-	                  messageModelOptions={resolveTaskMessageModelOptions(selectedGeneralTask)}
-	                  selectedModeId={isWorkspaceTaskView ? selectedAgentConversation?.mode ?? null : selectedGeneralTask?.selectedModeId ?? agentHomeMode}
-	                  chatAvailable={agentChatAvailable}
-	                  onModelInstallModeChange={setAgentModelInstallMode}
-                  onSelectedModeChange={updateAgentHomeMode}
-                  onDraftPromptChange={updateAgentHomeDraft}
-                  onAttachmentsChange={updateAgentHomeAttachments}
-                  onSubmitPrompt={submitAgentHomePrompt}
-                  onRunMessageAction={(message, modelId, confirmationSelections) =>
-                    runAgentMessageAction(selectedGeneralTask, message, modelId, confirmationSelections)
-                  }
-                />
-              </div>
-              {view === "workspace" && (
-                  <ModelWorkspaceView
-                    plugin={selectedPlugin}
-                    plugins={plugins}
-                    modelBindings={modelBindings}
-                    catalog={catalog}
-                    runs={runs}
-                    onRunText={runText}
-                    onRunAudio={runAudio}
-                    onOpenStore={openExtensions}
-                    onConfigureProvider={() =>
-                      openProviderSettings(selectedPlugin.providerId ?? "")
-                    }
-                    onAction={notify}
-                    onClearTextHistory={() =>
-                      clearTextHistory(selectedPlugin.providerId ?? "")
-                    }
-                    onClearConversation={clearConversationRuns}
-                  />
-                )}
-              </div>
-              {editorVisible && !editorFillsWorkspace && (
-                <div
-                  className="workspace-editor-resizer"
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label={t("调整对话与编辑器宽度")}
-                  onPointerDown={beginEditorResize}
-                />
-              )}
-              <aside
-                id="task-editor"
-                className="workspace-panel"
-                hidden={!editorVisible}
-                inert={!editorVisible}
-                aria-label={view === 'meeting-notes' ? t('会议结果') : t('编辑器')}
-              >
-                <div className="workspace-panel-body">
-                  {openedAgentConversations
-                    .filter((conversation) => conversation.mode === "smart-cut")
-                    .map((conversation) => (
-                      <div
-                        key={conversation.id}
-                        className="agent-workspace-session"
-                        hidden={
-                          view !== "smart-cut" ||
-                          selectedAgentConversationId !== conversation.id
-                        }
-                        inert={
-                          view !== "smart-cut" ||
-                          selectedAgentConversationId !== conversation.id
-                        }
-                      >
-                        <SmartCutView
-                          panelMode
-                          projectId={conversation.id}
-                          autoStart={!conversation.restored}
-                          initialInstruction={conversation.prompt}
-                          initialSourcePath={conversation.sourcePath}
-                          initialLaunchId={1}
-                          models={orderedRunnablePlugins}
-                          catalog={catalog}
-                          onRunAudio={runAudio}
-                          onRunText={runText}
-                          onGenerateText={conversation.launchSource === 'workshop' ? undefined : (prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
-                          onOpenStore={openExtensions}
-                          onAction={message => reportEditorMessage(conversation.id, message)}
-                        />
-                      </div>
-                    ))}
-                  {openedAgentConversations
-                    .filter((conversation) => conversation.mode === "ai-podcast")
-                    .map((conversation) => (
-                      <div
-                        key={conversation.id}
-                        className="agent-workspace-session"
-                        hidden={
-                          view !== "ai-podcast" ||
-                          selectedAgentConversationId !== conversation.id
-                        }
-                        inert={
-                          view !== "ai-podcast" ||
-                          selectedAgentConversationId !== conversation.id
-                        }
-                      >
-                        <AiPodcastView
-                          panelMode
-                          projectId={conversation.id}
-                          autoStart={!conversation.restored}
-                          initialInstruction={conversation.prompt}
-                          initialSourcePath={conversation.sourcePath}
-                          initialLaunchId={1}
-                          models={orderedRunnablePlugins}
-                          catalog={catalog}
-                          onRunText={runText}
-                          onGenerateText={conversation.launchSource === 'workshop' ? undefined : (prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
-                          onOpenStore={openExtensions}
-                          onAction={message => reportEditorMessage(conversation.id, message)}
-                        />
-                      </div>
-                    ))}
-                  {openedAgentConversations
-                    .filter((conversation) => conversation.mode === "video-dubbing")
-                    .map((conversation) => (
-                      <div
-                        key={conversation.id}
-                        className="agent-workspace-session"
-                        hidden={
-                          view !== "video-dubbing" ||
-                          selectedAgentConversationId !== conversation.id
-                        }
-                        inert={
-                          view !== "video-dubbing" ||
-                          selectedAgentConversationId !== conversation.id
-                        }
-                      >
-                        <VideoDubbingView
-                          panelMode
-                          projectId={conversation.id}
-                          autoStart={!conversation.restored}
-                          initialInstruction={conversation.prompt}
-                          initialSourcePath={conversation.sourcePath}
-                          initialLaunchId={1}
-                          dubbingMode={conversation.videoDubbingMode ?? "translate"}
-                          dubbingLanguages={conversation.videoDubbingLanguages}
-                          dubbingStyle={conversation.videoDubbingStyle}
-                          onAction={message => reportEditorMessage(conversation.id, message)}
-                        />
-                      </div>
-                    ))}
-                  {openedAgentConversations
-                    .filter((conversation) => conversation.mode === "meeting-notes")
-                    .map((conversation) => (
-                      <div
-                        key={conversation.id}
-                        className="agent-workspace-session"
-                        hidden={
-                          view !== "meeting-notes" ||
-                          selectedAgentConversationId !== conversation.id
-                        }
-                        inert={
-                          view !== "meeting-notes" ||
-                          selectedAgentConversationId !== conversation.id
-                        }
-                      >
-                        <MeetingNotesView
-                          panelMode
-                          projectId={conversation.id}
-                          autoStart={!conversation.restored}
-                          initialInstruction={conversation.prompt}
-                          models={orderedRunnablePlugins}
-                          onRunText={runText}
-                          onGenerateText={conversation.launchSource === 'workshop' ? undefined : (prompt, systemPrompt) => generateEditorText(conversation.id, prompt, systemPrompt)}
-                          onRunAudio={runAudio}
-                          onOpenStore={openExtensions}
-                          onAction={message => reportEditorMessage(conversation.id, message)}
-                        />
-                      </div>
-                    ))}
-                </div>
-              </aside>
+          {shellPage === 'extensions' && (
+            <PluginsView
+              agentRegistry={agentInstallRegistry}
+              installationState={pythonAgents}
+              getAgentServerStatus={getAgentServerStatus}
+              catalogActions={agentServerCatalogActions}
+              category={agentCategory}
+              secondary={agentSecondary}
+            />
+          )}
+          {extensionWorkbenchEnabled && shellPage === 'extension-workbench' && !workbenchWorkspaceReady && (
+            <div className="app-view-loading" role="status" aria-label={t('正在加载')}>
+              <LoaderCircle className="model-spin" size={19} />
             </div>
+          )}
+          {extensionWorkbenchEnabled && shellPage === 'extension-workbench' && workbenchWorkspaceReady && (
+            <ExtensionWorkbenchView
+              page={extensionWorkbenchPage}
+              context={extensionExecutionContext}
+              onPageChange={changeExtensionWorkbenchPage}
+              onClose={leaveShellPage}
+            >
+              {extensionWorkbenchPage === 'models' ? (
+                <ExtensionModelStoreView
+                  catalogKind="models"
+                  plugins={plugins}
+                  modelBindings={modelBindings}
+                  runtime={runtime}
+                  catalog={catalog}
+                  apiModelCatalog={apiModelCatalog}
+                  customApiModels={customApiModels}
+                  installedCloudModelIds={installedCloudModelIds}
+                  onConfigureProvider={notifyModelStoreProviderConfiguration}
+                  onRefreshModels={refreshModelStore}
+                  onInstallModel={installModelStoreModel}
+                  onInstallModelDependency={installModelStoreDependency}
+                  onRestoreModel={restoreModelStoreModel}
+                  onUninstallModel={uninstallModelStoreModel}
+                  onSetModelBinding={saveModelDependencyBinding}
+                  onCloudModelInstalled={setCloudModelInstalled}
+                  onAction={notify}
+                />
+              ) : null}
+            </ExtensionWorkbenchView>
+          )}
+          {shellPage === 'settings' && (
+            <section
+              className="settings-page"
+              aria-labelledby="settings-title"
+            >
+              <header className="settings-overview-heading">
+                <h1 id="settings-title">设置</h1>
+              </header>
+              {SETTINGS_SECTIONS.map(({ id, label }) => (
+                <section key={id} className="settings-category" hidden={settingsSection !== 'all' && settingsSection !== id} aria-labelledby={`settings-heading-${id}`}>
+                  <header className="settings-page-heading">
+                    <h2 id={`settings-heading-${id}`}>{label}</h2>
+                  </header>
+                  {settingsRows[id]}
+                </section>
+              ))}
+            </section>
+          )}
+          {shellPage === 'workspace' && view === 'workspace' && (
+            activePythonAgent ? <PythonAgentWorkspace key={activePythonAgent} id={activePythonAgent} title={pythonAgents.find(agent => agent.uiId === activePythonAgent)?.title ?? activePythonAgent} onConfigureAccount={() => openProviderSettings("api.bailian")} /> : WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
+              <WorkflowChatView
+                workflowId={selectedWorkflowId}
+                turns={workflowTurns[selectedWorkflowId] ?? []}
+                setTurns={(update) =>
+                  updateWorkflowTurns(selectedWorkflowId, update)
+                }
+                onRunUpdate={(run) =>
+                  recordRun(run)
+                }
+                onAction={notify}
+              />
+            ) : (
+              <ModelWorkspaceView
+                plugin={selectedPlugin}
+                plugins={plugins}
+                modelBindings={modelBindings}
+                catalog={catalog}
+                runs={runs}
+                onRunText={runText}
+                onRunAudio={runAudio}
+                onOpenStore={openExtensions}
+                onConfigureProvider={() =>
+                  openProviderSettings(selectedPlugin.providerId ?? '')
+                }
+                onAction={notify}
+                onClearTextHistory={() =>
+                  clearTextHistory(selectedPlugin.providerId ?? '')
+                }
+                onClearConversation={clearConversationRuns}
+              />
+            )
+          )}
+          {shellPage === 'workspace' && WORKFLOWS_ENABLED && view === 'workflows' && (
+            <WorkflowsView
+              key={editingWorkflowId ?? 'new-workflow'}
+              catalog={catalog}
+              models={orderedRunnablePlugins}
+              workflows={workflows}
+              editingWorkflowId={editingWorkflowId}
+              onWorkflowsChanged={(next, workflowId) => {
+                setWorkflows(next)
+                setEditingWorkflowId(workflowId)
+                setSelectedWorkflowId(workflowId)
+              }}
+              onAction={notify}
+            />
+          )}
           </Suspense>
         </div>
       </div>
@@ -4715,7 +2929,7 @@ function App() {
           {toast}
           <button
             type="button"
-            aria-label={t("关闭通知")}
+            aria-label="关闭通知"
             onClick={() => setToast(null)}
           >
             <X size={14} />
@@ -4725,7 +2939,7 @@ function App() {
 
 
     </div>
-  );
+  )
 }
 
-export default App;
+export default App

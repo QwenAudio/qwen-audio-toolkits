@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     env,
     ffi::OsString,
-    fmt,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -110,11 +109,8 @@ fn model_selection_request(
     value: &Value,
     session_id: &str,
     model_id: &str,
-    provider_kind: AcpProviderKind,
+    _provider_kind: AcpProviderKind,
 ) -> Result<Option<(&'static str, Value)>, String> {
-    if provider_kind == AcpProviderKind::Bundled {
-        return Ok(None);
-    }
     let (models, current) = session_models(value);
     if !models.iter().any(|model| model.id == model_id) {
         return Err("Agent 未提供所选模型，请重新选择".to_string());
@@ -142,15 +138,11 @@ fn model_selection_request(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AcpProviderKind {
     External,
-    Bundled,
 }
 
 impl AcpProviderKind {
     fn as_str(self) -> &'static str {
-        match self {
-            Self::External => "external",
-            Self::Bundled => "bundled",
-        }
+        "external"
     }
 }
 
@@ -184,38 +176,11 @@ const ACP_PROVIDERS: &[AcpProviderSpec] = &[
         cwd_flag: Some("--cwd"),
     },
     AcpProviderSpec {
-        id: "opencode-bundled",
-        name: "OpenCode（内置）",
-        kind: AcpProviderKind::Bundled,
-        requires_api_provider: true,
-        command: &[],
-        env: &[],
-        cwd_flag: Some("--cwd"),
-    },
-    AcpProviderSpec {
         id: "kimi",
         name: "Kimi Code",
         kind: AcpProviderKind::External,
         requires_api_provider: false,
         command: &["kimi", "acp"],
-        env: &[],
-        cwd_flag: None,
-    },
-    AcpProviderSpec {
-        id: "codex",
-        name: "Codex",
-        kind: AcpProviderKind::External,
-        requires_api_provider: false,
-        command: &["npx", "-y", "@agentclientprotocol/codex-acp"],
-        env: &[],
-        cwd_flag: None,
-    },
-    AcpProviderSpec {
-        id: "qwen-code",
-        name: "Qwen Code",
-        kind: AcpProviderKind::External,
-        requires_api_provider: false,
-        command: &["npx", "-y", "@qwen-code/qwen-code", "--acp"],
         env: &[],
         cwd_flag: None,
     },
@@ -288,8 +253,6 @@ pub struct AcpSessionEvent {
     questions: Option<Vec<Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     phases: Option<Vec<Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    panel: Option<String>,
 }
 
 impl AcpSessionEvent {
@@ -312,16 +275,7 @@ impl AcpSessionEvent {
             options: None,
             questions: None,
             phases: None,
-            panel: None,
         }
-    }
-}
-
-pub fn emit_panel_requested(app: &AppHandle, session_id: &str, panel: &str) {
-    let mut event = AcpSessionEvent::base(session_id, "panel_requested");
-    event.panel = Some(panel.to_string());
-    if let Err(error) = app.emit(ACP_EVENT, event) {
-        log::warn!("could not emit panel requested event: {error}");
     }
 }
 
@@ -330,13 +284,23 @@ enum AcpCommand {
 }
 
 pub struct AcpRuntime {
-    sessions: StdMutex<HashMap<String, AcpSessionHandle>>,
+    state: StdMutex<AcpRuntimeState>,
+    stopping: AtomicBool,
+}
+
+struct AcpRuntimeState {
+    sessions: HashMap<String, AcpSessionHandle>,
+    initializing: HashMap<String, AcpInitializingHandle>,
 }
 
 impl Default for AcpRuntime {
     fn default() -> Self {
         Self {
-            sessions: StdMutex::new(HashMap::new()),
+            state: StdMutex::new(AcpRuntimeState {
+                sessions: HashMap::new(),
+                initializing: HashMap::new(),
+            }),
+            stopping: AtomicBool::new(false),
         }
     }
 }
@@ -344,11 +308,198 @@ impl Default for AcpRuntime {
 struct AcpSessionHandle {
     state: Arc<AcpSessionState>,
     command_tx: mpsc::Sender<AcpCommand>,
-    child: Arc<tokio::sync::Mutex<Child>>,
+    child: Child,
+}
+
+struct AcpInitializingHandle {
+    state: Arc<AcpSessionState>,
+    child: Child,
+}
+
+enum AcpOwnedSession {
+    Initializing(AcpInitializingHandle),
+    Registered(AcpSessionHandle),
+}
+
+impl AcpOwnedSession {
+    fn state(&self) -> &Arc<AcpSessionState> {
+        match self {
+            Self::Initializing(handle) => &handle.state,
+            Self::Registered(handle) => &handle.state,
+        }
+    }
+}
+
+impl AcpRuntime {
+    fn track_initializing(
+        &self,
+        session_id: String,
+        state: Arc<AcpSessionState>,
+        child: Child,
+    ) -> Result<(), Child> {
+        if self.stopping.load(Ordering::SeqCst) {
+            return Err(child);
+        }
+        let Ok(mut runtime) = self.state.lock() else {
+            return Err(child);
+        };
+        if self.stopping.load(Ordering::SeqCst)
+            || runtime.initializing.contains_key(&session_id)
+            || runtime.sessions.contains_key(&session_id)
+        {
+            return Err(child);
+        }
+        runtime
+            .initializing
+            .insert(session_id, AcpInitializingHandle { state, child });
+        Ok(())
+    }
+
+    fn take_initializing_io(
+        &self,
+        session_id: &str,
+    ) -> Result<
+        (
+            tokio::process::ChildStdin,
+            tokio::process::ChildStdout,
+            tokio::process::ChildStderr,
+        ),
+        String,
+    > {
+        let mut runtime = self
+            .state
+            .lock()
+            .map_err(|_| "Agent 会话状态不可用".to_string())?;
+        let handle = runtime
+            .initializing
+            .get_mut(session_id)
+            .ok_or_else(|| "Agent 进程在会话建立前退出".to_string())?;
+        let stdin = handle
+            .child
+            .stdin
+            .take()
+            .ok_or_else(|| "无法连接 Agent 进程输入".to_string())?;
+        let stdout = handle
+            .child
+            .stdout
+            .take()
+            .ok_or_else(|| "无法连接 Agent 进程输出".to_string())?;
+        let stderr = handle
+            .child
+            .stderr
+            .take()
+            .ok_or_else(|| "无法连接 Agent 进程错误输出".to_string())?;
+        Ok((stdin, stdout, stderr))
+    }
+
+    fn promote_initializing(
+        &self,
+        session_id: &str,
+        command_tx: mpsc::Sender<AcpCommand>,
+    ) -> Result<(), String> {
+        let mut runtime = self
+            .state
+            .lock()
+            .map_err(|_| "Agent 会话状态不可用".to_string())?;
+        if self.stopping.load(Ordering::SeqCst) {
+            return Err("应用正在退出，无法建立 Agent 会话".to_string());
+        }
+        let session_state = runtime
+            .initializing
+            .get(session_id)
+            .map(|handle| handle.state.clone())
+            .ok_or_else(|| "Agent 进程在会话建立前退出".to_string())?;
+        if session_state.closed.load(Ordering::SeqCst) {
+            return Err("Agent 进程在会话建立前退出".to_string());
+        }
+        let initializing = runtime
+            .initializing
+            .remove(session_id)
+            .expect("initializing session was checked above");
+        runtime.sessions.insert(
+            session_id.to_string(),
+            AcpSessionHandle {
+                state: initializing.state,
+                command_tx,
+                child: initializing.child,
+            },
+        );
+        Ok(())
+    }
+
+    fn session_state(&self, session_id: &str) -> Result<Arc<AcpSessionState>, String> {
+        self.state
+            .lock()
+            .map_err(|_| "Agent 会话状态不可用".to_string())?
+            .sessions
+            .get(session_id)
+            .map(|handle| handle.state.clone())
+            .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())
+    }
+
+    fn session_sender(&self, session_id: &str) -> Result<mpsc::Sender<AcpCommand>, String> {
+        self.state
+            .lock()
+            .map_err(|_| "Agent 会话状态不可用".to_string())?
+            .sessions
+            .get(session_id)
+            .map(|handle| handle.command_tx.clone())
+            .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())
+    }
+
+    fn take_registered(&self, session_id: &str) -> Option<AcpSessionHandle> {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|mut runtime| runtime.sessions.remove(session_id))
+    }
+
+    fn take_owned_session(&self, session_id: &str) -> Option<AcpOwnedSession> {
+        self.state.lock().ok().and_then(|mut runtime| {
+            runtime
+                .sessions
+                .remove(session_id)
+                .map(AcpOwnedSession::Registered)
+                .or_else(|| {
+                    runtime
+                        .initializing
+                        .remove(session_id)
+                        .map(AcpOwnedSession::Initializing)
+                })
+        })
+    }
+
+    async fn shutdown_all(&self) {
+        self.stopping.store(true, Ordering::SeqCst);
+        let handles = self
+            .state
+            .lock()
+            .map(|mut runtime| {
+                let mut handles = runtime
+                    .sessions
+                    .drain()
+                    .map(|(_, handle)| AcpOwnedSession::Registered(handle))
+                    .collect::<Vec<_>>();
+                handles.extend(
+                    runtime
+                        .initializing
+                        .drain()
+                        .map(|(_, handle)| AcpOwnedSession::Initializing(handle)),
+                );
+                handles
+            })
+            .unwrap_or_default();
+        for handle in &handles {
+            close_session_state(handle.state(), "Agent 会话已关闭", None);
+        }
+        for handle in handles {
+            reap_owned_session(handle).await;
+        }
+    }
 }
 
 struct AcpSessionState {
-    app: AppHandle,
+    app: Option<AppHandle>,
     runtime: Arc<AcpRuntime>,
     session_id: String,
     agent_session_id: StdMutex<Option<String>>,
@@ -362,10 +513,12 @@ struct AcpSessionState {
     closed: AtomicBool,
 }
 
-fn augmented_path_entries() -> Vec<PathBuf> {
+fn augmented_path_entries_from(
+    inherited_path: Option<&std::ffi::OsStr>,
+    home: Option<&Path>,
+) -> Vec<PathBuf> {
     let mut entries: Vec<PathBuf> = Vec::new();
-    if let Some(home) = env::var_os("HOME") {
-        let home = PathBuf::from(home);
+    if let Some(home) = home {
         for relative in [
             ".local/bin",
             ".qoder/entry",
@@ -377,37 +530,46 @@ fn augmented_path_entries() -> Vec<PathBuf> {
             entries.push(home.join(relative));
         }
     }
+    // Preserve the macOS locations that make installed CLIs available outside a login shell.
     entries.push(PathBuf::from("/opt/homebrew/bin"));
     entries.push(PathBuf::from("/usr/local/bin"));
     entries.push(PathBuf::from("/usr/bin"));
     entries.push(PathBuf::from("/bin"));
     entries.push(PathBuf::from("/usr/sbin"));
     entries.push(PathBuf::from("/sbin"));
-    if let Ok(path) = env::var("PATH") {
-        for dir in path.split(':') {
-            if !dir.is_empty() {
-                entries.push(PathBuf::from(dir));
-            }
-        }
+    if let Some(path) = inherited_path {
+        entries.extend(env::split_paths(path).filter(|entry| !entry.as_os_str().is_empty()));
     }
     let mut seen = std::collections::HashSet::new();
     entries.retain(|entry| seen.insert(entry.clone()));
     entries
 }
 
-fn acp_process_env(extra: &[(&str, &str)]) -> HashMap<String, String> {
-    let mut env_map: HashMap<String, String> = env::vars().collect();
-    let path = augmented_path_entries()
+fn augmented_path_entries() -> Vec<PathBuf> {
+    let home = env::var_os("HOME").map(PathBuf::from);
+    let inherited_path = env::var_os("PATH");
+    augmented_path_entries_from(inherited_path.as_deref(), home.as_deref())
+}
+
+fn join_path_entries(
+    entries: impl IntoIterator<Item = PathBuf>,
+) -> Result<OsString, env::JoinPathsError> {
+    env::join_paths(entries)
+}
+
+fn acp_process_env(extra: &[(&str, &str)]) -> HashMap<OsString, OsString> {
+    let mut env_map: HashMap<OsString, OsString> = env::vars_os().collect();
+    let entries = augmented_path_entries()
         .into_iter()
         .filter(|entry| entry.is_dir())
-        .map(|entry| entry.to_string_lossy().to_string())
-        .collect::<Vec<_>>()
-        .join(":");
-    if !path.is_empty() {
-        env_map.insert("PATH".to_string(), path);
+        .collect::<Vec<_>>();
+    if let Ok(path) = join_path_entries(entries) {
+        if !path.is_empty() {
+            env_map.insert(OsString::from("PATH"), path);
+        }
     }
     for (key, value) in extra {
-        env_map.insert(key.to_string(), value.to_string());
+        env_map.insert(OsString::from(key), OsString::from(value));
     }
     env_map
 }
@@ -427,68 +589,97 @@ fn executable_file(path: &Path) -> bool {
     }
 }
 
+const WINDOWS_DEFAULT_PATHEXT: &str = ".COM;.EXE;.BAT;.CMD";
+
+fn command_candidate_names_for_platform(
+    command: &std::ffi::OsStr,
+    pathext: Option<&std::ffi::OsStr>,
+    windows: bool,
+) -> Vec<OsString> {
+    if !windows || Path::new(command).extension().is_some() {
+        return vec![command.to_owned()];
+    }
+    let extensions = pathext
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| std::ffi::OsStr::new(WINDOWS_DEFAULT_PATHEXT))
+        .to_string_lossy();
+    let candidates = extensions
+        .split(';')
+        .map(str::trim)
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| {
+            let mut candidate = command.to_owned();
+            candidate.push(extension);
+            candidate
+        })
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        command_candidate_names_for_platform(
+            command,
+            Some(std::ffi::OsStr::new(WINDOWS_DEFAULT_PATHEXT)),
+            true,
+        )
+    } else {
+        candidates
+    }
+}
+
+fn command_candidates(
+    command: &std::ffi::OsStr,
+    pathext: Option<&std::ffi::OsStr>,
+) -> Vec<OsString> {
+    command_candidate_names_for_platform(command, pathext, cfg!(windows))
+}
+
+fn resolve_command_from_paths(
+    command: &std::ffi::OsStr,
+    path_entries: &[PathBuf],
+    pathext: Option<&std::ffi::OsStr>,
+) -> Option<PathBuf> {
+    let command_path = Path::new(command);
+    let candidates = command_candidates(command, pathext);
+    let has_explicit_parent = command_path
+        .parent()
+        .is_some_and(|parent| !parent.as_os_str().is_empty());
+    if command_path.is_absolute() || has_explicit_parent {
+        return candidates
+            .into_iter()
+            .map(PathBuf::from)
+            .find(|candidate| executable_file(candidate));
+    }
+    path_entries.iter().find_map(|directory| {
+        candidates
+            .iter()
+            .map(|candidate| directory.join(candidate))
+            .find(|candidate| executable_file(candidate))
+    })
+}
+
+fn resolve_command(command: &str) -> Option<PathBuf> {
+    let pathext = env::var_os("PATHEXT");
+    resolve_command_from_paths(
+        std::ffi::OsStr::new(command),
+        &augmented_path_entries(),
+        pathext.as_deref(),
+    )
+}
+
 fn command_available(command: &str) -> bool {
-    augmented_path_entries()
-        .iter()
-        .map(|dir| dir.join(command))
-        .any(|candidate| executable_file(&candidate))
-}
-
-fn bundled_sidecar_path_from_resource_dir(resource_dir: &Path) -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        resource_dir
-            .parent()
-            .unwrap_or(resource_dir)
-            .join("MacOS")
-            .join("opencode")
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        resource_dir.join("opencode")
-    }
-}
-
-fn resolve_bundled_sidecar_from_paths(
-    resource_dir: Option<&Path>,
-    executable_dir: Option<&Path>,
-) -> Result<PathBuf, String> {
-    let resource_candidate = resource_dir.map(bundled_sidecar_path_from_resource_dir);
-    let executable_candidate = executable_dir.map(|dir| dir.join("opencode"));
-    resource_candidate
-        .into_iter()
-        .chain(executable_candidate)
-        .find(|candidate| executable_file(candidate))
-        .ok_or_else(|| "未找到内置 OpenCode，请重新安装应用".to_string())
-}
-
-fn resolve_bundled_sidecar(app: &AppHandle) -> Result<PathBuf, String> {
-    let resource_dir = app.path().resource_dir().ok();
-    let executable_dir = std::env::current_exe()
-        .ok()
-        .and_then(|path| path.parent().map(Path::to_path_buf));
-    resolve_bundled_sidecar_from_paths(resource_dir.as_deref(), executable_dir.as_deref())
+    resolve_command(command).is_some()
 }
 
 struct AcpCommandPlan {
     executable: PathBuf,
     args: Vec<OsString>,
-    env: HashMap<String, String>,
+    env: HashMap<OsString, OsString>,
     augment_path: bool,
 }
 
-impl fmt::Debug for AcpCommandPlan {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("AcpCommandPlan")
-            .field("executable", &self.executable)
-            .field("args", &self.args)
-            .field("augment_path", &self.augment_path)
-            .finish_non_exhaustive()
-    }
-}
-
-fn external_command_plan(spec: &AcpProviderSpec, cwd: &Path) -> AcpCommandPlan {
+fn external_command_plan_with_executable(
+    spec: &AcpProviderSpec,
+    cwd: &Path,
+    executable: PathBuf,
+) -> AcpCommandPlan {
     debug_assert_eq!(spec.kind, AcpProviderKind::External);
     let mut args = spec.command[1..]
         .iter()
@@ -499,110 +690,30 @@ fn external_command_plan(spec: &AcpProviderSpec, cwd: &Path) -> AcpCommandPlan {
         args.push(cwd.as_os_str().to_owned());
     }
     AcpCommandPlan {
-        executable: PathBuf::from(spec.command[0]),
+        executable,
         args,
         env: spec
             .env
             .iter()
-            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .map(|(key, value)| (OsString::from(key), OsString::from(value)))
             .collect(),
         augment_path: true,
     }
 }
 
-fn opencode_config_content(
-    launch: &crate::harness::OpenCodeLaunchConfig,
-    model_id: &str,
-) -> Result<String, String> {
-    let model_id = model_id.trim();
-    if model_id.is_empty() {
-        return Err("内置 OpenCode 需要选择 API 模型".to_string());
-    }
-    let provider_slug = &launch.provider_slug;
-    let fully_qualified_model = format!("{provider_slug}/{model_id}");
-    serde_json::to_string(&json!({
-        "$schema": "https://opencode.ai/config.json",
-        "model": fully_qualified_model,
-        "provider": {
-            (provider_slug): {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "QwenAudio OpenAI-compatible",
-                "options": {
-                    "baseURL": launch.base_url,
-                    "apiKey": launch.api_key,
-                },
-                "models": {
-                    (model_id): { "name": model_id }
-                }
-            }
-        }
-    }))
-    .map_err(|_| "无法配置内置 OpenCode".to_string())
+#[cfg(test)]
+fn external_command_plan(spec: &AcpProviderSpec, cwd: &Path) -> AcpCommandPlan {
+    external_command_plan_with_executable(spec, cwd, PathBuf::from(spec.command[0]))
 }
 
-fn bundled_opencode_command_plan<F>(
-    executable: PathBuf,
-    cwd: &Path,
-    api_provider_id: Option<&str>,
-    model_id: Option<&str>,
-    resolve_launch_config: F,
-) -> Result<AcpCommandPlan, String>
-where
-    F: FnOnce(&str) -> Result<crate::harness::OpenCodeLaunchConfig, String>,
-{
-    let api_provider_id = api_provider_id
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .ok_or_else(|| "内置 OpenCode 需要选择 API Provider".to_string())?;
-    let launch = resolve_launch_config(api_provider_id)
-        .map_err(|_| "内置 OpenCode 的 API Provider 不可用或不兼容".to_string())?;
-    let config_content = opencode_config_content(&launch, model_id.unwrap_or_default())?;
-    Ok(AcpCommandPlan {
-        executable,
-        args: vec![
-            OsString::from("acp"),
-            OsString::from("--cwd"),
-            cwd.as_os_str().to_owned(),
-        ],
-        env: HashMap::from([
-            ("OPENCODE_DISABLE_AUTOUPDATE".to_string(), "1".to_string()),
-            ("OPENCODE_CONFIG_CONTENT".to_string(), config_content),
-        ]),
-        augment_path: false,
-    })
+fn resolved_external_command_plan(spec: &AcpProviderSpec, cwd: &Path) -> Option<AcpCommandPlan> {
+    resolve_command(spec.command[0])
+        .map(|executable| external_command_plan_with_executable(spec, cwd, executable))
 }
 
-const BUNDLED_SIDECAR_RUNTIME_ENV_KEYS: &[&str] = &[
-    "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "LC_CTYPE", "USER", "USERNAME",
-];
-#[cfg(windows)]
-const BUNDLED_SIDECAR_SYSTEM_PATH: &str = r"C:\Windows\System32;C:\Windows";
-#[cfg(not(windows))]
-const BUNDLED_SIDECAR_SYSTEM_PATH: &str = "/usr/bin:/bin:/usr/sbin:/sbin";
-
-fn bundled_sidecar_runtime_env() -> Vec<(&'static str, OsString)> {
-    let mut variables = BUNDLED_SIDECAR_RUNTIME_ENV_KEYS
-        .iter()
-        .filter_map(|key| env::var_os(key).map(|value| (*key, value)))
-        .collect::<Vec<_>>();
-    variables.push(("PATH", OsString::from(BUNDLED_SIDECAR_SYSTEM_PATH)));
-    variables
-}
-
-fn configure_command_environment(
-    command: &mut Command,
-    provider_kind: AcpProviderKind,
-    plan: &AcpCommandPlan,
-) {
-    match provider_kind {
-        AcpProviderKind::Bundled => {
-            command.env_clear();
-            command.envs(bundled_sidecar_runtime_env());
-        }
-        AcpProviderKind::External if plan.augment_path => {
-            command.envs(acp_process_env(&[]));
-        }
-        AcpProviderKind::External => {}
+fn configure_command_environment(command: &mut Command, plan: &AcpCommandPlan) {
+    if plan.augment_path {
+        command.envs(acp_process_env(&[]));
     }
     command.envs(&plan.env);
 }
@@ -618,23 +729,19 @@ fn provider_info(spec: &AcpProviderSpec, available: bool) -> AcpProviderInfo {
 }
 
 #[tauri::command]
-pub fn acp_list_providers(app: AppHandle) -> Vec<AcpProviderInfo> {
+pub fn acp_list_providers() -> Vec<AcpProviderInfo> {
     ACP_PROVIDERS
         .iter()
-        .map(|spec| {
-            let available = match spec.kind {
-                AcpProviderKind::External => command_available(spec.command[0]),
-                AcpProviderKind::Bundled => resolve_bundled_sidecar(&app).is_ok(),
-            };
-            provider_info(spec, available)
-        })
+        .map(|spec| provider_info(spec, command_available(spec.command[0])))
         .collect()
 }
 
 impl AcpSessionState {
     fn emit(&self, mut event: AcpSessionEvent) {
         event.session_id = self.session_id.clone();
-        let _ = self.app.emit(ACP_EVENT, event);
+        if let Some(app) = &self.app {
+            let _ = app.emit(ACP_EVENT, event);
+        }
     }
 
     fn send_request(
@@ -657,24 +764,14 @@ impl AcpSessionState {
             "method": method,
             "params": params,
         });
-        self.writer_tx
-            .try_send(message)
-            .map_err(|_| "Agent 进程写入失败".to_string())?;
-        Ok(rx)
-    }
-
-    fn send_notification(&self, method: &str, params: Value) -> Result<(), String> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err("Agent 会话已关闭".to_string());
+        if self.writer_tx.try_send(message).is_err() {
+            self.pending
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .remove(&request_id);
+            return Err("Agent 进程写入失败".to_string());
         }
-        let message = json!({
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params,
-        });
-        self.writer_tx
-            .try_send(message)
-            .map_err(|_| "Agent 进程写入失败".to_string())
+        Ok(rx)
     }
 
     fn fail_pending(&self, error: &str) {
@@ -683,22 +780,177 @@ impl AcpSessionState {
                 let _ = sender.send(Err(error.to_string()));
             }
         }
-        if let Ok(mut permissions) = self.permissions.lock() {
-            for (_, sender) in permissions.drain() {
-                let _ = sender.send(None);
-            }
-        }
-        if let Ok(mut questions) = self.questions.lock() {
-            for (_, sender) in questions.drain() {
-                let _ = sender.send(json!({ "outcome": "cancelled" }));
-            }
-        }
-        if let Ok(mut plan_approvals) = self.plan_approvals.lock() {
-            for (_, sender) in plan_approvals.drain() {
-                let _ = sender.send(json!({ "outcome": "cancelled" }));
-            }
+        resolve_pending_permissions(&self.permissions);
+        resolve_pending_interactions(&self.questions);
+        resolve_pending_interactions(&self.plan_approvals);
+    }
+}
+
+fn resolve_pending_permissions(
+    permissions: &StdMutex<HashMap<String, oneshot::Sender<Option<String>>>>,
+) {
+    if let Ok(mut permissions) = permissions.lock() {
+        for (_, sender) in permissions.drain() {
+            let _ = sender.send(None);
         }
     }
+}
+
+fn resolve_permission_response(
+    permissions: &StdMutex<HashMap<String, oneshot::Sender<Option<String>>>>,
+    request_id: &str,
+    option_id: Option<String>,
+) -> Result<(), String> {
+    let sender = permissions
+        .lock()
+        .map_err(|_| "Agent 权限状态不可用".to_string())?
+        .remove(request_id)
+        .ok_or_else(|| "权限请求已失效".to_string())?;
+    sender
+        .send(option_id)
+        .map_err(|_| "权限请求已结束".to_string())
+}
+
+fn resolve_pending_interactions(interactions: &StdMutex<HashMap<String, oneshot::Sender<Value>>>) {
+    if let Ok(mut interactions) = interactions.lock() {
+        for (_, sender) in interactions.drain() {
+            let _ = sender.send(json!({ "outcome": "cancelled" }));
+        }
+    }
+}
+
+fn resolve_interaction_response(
+    interactions: &StdMutex<HashMap<String, oneshot::Sender<Value>>>,
+    request_id: &str,
+    outcome: Value,
+    expired_error: &str,
+    ended_error: &str,
+) -> Result<(), String> {
+    let sender = interactions
+        .lock()
+        .map_err(|_| expired_error.to_string())?
+        .remove(request_id)
+        .ok_or_else(|| expired_error.to_string())?;
+    sender.send(outcome).map_err(|_| ended_error.to_string())
+}
+
+fn permission_response_outcome(option_id: Option<String>) -> Value {
+    match option_id {
+        Some(option_id) => json!({
+            "outcome": { "outcome": "selected", "optionId": option_id }
+        }),
+        None => json!({ "outcome": { "outcome": "cancelled" } }),
+    }
+}
+
+fn cancel_session(
+    writer_tx: &mpsc::Sender<Value>,
+    agent_session_id: &str,
+    permissions: &StdMutex<HashMap<String, oneshot::Sender<Option<String>>>>,
+    questions: &StdMutex<HashMap<String, oneshot::Sender<Value>>>,
+    plan_approvals: &StdMutex<HashMap<String, oneshot::Sender<Value>>>,
+) -> Result<(), String> {
+    resolve_pending_permissions(permissions);
+    resolve_pending_interactions(questions);
+    resolve_pending_interactions(plan_approvals);
+    writer_tx
+        .try_send(json!({
+            "jsonrpc": "2.0",
+            "method": "session/cancel",
+            "params": { "sessionId": agent_session_id },
+        }))
+        .map_err(|_| "Agent 进程写入失败".to_string())
+}
+
+const ACP_TERMINATE_WAIT: Duration = Duration::from_secs(1);
+const ACP_KILL_WAIT: Duration = Duration::from_secs(1);
+
+async fn terminate_and_reap_child(child: &mut Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        let _ = crate::process_tree::terminate_process_group(pid);
+    }
+    #[cfg(not(unix))]
+    let _ = child.start_kill();
+
+    if tokio::time::timeout(ACP_TERMINATE_WAIT, child.wait())
+        .await
+        .is_ok()
+    {
+        return;
+    }
+
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        let _ = crate::process_tree::kill_process_group(pid);
+    }
+    #[cfg(not(unix))]
+    let _ = child.start_kill();
+
+    if tokio::time::timeout(ACP_KILL_WAIT, child.wait())
+        .await
+        .is_err()
+    {
+        log::warn!("timed out waiting for terminated ACP child after SIGKILL");
+    }
+}
+
+async fn cleanup_unregistered_child(child: &mut Child) {
+    terminate_and_reap_child(child).await;
+}
+
+fn emit_closed_state(state: &AcpSessionState, pending_error: &str, closed_error: Option<&str>) {
+    state.fail_pending(pending_error);
+    if state.turn_active.swap(false, Ordering::SeqCst) {
+        let mut event = AcpSessionEvent::base(&state.session_id, "turn_failed");
+        event.error = Some(pending_error.to_string());
+        state.emit(event);
+    }
+    let mut event = AcpSessionEvent::base(&state.session_id, "closed");
+    event.error = closed_error.map(str::to_string);
+    state.emit(event);
+}
+
+fn close_session_state(
+    state: &AcpSessionState,
+    pending_error: &str,
+    closed_error: Option<&str>,
+) -> bool {
+    if state.closed.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    emit_closed_state(state, pending_error, closed_error);
+    true
+}
+
+fn close_reader_session(state: &Arc<AcpSessionState>) -> Option<AcpOwnedSession> {
+    let already_closed = state.closed.swap(true, Ordering::SeqCst);
+    let handle = state.runtime.take_owned_session(&state.session_id);
+    if !already_closed {
+        emit_closed_state(state, "Agent 进程已退出", Some("Agent 进程已退出"));
+    }
+    handle
+}
+
+async fn reap_owned_session(handle: AcpOwnedSession) {
+    match handle {
+        AcpOwnedSession::Initializing(mut handle) => {
+            terminate_and_reap_child(&mut handle.child).await;
+        }
+        AcpOwnedSession::Registered(mut handle) => {
+            drop(handle.command_tx);
+            terminate_and_reap_child(&mut handle.child).await;
+        }
+    }
+}
+
+async fn shutdown_session_handle(
+    handle: AcpSessionHandle,
+    pending_error: &'static str,
+    closed_error: Option<&'static str>,
+) {
+    close_session_state(&handle.state, pending_error, closed_error);
+    reap_owned_session(AcpOwnedSession::Registered(handle)).await;
 }
 
 fn content_blocks_text(blocks: &Value) -> Option<String> {
@@ -944,15 +1196,7 @@ fn handle_server_request(state: Arc<AcpSessionState>, id: &Value, method: &str, 
         let state_for_response = state.clone();
         let request_id = id.clone();
         tauri::async_runtime::spawn(async move {
-            let outcome = match rx.await {
-                Ok(option_id) => match option_id {
-                    Some(option_id) => json!({
-                        "outcome": { "outcome": "selected", "optionId": option_id }
-                    }),
-                    None => json!({ "outcome": { "outcome": "cancelled" } }),
-                },
-                Err(_) => json!({ "outcome": { "outcome": "cancelled" } }),
-            };
+            let outcome = permission_response_outcome(rx.await.ok().flatten());
             if let Ok(mut permissions) = state_for_response.permissions.lock() {
                 permissions.remove(&request_key);
             }
@@ -1145,30 +1389,15 @@ fn spawn_reader_task(state: Arc<AcpSessionState>, stdout: tokio::process::ChildS
                 }
             }
         }
-        state.closed.store(true, Ordering::SeqCst);
-        state.fail_pending("Agent 进程已退出");
-        if state.turn_active.swap(false, Ordering::SeqCst) {
-            let mut event = AcpSessionEvent::base(&state.session_id, "turn_failed");
-            event.error = Some("Agent 进程意外退出".to_string());
-            state.emit(event);
+        if let Some(handle) = close_reader_session(&state) {
+            tauri::async_runtime::spawn(async move {
+                reap_owned_session(handle).await;
+            });
         }
-        let mut event = AcpSessionEvent::base(&state.session_id, "closed");
-        event.error = Some("Agent 进程已退出".to_string());
-        state.emit(event);
-        if let Ok(mut sessions) = state.runtime.sessions.lock() {
-            sessions.remove(&state.session_id);
-        }
-        cleanup_bridge(&state.app, &state.session_id);
     });
 }
 
-fn cleanup_bridge(app: &AppHandle, session_id: &str) {
-    if let Some(bridge) = app.try_state::<Arc<crate::AgentBridgeRuntime>>() {
-        bridge.remove_session(session_id);
-    }
-}
-
-fn spawn_stderr_task(stderr: tokio::process::ChildStderr, provider: &str, suppress_content: bool) {
+fn spawn_stderr_task(stderr: tokio::process::ChildStderr, provider: &str) {
     let provider = provider.to_string();
     tauri::async_runtime::spawn(async move {
         let mut reader = BufReader::new(stderr);
@@ -1180,7 +1409,7 @@ fn spawn_stderr_task(stderr: tokio::process::ChildStderr, provider: &str, suppre
                 Ok(_) => {}
             }
             let trimmed = line.trim();
-            if !suppress_content && !trimmed.is_empty() {
+            if !trimmed.is_empty() {
                 log::info!("[{provider}] {trimmed}");
             }
         }
@@ -1256,21 +1485,6 @@ async fn run_command_loop(state: Arc<AcpSessionState>, mut command_rx: mpsc::Rec
     }
 }
 
-fn mcp_server_spec(app: &AppHandle, session_id: &str) -> Vec<Value> {
-    let Ok(executable) = std::env::current_exe() else {
-        return Vec::new();
-    };
-    vec![json!({
-        "name": "qwenaudio",
-        "command": executable.to_string_lossy(),
-        "args": ["--mcp-server"],
-        "env": [
-            { "name": "QWEN_AUDIO_API", "value": crate::api_address(&app.config().identifier) },
-            { "name": "QWEN_AUDIO_SESSION_ID", "value": session_id },
-        ],
-    })]
-}
-
 #[tauri::command]
 pub async fn acp_start_session(
     app: AppHandle,
@@ -1289,67 +1503,16 @@ pub async fn acp_start_session(
         .map(PathBuf::from)
         .or_else(|| env::var("HOME").ok().map(PathBuf::from))
         .ok_or_else(|| "无法确定 Agent 工作目录".to_string())?;
-    let plan = match spec.kind {
-        AcpProviderKind::External => {
-            if !command_available(spec.command[0]) {
-                return Err(format!(
-                    "未找到 {} 命令，请先安装 {}",
-                    spec.command[0], spec.name
-                ));
-            }
-            external_command_plan(spec, &cwd)
-        }
-        AcpProviderKind::Bundled => bundled_opencode_command_plan(
-            resolve_bundled_sidecar(&app)?,
-            &cwd,
-            request.api_provider_id.as_deref(),
-            request.model_id.as_deref(),
-            |provider_id| crate::harness::opencode_launch_config(&app, provider_id),
-        )?,
-    };
-
-    let mut command = Command::new(&plan.executable);
-    command
-        .args(&plan.args)
-        .current_dir(&cwd)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    configure_command_environment(&mut command, spec.kind, &plan);
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("无法启动 {}: {error}", spec.name))?;
-
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "无法连接 Agent 进程输入".to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "无法连接 Agent 进程输出".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "无法连接 Agent 进程错误输出".to_string())?;
-    spawn_stderr_task(stderr, spec.id, spec.kind == AcpProviderKind::Bundled);
+    let _ = request.api_provider_id.as_deref();
+    let _ = request.enable_tools;
+    let plan = resolved_external_command_plan(spec, &cwd)
+        .ok_or_else(|| format!("未找到 {} 命令，请先安装 {}", spec.command[0], spec.name))?;
 
     let (writer_tx, mut writer_rx) = mpsc::channel::<Value>(256);
-    tauri::async_runtime::spawn(async move {
-        while let Some(message) = writer_rx.recv().await {
-            let mut line = serde_json::to_string(&message).unwrap_or_default();
-            line.push('\n');
-            if stdin.write_all(line.as_bytes()).await.is_err() {
-                break;
-            }
-        }
-    });
-
     let session_id = Uuid::new_v4().to_string();
     let runtime_handle = runtime.inner().clone();
     let state = Arc::new(AcpSessionState {
-        app: app.clone(),
+        app: Some(app.clone()),
         runtime: runtime_handle,
         session_id: session_id.clone(),
         agent_session_id: StdMutex::new(None),
@@ -1362,123 +1525,155 @@ pub async fn acp_start_session(
         turn_active: AtomicBool::new(false),
         closed: AtomicBool::new(false),
     });
-    spawn_reader_task(state.clone(), stdout);
 
-    let initialize_rx = state.send_request(
-        "initialize",
-        json!({
-            "protocolVersion": 1,
-            "clientCapabilities": {
-                "fs": { "readTextFile": false, "writeTextFile": false }
-            },
-            "clientInfo": {
-                "name": "qwenaudio-toolkits",
-                "version": env!("CARGO_PKG_VERSION"),
-            },
-        }),
-    )?;
-    let initialize = tokio::time::timeout(
-        Duration::from_secs(INITIALIZE_TIMEOUT_SECONDS),
-        initialize_rx,
-    )
-    .await
-    .map_err(|_| "Agent 启动超时，请确认已安装并登录".to_string())?
-    .map_err(|_| "Agent 会话已中断".to_string())?
-    .map_err(|error| error)?;
-    let agent_name = initialize
-        .pointer("/agentInfo/name")
-        .and_then(Value::as_str)
-        .unwrap_or(spec.name);
-
-    let mcp_servers = if request.enable_tools == Some(false) {
-        Vec::new()
-    } else {
-        mcp_server_spec(&app, &session_id)
-    };
-    let session_new_rx = state.send_request(
-        "session/new",
-        json!({
-            "cwd": cwd.to_string_lossy(),
-            "mcpServers": mcp_servers,
-        }),
-    )?;
-    let session_new = tokio::time::timeout(
-        Duration::from_secs(SESSION_NEW_TIMEOUT_SECONDS),
-        session_new_rx,
-    )
-    .await
-    .map_err(|_| "Agent 会话创建超时".to_string())?
-    .map_err(|_| "Agent 会话已中断".to_string())?
-    .map_err(|error| error)?;
-    let agent_session_id = session_new
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "Agent 未返回会话 ID".to_string())?
-        .to_string();
-    if let Ok(mut guard) = state.agent_session_id.lock() {
-        *guard = Some(agent_session_id.clone());
+    let mut command = Command::new(&plan.executable);
+    command
+        .args(&plan.args)
+        .current_dir(&cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    crate::process_tree::configure_command(command.as_std_mut());
+    configure_command_environment(&mut command, &plan);
+    let child = command
+        .spawn()
+        .map_err(|error| format!("无法启动 {}: {error}", spec.name))?;
+    if let Err(mut child) = runtime.track_initializing(session_id.clone(), state.clone(), child) {
+        let error = "应用正在退出，无法建立 Agent 会话".to_string();
+        close_session_state(&state, &error, Some(&error));
+        cleanup_unregistered_child(&mut child).await;
+        return Err(error);
     }
-    let (model_options, mut current_model_id) = session_models(&session_new);
-    if let Some(model_id) = request.model_id.as_deref().filter(|id| !id.is_empty()) {
-        if let Some((method, params)) =
-            model_selection_request(&session_new, &agent_session_id, model_id, spec.kind)?
-        {
-            let receiver = state.send_request(method, params)?;
-            let result = tokio::time::timeout(Duration::from_secs(30), receiver)
-                .await
-                .map_err(|_| "Agent 模型切换超时".to_string())?
-                .map_err(|_| "Agent 会话已中断".to_string())??;
-            if let Some(actual) = session_models(&result).1 {
-                if actual != model_id {
-                    return Err("Agent 未应用所选模型".to_string());
+
+    let startup_result = async {
+        let (mut stdin, stdout, stderr) = runtime.take_initializing_io(&session_id)?;
+        spawn_stderr_task(stderr, spec.id);
+        tauri::async_runtime::spawn(async move {
+            while let Some(message) = writer_rx.recv().await {
+                let mut line = serde_json::to_string(&message).unwrap_or_default();
+                line.push('\n');
+                if stdin.write_all(line.as_bytes()).await.is_err() {
+                    break;
                 }
             }
+        });
+        spawn_reader_task(state.clone(), stdout);
+
+        let initialize_rx = state.send_request(
+            "initialize",
+            json!({
+                "protocolVersion": 1,
+                "clientCapabilities": {
+                    "fs": { "readTextFile": false, "writeTextFile": false }
+                },
+                "clientInfo": {
+                    "name": "qwenaudio-toolkits",
+                    "version": env!("CARGO_PKG_VERSION"),
+                },
+            }),
+        )?;
+        let initialize = tokio::time::timeout(
+            Duration::from_secs(INITIALIZE_TIMEOUT_SECONDS),
+            initialize_rx,
+        )
+        .await
+        .map_err(|_| "Agent 启动超时，请确认已安装并登录".to_string())?
+        .map_err(|_| "Agent 会话已中断".to_string())?
+        .map_err(|error| error)?;
+        let agent_name = initialize
+            .pointer("/agentInfo/name")
+            .and_then(Value::as_str)
+            .unwrap_or(spec.name);
+
+        let mcp_servers: Vec<Value> = Vec::new();
+        let session_new_rx = state.send_request(
+            "session/new",
+            json!({
+                "cwd": cwd.to_string_lossy(),
+                "mcpServers": mcp_servers,
+            }),
+        )?;
+        let session_new = tokio::time::timeout(
+            Duration::from_secs(SESSION_NEW_TIMEOUT_SECONDS),
+            session_new_rx,
+        )
+        .await
+        .map_err(|_| "Agent 会话创建超时".to_string())?
+        .map_err(|_| "Agent 会话已中断".to_string())?
+        .map_err(|error| error)?;
+        let agent_session_id = session_new
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Agent 未返回会话 ID".to_string())?
+            .to_string();
+        if let Ok(mut guard) = state.agent_session_id.lock() {
+            *guard = Some(agent_session_id.clone());
         }
-        current_model_id = Some(model_id.to_string());
-    }
-    let models = model_options.iter().map(|model| model.id.clone()).collect();
-    let modes = session_new
-        .pointer("/modes/availableModes")
-        .or_else(|| session_new.get("modes"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let session_state = state.clone();
+        let (model_options, mut current_model_id) = session_models(&session_new);
+        if let Some(model_id) = request.model_id.as_deref().filter(|id| !id.is_empty()) {
+            if let Some((method, params)) =
+                model_selection_request(&session_new, &agent_session_id, model_id, spec.kind)?
+            {
+                let receiver = state.send_request(method, params)?;
+                let result = tokio::time::timeout(Duration::from_secs(30), receiver)
+                    .await
+                    .map_err(|_| "Agent 模型切换超时".to_string())?
+                    .map_err(|_| "Agent 会话已中断".to_string())??;
+                if let Some(actual) = session_models(&result).1 {
+                    if actual != model_id {
+                        return Err("Agent 未应用所选模型".to_string());
+                    }
+                }
+            }
+            current_model_id = Some(model_id.to_string());
+        }
+        let models = model_options.iter().map(|model| model.id.clone()).collect();
+        let modes = session_new
+            .pointer("/modes/availableModes")
+            .or_else(|| session_new.get("modes"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
 
-    let (command_tx, command_rx) = mpsc::channel::<AcpCommand>(64);
-    tauri::async_runtime::spawn(async move {
-        run_command_loop(state, command_rx).await;
-    });
+        let (command_tx, command_rx) = mpsc::channel::<AcpCommand>(64);
+        runtime.promote_initializing(&session_id, command_tx)?;
+        tauri::async_runtime::spawn({
+            let state = state.clone();
+            async move {
+                run_command_loop(state, command_rx).await;
+            }
+        });
 
-    log::info!(
-        "ACP 会话已建立: provider={} internal={} agent_session={}",
-        spec.id,
-        session_id,
-        agent_session_id
-    );
-
-    runtime
-        .sessions
-        .lock()
-        .map_err(|_| "Agent 会话状态不可用".to_string())?
-        .insert(
-            session_id.clone(),
-            AcpSessionHandle {
-                state: session_state,
-                command_tx,
-                child: Arc::new(tokio::sync::Mutex::new(child)),
-            },
+        log::info!(
+            "ACP 会话已建立: provider={} internal={} agent_session={}",
+            spec.id,
+            session_id,
+            agent_session_id
         );
 
-    Ok(AcpSessionStartResponse {
-        session_id,
-        provider_id: spec.id.to_string(),
-        provider_name: agent_name.to_string(),
-        models,
-        model_options,
-        current_model_id,
-        modes,
-    })
+        Ok(AcpSessionStartResponse {
+            session_id: session_id.clone(),
+            provider_id: spec.id.to_string(),
+            provider_name: agent_name.to_string(),
+            models,
+            model_options,
+            current_model_id,
+            modes,
+        })
+    }
+    .await;
+
+    match startup_result {
+        Ok(response) => Ok(response),
+        Err(error) => {
+            close_session_state(&state, &error, Some(&error));
+            if let Some(handle) = runtime.take_owned_session(&session_id) {
+                reap_owned_session(handle).await;
+            }
+            Err(error)
+        }
+    }
 }
 
 #[tauri::command]
@@ -1491,13 +1686,7 @@ pub fn acp_send_prompt(
     if text.is_empty() {
         return Err("对话内容不能为空".to_string());
     }
-    let sender = runtime
-        .sessions
-        .lock()
-        .map_err(|_| "Agent 会话状态不可用".to_string())?
-        .get(&session_id)
-        .map(|handle| handle.command_tx.clone())
-        .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
+    let sender = runtime.session_sender(&session_id)?;
     sender
         .try_send(AcpCommand::Prompt { text })
         .map_err(|error| match error {
@@ -1511,31 +1700,16 @@ pub fn acp_cancel_turn(
     runtime: State<'_, Arc<AcpRuntime>>,
     session_id: String,
 ) -> Result<(), String> {
-    let state = runtime
-        .sessions
-        .lock()
-        .map_err(|_| "Agent 会话状态不可用".to_string())?
-        .get(&session_id)
-        .map(|handle| handle.state.clone())
-        .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
-    if let Ok(mut permissions) = state.permissions.lock() {
-        for (_, sender) in permissions.drain() {
-            let _ = sender.send(None);
-        }
+    let state = runtime.session_state(&session_id)?;
+    if state.closed.load(Ordering::SeqCst) {
+        return Err("Agent 会话已关闭".to_string());
     }
-    if let Ok(mut questions) = state.questions.lock() {
-        for (_, sender) in questions.drain() {
-            let _ = sender.send(json!({ "outcome": "cancelled" }));
-        }
-    }
-    if let Ok(mut plan_approvals) = state.plan_approvals.lock() {
-        for (_, sender) in plan_approvals.drain() {
-            let _ = sender.send(json!({ "outcome": "cancelled" }));
-        }
-    }
-    state.send_notification(
-        "session/cancel",
-        json!({ "sessionId": agent_session_id_of(&state) }),
+    cancel_session(
+        &state.writer_tx,
+        &agent_session_id_of(&state),
+        &state.permissions,
+        &state.questions,
+        &state.plan_approvals,
     )
 }
 
@@ -1546,22 +1720,8 @@ pub fn acp_respond_permission(
     request_id: String,
     option_id: Option<String>,
 ) -> Result<(), String> {
-    let state = runtime
-        .sessions
-        .lock()
-        .map_err(|_| "Agent 会话状态不可用".to_string())?
-        .get(&session_id)
-        .map(|handle| handle.state.clone())
-        .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
-    let sender = state
-        .permissions
-        .lock()
-        .map_err(|_| "Agent 权限状态不可用".to_string())?
-        .remove(&request_id)
-        .ok_or_else(|| "权限请求已失效".to_string())?;
-    sender
-        .send(option_id)
-        .map_err(|_| "权限请求已结束".to_string())
+    let state = runtime.session_state(&session_id)?;
+    resolve_permission_response(&state.permissions, &request_id, option_id)
 }
 
 #[tauri::command]
@@ -1571,22 +1731,14 @@ pub fn acp_respond_question(
     request_id: String,
     outcome: Value,
 ) -> Result<(), String> {
-    let state = runtime
-        .sessions
-        .lock()
-        .map_err(|_| "Agent 会话状态不可用".to_string())?
-        .get(&session_id)
-        .map(|handle| handle.state.clone())
-        .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
-    let sender = state
-        .questions
-        .lock()
-        .map_err(|_| "Agent 问题状态不可用".to_string())?
-        .remove(&request_id)
-        .ok_or_else(|| "问题请求已失效".to_string())?;
-    sender
-        .send(outcome)
-        .map_err(|_| "问题请求已结束".to_string())
+    let state = runtime.session_state(&session_id)?;
+    resolve_interaction_response(
+        &state.questions,
+        &request_id,
+        outcome,
+        "问题请求已失效",
+        "问题请求已结束",
+    )
 }
 
 #[tauri::command]
@@ -1596,71 +1748,136 @@ pub fn acp_respond_plan_approval(
     request_id: String,
     outcome: Value,
 ) -> Result<(), String> {
-    let state = runtime
-        .sessions
-        .lock()
-        .map_err(|_| "Agent 会话状态不可用".to_string())?
-        .get(&session_id)
-        .map(|handle| handle.state.clone())
-        .ok_or_else(|| "Agent 会话不存在或已经结束".to_string())?;
-    let sender = state
-        .plan_approvals
-        .lock()
-        .map_err(|_| "Agent 计划确认状态不可用".to_string())?
-        .remove(&request_id)
-        .ok_or_else(|| "计划确认请求已失效".to_string())?;
-    sender
-        .send(outcome)
-        .map_err(|_| "计划确认请求已结束".to_string())
+    let state = runtime.session_state(&session_id)?;
+    resolve_interaction_response(
+        &state.plan_approvals,
+        &request_id,
+        outcome,
+        "计划确认请求已失效",
+        "计划确认请求已结束",
+    )
 }
 
 #[tauri::command]
 pub async fn acp_finish_session(
-    app: AppHandle,
+    _app: AppHandle,
     runtime: State<'_, Arc<AcpRuntime>>,
     session_id: String,
 ) -> Result<(), String> {
-    let handle = runtime
-        .sessions
-        .lock()
-        .map_err(|_| "Agent 会话状态不可用".to_string())?
-        .remove(&session_id);
-    let Some(handle) = handle else {
-        return Ok(());
-    };
-    drop(handle.command_tx);
-    let mut child = handle.child.lock().await;
-    let _ = child.kill().await;
-    cleanup_bridge(&app, &session_id);
-    let mut event = AcpSessionEvent::base(&session_id, "closed");
-    event.error = None;
-    let _ = app.emit(ACP_EVENT, event);
+    if let Some(handle) = runtime.take_registered(&session_id) {
+        shutdown_session_handle(handle, "Agent 会话已关闭", None).await;
+    }
     Ok(())
 }
 
-pub fn acp_shutdown_all(app: &AppHandle) {
+pub async fn acp_shutdown_all(app: &AppHandle) {
     let Some(runtime) = app.try_state::<Arc<AcpRuntime>>() else {
         return;
     };
-    let handles = runtime
-        .sessions
-        .lock()
-        .map(|mut sessions| sessions.drain().collect::<Vec<_>>())
-        .unwrap_or_default();
-    for (session_id, handle) in handles {
-        drop(handle.command_tx);
-        let child = handle.child;
-        tauri::async_runtime::spawn(async move {
-            let mut child = child.lock().await;
-            let _ = child.kill().await;
-        });
-        let _ = session_id;
-    }
+    runtime.shutdown_all().await;
+}
+
+#[cfg(test)]
+fn test_session_state_with_writer(
+    runtime: Arc<AcpRuntime>,
+    session_id: &str,
+    writer_tx: mpsc::Sender<Value>,
+) -> Arc<AcpSessionState> {
+    Arc::new(AcpSessionState {
+        app: None,
+        runtime,
+        session_id: session_id.to_string(),
+        agent_session_id: StdMutex::new(None),
+        writer_tx,
+        next_request_id: AtomicU64::new(1),
+        pending: StdMutex::new(HashMap::new()),
+        permissions: StdMutex::new(HashMap::new()),
+        questions: StdMutex::new(HashMap::new()),
+        plan_approvals: StdMutex::new(HashMap::new()),
+        turn_active: AtomicBool::new(false),
+        closed: AtomicBool::new(false),
+    })
+}
+
+#[cfg(test)]
+fn test_session_state(runtime: Arc<AcpRuntime>, session_id: &str) -> Arc<AcpSessionState> {
+    let (writer_tx, _writer_rx) = mpsc::channel(1);
+    test_session_state_with_writer(runtime, session_id, writer_tx)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn providers() -> &'static [AcpProviderSpec] {
+        ACP_PROVIDERS
+    }
+
+    #[test]
+    fn send_request_removes_pending_sender_when_writer_is_full() {
+        let runtime = Arc::new(AcpRuntime::default());
+        let (writer_tx, _writer_rx) = mpsc::channel(1);
+        writer_tx
+            .try_send(json!({ "already": "queued" }))
+            .expect("fill writer channel");
+        let state = test_session_state_with_writer(runtime, "full-writer", writer_tx);
+
+        assert!(state.send_request("test/request", Value::Null).is_err());
+        assert!(state.pending.lock().expect("inspect pending").is_empty());
+    }
+
+    #[test]
+    fn send_request_removes_pending_sender_when_writer_is_closed() {
+        let runtime = Arc::new(AcpRuntime::default());
+        let (writer_tx, writer_rx) = mpsc::channel(1);
+        drop(writer_rx);
+        let state = test_session_state_with_writer(runtime, "closed-writer", writer_tx);
+
+        assert!(state.send_request("test/request", Value::Null).is_err());
+        assert!(state.pending.lock().expect("inspect pending").is_empty());
+    }
+
+    #[test]
+    fn send_request_enqueues_message_and_preserves_response_flow() {
+        tauri::async_runtime::block_on(async {
+            let runtime = Arc::new(AcpRuntime::default());
+            let (writer_tx, mut writer_rx) = mpsc::channel(1);
+            let state = test_session_state_with_writer(runtime, "successful-writer", writer_tx);
+
+            let response = state
+                .send_request("test/request", json!({ "value": true }))
+                .expect("send request");
+
+            assert_eq!(
+                writer_rx.recv().await,
+                Some(json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "test/request",
+                    "params": { "value": true },
+                }))
+            );
+            state
+                .pending
+                .lock()
+                .expect("inspect pending")
+                .remove(&1)
+                .expect("pending request")
+                .send(Ok(json!({ "accepted": true })))
+                .expect("deliver response");
+            assert_eq!(
+                response.await.expect("receive response"),
+                Ok(json!({ "accepted": true }))
+            );
+        });
+    }
+
+    #[test]
+    fn provider_registry_excludes_bundled_opencode() {
+        assert!(providers()
+            .iter()
+            .all(|provider| provider.id != "opencode-bundled"));
+    }
 
     #[test]
     fn advertised_config_models_take_precedence_and_use_config_id() {
@@ -1739,157 +1956,6 @@ mod tests {
         assert_eq!(provider.env, &[("OPENCODE_DISABLE_AUTOUPDATE", "1")]);
     }
 
-    fn test_opencode_launch_config() -> crate::harness::OpenCodeLaunchConfig {
-        crate::harness::OpenCodeLaunchConfig {
-            id: "api.custom.example".to_string(),
-            base_url: "https://api.example.test/v1".to_string(),
-            api_key: "test-opencode-secret".to_string(),
-            provider_slug: "qwenaudio-api-custom-example".to_string(),
-            auth_type: "bearer".to_string(),
-        }
-    }
-
-    #[test]
-    fn bundled_opencode_registration_has_distinct_api_binding_metadata() {
-        let bundled = ACP_PROVIDERS
-            .iter()
-            .find(|provider| provider.id == "opencode-bundled")
-            .expect("register bundled OpenCode");
-        assert_eq!(bundled.name, "OpenCode（内置）");
-        assert_eq!(bundled.kind, AcpProviderKind::Bundled);
-        assert!(bundled.requires_api_provider);
-
-        let info = provider_info(bundled, true);
-        assert_eq!(info.kind, "bundled");
-        assert!(info.requires_api_provider);
-
-        let external = ACP_PROVIDERS
-            .iter()
-            .find(|provider| provider.id == "opencode")
-            .expect("retain external OpenCode");
-        assert_eq!(external.kind, AcpProviderKind::External);
-        assert!(!external.requires_api_provider);
-        assert_eq!(external.command, &["opencode", "acp"]);
-    }
-
-    #[test]
-    fn bundled_opencode_resolves_tauri_sidecar_without_augmented_path() {
-        let root = std::env::temp_dir().join(format!("acp-sidecar-{}", Uuid::new_v4()));
-        let resources = root.join("QwenAudio.app/Contents/Resources");
-        let sidecar = root.join("QwenAudio.app/Contents/MacOS/opencode");
-        std::fs::create_dir_all(&resources).expect("create resource fixture");
-        std::fs::create_dir_all(sidecar.parent().expect("sidecar parent"))
-            .expect("create sidecar fixture");
-        std::fs::write(&sidecar, b"#!/bin/sh\nexit 0\n").expect("write sidecar fixture");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = std::fs::metadata(&sidecar)
-                .expect("read sidecar permissions")
-                .permissions();
-            permissions.set_mode(0o700);
-            std::fs::set_permissions(&sidecar, permissions).expect("make sidecar executable");
-        }
-
-        let resolved = resolve_bundled_sidecar_from_paths(Some(&resources), None)
-            .expect("resolve Tauri sidecar");
-        assert_eq!(resolved, sidecar);
-        let plan = bundled_opencode_command_plan(
-            resolved,
-            std::path::Path::new("/tmp/acp-workspace"),
-            Some("api.custom.example"),
-            Some("remote-model"),
-            |_| Ok(test_opencode_launch_config()),
-        )
-        .expect("build bundled launch plan");
-        assert!(!plan.augment_path);
-        assert_eq!(
-            plan.args
-                .iter()
-                .map(|argument| argument.to_string_lossy())
-                .collect::<Vec<_>>(),
-            vec!["acp", "--cwd", "/tmp/acp-workspace"]
-        );
-        assert_eq!(plan.executable, sidecar);
-        let _ = std::fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn bundled_opencode_rejects_missing_or_ineligible_api_binding_without_leaking_credentials() {
-        let executable = std::path::PathBuf::from("/trusted/sidecar/opencode");
-        let missing = bundled_opencode_command_plan(
-            executable.clone(),
-            std::path::Path::new("/tmp/acp-workspace"),
-            None,
-            Some("remote-model"),
-            |_| Ok(test_opencode_launch_config()),
-        )
-        .expect_err("require an API Provider binding");
-        assert_eq!(missing, "内置 OpenCode 需要选择 API Provider");
-
-        let ineligible = bundled_opencode_command_plan(
-            executable,
-            std::path::Path::new("/tmp/acp-workspace"),
-            Some("deleted-provider"),
-            Some("remote-model"),
-            |_| Err("connection failed: test-opencode-secret".to_string()),
-        )
-        .expect_err("reject deleted or disabled API Provider bindings");
-        assert_eq!(ineligible, "内置 OpenCode 的 API Provider 不可用或不兼容");
-        assert!(!ineligible.contains("test-opencode-secret"));
-    }
-
-    #[test]
-    fn bundled_opencode_config_uses_selected_model_and_redacts_credentials() {
-        let plan = bundled_opencode_command_plan(
-            std::path::PathBuf::from("/trusted/sidecar/opencode"),
-            std::path::Path::new("/tmp/acp-workspace"),
-            Some("api.custom.example"),
-            Some("remote-model"),
-            |_| Ok(test_opencode_launch_config()),
-        )
-        .expect("build bundled launch plan");
-        let config: Value = serde_json::from_str(
-            plan.env
-                .get("OPENCODE_CONFIG_CONTENT")
-                .expect("pass native config only through the child environment"),
-        )
-        .expect("serialize OpenCode configuration");
-        assert_eq!(config["model"], "qwenaudio-api-custom-example/remote-model");
-        assert_eq!(
-            config["provider"]["qwenaudio-api-custom-example"]["options"]["baseURL"],
-            "https://api.example.test/v1"
-        );
-        assert_eq!(
-            config["provider"]["qwenaudio-api-custom-example"]["options"]["apiKey"],
-            "test-opencode-secret"
-        );
-        assert_eq!(plan.env["OPENCODE_DISABLE_AUTOUPDATE"], "1");
-        assert!(!format!("{plan:?}").contains("test-opencode-secret"));
-    }
-
-    #[test]
-    fn bundled_selected_model_does_not_require_session_new_advertisement() {
-        let session_new = json!({ "sessionId": "agent-session" });
-        assert!(model_selection_request(
-            &session_new,
-            "agent-session",
-            "remote-model",
-            AcpProviderKind::External,
-        )
-        .is_err());
-        assert_eq!(
-            model_selection_request(
-                &session_new,
-                "agent-session",
-                "remote-model",
-                AcpProviderKind::Bundled,
-            )
-            .expect("allow the model configured before bundled OpenCode starts"),
-            None
-        );
-    }
-
     #[test]
     fn external_opencode_argv_stays_unchanged() {
         let external = ACP_PROVIDERS
@@ -1906,47 +1972,10 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["acp", "--cwd", "/tmp/acp-workspace"]
         );
-        assert_eq!(plan.env["OPENCODE_DISABLE_AUTOUPDATE"], "1");
-    }
-
-    #[test]
-    fn bundled_launch_command_clears_injected_parent_environment() {
-        let plan = bundled_opencode_command_plan(
-            std::path::PathBuf::from("/trusted/sidecar/opencode"),
-            std::path::Path::new("/tmp/acp-workspace"),
-            Some("api.custom.example"),
-            Some("remote-model"),
-            |_| Ok(test_opencode_launch_config()),
-        )
-        .expect("build bundled launch plan");
-        let mut command = Command::new(&plan.executable);
-        command
-            .env("UNRELATED_PARENT_SECRET", "must-not-reach-sidecar")
-            .env("AWS_ACCESS_KEY_ID", "must-not-reach-sidecar");
-        configure_command_environment(&mut command, AcpProviderKind::Bundled, &plan);
-
-        let environment = command.as_std().get_envs().collect::<Vec<_>>();
-        assert!(
-            !environment
-                .iter()
-                .any(|(key, _)| *key == "UNRELATED_PARENT_SECRET" || *key == "AWS_ACCESS_KEY_ID"),
-            "bundled sidecars must not inherit arbitrary parent environment variables"
+        assert_eq!(
+            plan.env[std::ffi::OsStr::new("OPENCODE_DISABLE_AUTOUPDATE")],
+            std::ffi::OsStr::new("1")
         );
-        assert!(environment.iter().all(|(key, _)| {
-            BUNDLED_SIDECAR_RUNTIME_ENV_KEYS.contains(&key.to_str().unwrap_or_default())
-                || *key == "PATH"
-                || *key == "OPENCODE_CONFIG_CONTENT"
-                || *key == "OPENCODE_DISABLE_AUTOUPDATE"
-        }));
-        assert!(environment.iter().any(|(key, value)| {
-            *key == "PATH" && *value == Some(std::ffi::OsStr::new(BUNDLED_SIDECAR_SYSTEM_PATH))
-        }));
-        assert!(environment
-            .iter()
-            .any(|(key, _)| *key == "OPENCODE_CONFIG_CONTENT"));
-        assert!(environment
-            .iter()
-            .any(|(key, _)| *key == "OPENCODE_DISABLE_AUTOUPDATE"));
     }
 
     #[test]
@@ -1958,11 +1987,391 @@ mod tests {
         let plan = external_command_plan(external, std::path::Path::new("/tmp/acp-workspace"));
         let mut command = Command::new(&plan.executable);
         command.env("UNRELATED_PARENT_SECRET", "external-provider-keeps-it");
-        configure_command_environment(&mut command, AcpProviderKind::External, &plan);
+        configure_command_environment(&mut command, &plan);
 
         assert!(command.as_std().get_envs().any(|(key, value)| {
             key == "UNRELATED_PARENT_SECRET"
                 && value == Some(std::ffi::OsStr::new("external-provider-keeps-it"))
         }));
+    }
+
+    #[test]
+    fn provider_registry_allows_only_installed_external_clis() {
+        assert_eq!(
+            providers()
+                .iter()
+                .map(|provider| provider.id)
+                .collect::<Vec<_>>(),
+            vec!["qoder", "opencode", "kimi"]
+        );
+        assert!(providers().iter().all(|provider| {
+            provider.command.first() != Some(&"npx")
+                && !provider.command.iter().any(|argument| *argument == "-y")
+        }));
+    }
+
+    #[test]
+    fn cancel_resolves_pending_interactions_and_enqueues_cancel_notification() {
+        tauri::async_runtime::block_on(async {
+            let (writer_tx, mut writer_rx) = mpsc::channel(1);
+            let permissions = StdMutex::new(HashMap::new());
+            let questions = StdMutex::new(HashMap::new());
+            let plan_approvals = StdMutex::new(HashMap::new());
+            let (permission_tx, permission_rx) = oneshot::channel();
+            let (question_tx, question_rx) = oneshot::channel();
+            let (plan_tx, plan_rx) = oneshot::channel();
+            permissions
+                .lock()
+                .unwrap()
+                .insert("permission-1".to_string(), permission_tx);
+            questions
+                .lock()
+                .unwrap()
+                .insert("question-1".to_string(), question_tx);
+            plan_approvals
+                .lock()
+                .unwrap()
+                .insert("plan-1".to_string(), plan_tx);
+
+            cancel_session(
+                &writer_tx,
+                "agent-session",
+                &permissions,
+                &questions,
+                &plan_approvals,
+            )
+            .unwrap();
+
+            assert_eq!(permission_rx.await.unwrap(), None);
+            assert_eq!(
+                question_rx.await.unwrap(),
+                json!({ "outcome": "cancelled" })
+            );
+            assert_eq!(plan_rx.await.unwrap(), json!({ "outcome": "cancelled" }));
+            assert_eq!(
+                writer_rx.recv().await,
+                Some(json!({
+                    "jsonrpc": "2.0",
+                    "method": "session/cancel",
+                    "params": { "sessionId": "agent-session" },
+                }))
+            );
+        });
+    }
+
+    #[test]
+    fn permission_response_outcomes_match_acp_protocol() {
+        assert_eq!(
+            permission_response_outcome(Some("allow-once".to_string())),
+            json!({ "outcome": { "outcome": "selected", "optionId": "allow-once" } })
+        );
+        assert_eq!(
+            permission_response_outcome(None),
+            json!({ "outcome": { "outcome": "cancelled" } })
+        );
+    }
+
+    #[test]
+    fn permission_responder_delivers_selected_option_once() {
+        tauri::async_runtime::block_on(async {
+            let permissions = StdMutex::new(HashMap::new());
+            let (permission_tx, permission_rx) = oneshot::channel();
+            permissions
+                .lock()
+                .expect("register permission")
+                .insert("permission".to_string(), permission_tx);
+
+            resolve_permission_response(&permissions, "permission", Some("allow-once".to_string()))
+                .expect("resolve permission");
+
+            assert_eq!(
+                permission_rx.await.expect("permission response"),
+                Some("allow-once".to_string())
+            );
+            assert!(resolve_permission_response(&permissions, "permission", None).is_err());
+        });
+    }
+
+    #[test]
+    fn cursor_question_normalization_preserves_protocol_choices() {
+        let questions = normalize_questions(&json!({
+            "questions": [
+                {
+                    "id": "scope",
+                    "prompt": "  Which scope?  ",
+                    "allowMultiple": true,
+                    "options": [
+                        { "optionId": "small", "name": "Small" },
+                        { "id": "large", "label": "Large" }
+                    ]
+                },
+                { "title": "Fallback title" }
+            ]
+        }))
+        .expect("questions are present");
+
+        assert_eq!(
+            questions,
+            vec![
+                json!({
+                    "id": "scope",
+                    "prompt": "Which scope?",
+                    "options": [
+                        { "id": "small", "label": "Small" },
+                        { "id": "large", "label": "Large" }
+                    ],
+                    "allowMultiple": true
+                }),
+                json!({
+                    "id": "question-1",
+                    "prompt": "Fallback title",
+                    "options": [],
+                    "allowMultiple": false
+                })
+            ]
+        );
+    }
+
+    #[test]
+    fn cursor_plan_normalization_accepts_nested_phases_and_todos() {
+        let params = json!({
+            "plan": {
+                "phases": [
+                    {
+                        "title": "Prepare",
+                        "items": [{ "name": "Inspect", "status": "pending" }]
+                    }
+                ],
+                "todos": [{ "id": "ship", "title": "Ship" }]
+            }
+        });
+
+        assert_eq!(
+            normalize_plan_entries(params.pointer("/plan/todos")),
+            Some(vec![
+                json!({ "id": "ship", "content": "Ship", "status": null })
+            ])
+        );
+        assert_eq!(
+            normalize_plan_phases(&params),
+            Some(vec![json!({
+                "id": null,
+                "name": "Prepare",
+                "todos": [{ "id": null, "content": "Inspect", "status": "pending" }]
+            })])
+        );
+    }
+
+    #[test]
+    fn response_maps_deliver_question_and_plan_outcomes_once() {
+        tauri::async_runtime::block_on(async {
+            let questions = StdMutex::new(HashMap::new());
+            let plans = StdMutex::new(HashMap::new());
+            let (question_tx, question_rx) = oneshot::channel();
+            let (plan_tx, plan_rx) = oneshot::channel();
+            questions
+                .lock()
+                .unwrap()
+                .insert("question".to_string(), question_tx);
+            plans.lock().unwrap().insert("plan".to_string(), plan_tx);
+
+            resolve_interaction_response(
+                &questions,
+                "question",
+                json!({ "answers": [{ "questionId": "scope", "optionIds": ["small"] }] }),
+                "问题请求已失效",
+                "问题请求已结束",
+            )
+            .expect("resolve question");
+            resolve_interaction_response(
+                &plans,
+                "plan",
+                json!({ "approved": true }),
+                "计划确认请求已失效",
+                "计划确认请求已结束",
+            )
+            .expect("resolve plan");
+
+            assert_eq!(
+                question_rx.await.unwrap(),
+                json!({ "answers": [{ "questionId": "scope", "optionIds": ["small"] }] })
+            );
+            assert_eq!(plan_rx.await.unwrap(), json!({ "approved": true }));
+            assert!(resolve_interaction_response(
+                &plans,
+                "plan",
+                json!({ "approved": false }),
+                "计划确认请求已失效",
+                "计划确认请求已结束",
+            )
+            .is_err());
+        });
+    }
+
+    #[test]
+    fn augmented_path_round_trips_platform_path_separator() {
+        let inherited = env::join_paths([PathBuf::from("project-bin"), PathBuf::from("tool-bin")])
+            .expect("join test path");
+        let entries = augmented_path_entries_from(
+            Some(inherited.as_os_str()),
+            Some(Path::new("/home/acp-test")),
+        );
+
+        assert!(entries.contains(&PathBuf::from("project-bin")));
+        assert!(entries.contains(&PathBuf::from("tool-bin")));
+        let joined = join_path_entries([PathBuf::from("project-bin"), PathBuf::from("tool-bin")])
+            .expect("join paths");
+        assert_eq!(
+            env::split_paths(&joined).collect::<Vec<_>>(),
+            vec![PathBuf::from("project-bin"), PathBuf::from("tool-bin")]
+        );
+    }
+
+    #[test]
+    fn windows_command_candidates_use_pathext_defaults_and_keep_suffixes() {
+        assert_eq!(
+            command_candidate_names_for_platform(std::ffi::OsStr::new("qoder"), None, true),
+            vec![
+                OsString::from("qoder.COM"),
+                OsString::from("qoder.EXE"),
+                OsString::from("qoder.BAT"),
+                OsString::from("qoder.CMD"),
+            ]
+        );
+        assert_eq!(
+            command_candidate_names_for_platform(
+                std::ffi::OsStr::new("qoder.exe"),
+                Some(std::ffi::OsStr::new(".BAT;.CMD")),
+                true,
+            ),
+            vec![OsString::from("qoder.exe")]
+        );
+    }
+
+    #[cfg(unix)]
+    async fn spawn_process_group_fixture() -> (Child, u32, u32) {
+        let mut command = Command::new("sh");
+        command
+            .args([
+                "-c",
+                "sleep 60 & descendant=$!; printf '%s\\n' \"$descendant\"; wait",
+            ])
+            .stdout(std::process::Stdio::piped())
+            .kill_on_drop(true);
+        crate::process_tree::configure_command(command.as_std_mut());
+        let mut child = command.spawn().expect("spawn process group fixture");
+        let root_pid = child.id().expect("fixture root pid");
+        let stdout = child.stdout.take().expect("fixture stdout");
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .await
+            .expect("read descendant pid");
+        let descendant_pid = line.trim().parse().expect("numeric descendant pid");
+        (child, root_pid, descendant_pid)
+    }
+
+    #[cfg(unix)]
+    fn process_exists(pid: u32) -> bool {
+        let result = unsafe { libc::kill(pid as libc::pid_t, 0) };
+        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+
+    #[cfg(unix)]
+    async fn assert_processes_gone(pids: &[u32]) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if pids.iter().all(|pid| !process_exists(*pid)) {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("process group should be terminated and reaped");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn startup_failure_cleanup_terminates_and_reaps_process_group() {
+        tauri::async_runtime::block_on(async {
+            let (mut child, root_pid, descendant_pid) = spawn_process_group_fixture().await;
+
+            cleanup_unregistered_child(&mut child).await;
+
+            assert_processes_gone(&[root_pid, descendant_pid]).await;
+            assert!(child.try_wait().expect("inspect reaped child").is_some());
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn shutdown_cleanup_terminates_and_reaps_process_group() {
+        tauri::async_runtime::block_on(async {
+            let (mut child, root_pid, descendant_pid) = spawn_process_group_fixture().await;
+
+            terminate_and_reap_child(&mut child).await;
+
+            assert_processes_gone(&[root_pid, descendant_pid]).await;
+            assert!(child.try_wait().expect("inspect reaped child").is_some());
+        });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_shutdown_drains_initializing_and_registered_processes_idempotently() {
+        tauri::async_runtime::block_on(async {
+            let runtime = Arc::new(AcpRuntime::default());
+            let initializing_state = test_session_state(runtime.clone(), "initializing");
+            let registered_state = test_session_state(runtime.clone(), "registered");
+            let (initializing_child, initializing_root, initializing_descendant) =
+                spawn_process_group_fixture().await;
+            let (registered_child, registered_root, registered_descendant) =
+                spawn_process_group_fixture().await;
+
+            runtime
+                .track_initializing(
+                    "initializing".to_string(),
+                    initializing_state.clone(),
+                    initializing_child,
+                )
+                .expect("track initializing child");
+            runtime
+                .track_initializing(
+                    "registered".to_string(),
+                    registered_state.clone(),
+                    registered_child,
+                )
+                .expect("track registered child");
+            let (command_tx, _command_rx) = mpsc::channel(1);
+            runtime
+                .promote_initializing("registered", command_tx)
+                .expect("promote registered child");
+
+            runtime.shutdown_all().await;
+
+            assert_processes_gone(&[
+                initializing_root,
+                initializing_descendant,
+                registered_root,
+                registered_descendant,
+            ])
+            .await;
+            assert!(initializing_state.closed.load(Ordering::SeqCst));
+            assert!(registered_state.closed.load(Ordering::SeqCst));
+
+            runtime.shutdown_all().await;
+
+            let late_state = test_session_state(runtime.clone(), "late");
+            let (late_child, late_root, late_descendant) = spawn_process_group_fixture().await;
+            let mut late_child =
+                match runtime.track_initializing("late".to_string(), late_state, late_child) {
+                    Ok(()) => panic!("stopping runtime must reject late registration"),
+                    Err(child) => child,
+                };
+            terminate_and_reap_child(&mut late_child).await;
+            assert_processes_gone(&[late_root, late_descendant]).await;
+        });
     }
 }

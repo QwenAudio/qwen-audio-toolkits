@@ -1,9 +1,10 @@
 use serde::Serialize;
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     fs,
     io::Read,
     path::{Path, PathBuf},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 const MAX_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;

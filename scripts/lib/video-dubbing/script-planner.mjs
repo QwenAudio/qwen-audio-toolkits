@@ -4,12 +4,15 @@ export function normalizeDubbingMode(value) {
   return VIDEO_DUBBING_MODES.includes(value) ? value : 'translate'
 }
 
-export const DUBBING_LANGUAGE_CODES = ['zh', 'en', 'ja', 'ko']
+export const DUBBING_LANGUAGE_CODES = ['zh', 'en', 'ja', 'ko', 'fr', 'de', 'es']
 export const DUBBING_LANGUAGE_NAMES = {
   zh: '简体中文',
   en: '英语',
   ja: '日语',
   ko: '韩语',
+  fr: '法语',
+  de: '德语',
+  es: '西班牙语',
 }
 
 export function normalizeDubbingLanguage(value, fallback = 'zh') {
@@ -27,6 +30,9 @@ const SPEECH_RATE_GUIDANCE = {
   en: '每秒约 2 至 2.5 个单词',
   ja: '每秒约 5 至 7 个字符',
   ko: '每秒约 5 至 7 个字符',
+  fr: '每秒约 2 至 2.5 个单词',
+  de: '每秒约 2 至 2.5 个单词',
+  es: '每秒约 2 至 2.5 个单词',
 }
 
 export function speechRateGuidance(code) {

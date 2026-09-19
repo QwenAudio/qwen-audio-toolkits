@@ -1,4 +1,5 @@
 import { convertFileSrc } from '@tauri-apps/api/core'
+import { open } from '@tauri-apps/plugin-dialog'
 import { Captions, Check, Circle, FolderOpen, LoaderCircle, RotateCcw, Square } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
@@ -81,7 +82,8 @@ export function VideoDubbingView({
     sourceLanguage: dubbingLanguages?.source ?? 'auto', targetLanguage: dubbingLanguages?.target ?? 'zh',
     style: dubbingStyle ?? 'natural',
   })
-  const currentFingerprint = videoDubbingFingerprint(initialSourcePath, settings)
+  const [sourcePath, setSourcePath] = useState(() => restored?.sourcePath || initialSourcePath)
+  const currentFingerprint = videoDubbingFingerprint(sourcePath, settings)
   const initialFingerprintRef = useRef(currentFingerprint)
   const [runFingerprint, setRunFingerprint] = useState(() => restored?.runFingerprint ?? (restored?.outputDir ? currentFingerprint : ''))
   const [taskId, setTaskId] = useState(restored?.taskId ?? '')
@@ -101,8 +103,8 @@ export function VideoDubbingView({
   const outputDirRef = useRef(restored?.outputDir ?? '')
   const outputDir = progress?.outputDir || outputDirRef.current
   useProjectAutosave(projectId, 'video-dubbing', useMemo(() => ({
-    version: 1, taskId, outputDir, progress, starting, turns, audioAnalysis, settings, runFingerprint,
-  }), [taskId, outputDir, progress, starting, turns, audioAnalysis, settings, runFingerprint]))
+    version: 1, sourcePath, taskId, outputDir, progress, starting, turns, audioAnalysis, settings, runFingerprint,
+  }), [sourcePath, taskId, outputDir, progress, starting, turns, audioAnalysis, settings, runFingerprint]))
 
   const applyProgress = useCallback((update: VideoDubbingProgress) => {
     setProgress(current => ({ ...current, ...update }))
@@ -132,8 +134,8 @@ export function VideoDubbingView({
 
   const run = useCallback(async () => {
     if (busyRef.current) throw new Error(t('视频配音正在处理，请等待完成或先取消。'))
-    if (!initialSourcePath) throw new Error(t('请先选择视频文件。'))
-    if (!settings.instruction.trim()) throw new Error(t('请先填写配音要求或完整文案。'))
+    if (!sourcePath) throw new Error(t('请先选择视频文件。'))
+    if (!settings.instruction.trim()) throw new Error(t('请提供配音要求或完整文案。'))
     if (!isTauriRuntime()) throw new Error(t('请在桌面应用中运行视频配音。'))
     busyRef.current = true
     activeTaskRef.current = ''
@@ -161,7 +163,7 @@ export function VideoDubbingView({
       if (!progressBridgeRef.current) throw new Error(t('视频配音进度连接尚未就绪，请重试。'))
       await progressBridgeRef.current
       const result = await startVideoDubbing(
-        initialSourcePath,
+        sourcePath,
         settings.instruction.trim(), settings.mode, reuseDirectory,
         { source: settings.sourceLanguage, target: settings.targetLanguage }, settings.style,
       )
@@ -186,7 +188,7 @@ export function VideoDubbingView({
     } finally {
       setStarting(false)
     }
-  }, [settings, initialSourcePath, runFingerprint, currentFingerprint, progress?.status, applyProgress])
+  }, [settings, sourcePath, runFingerprint, currentFingerprint, progress?.status, applyProgress])
 
   useEffect(() => {
     if (isDemoMode()) {
@@ -231,6 +233,19 @@ export function VideoDubbingView({
     void run().catch(error => onAction(error instanceof Error ? error.message : String(error)))
   }, [autoStart, initialLaunchId, restored, run, onAction])
 
+  const chooseSource = async () => {
+    const selection = await open({
+      title: t('选择视频'),
+      multiple: false,
+      directory: false,
+      filters: [{ name: t('视频文件'), extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv'] }],
+    })
+    const nextSourcePath = typeof selection === 'string' ? selection : null
+    if (!nextSourcePath) return
+    setSourcePath(nextSourcePath)
+    setMediaError('')
+  }
+
   const cancel = async () => {
     if (!busyRef.current || !activeTaskRef.current) throw new Error(t('当前没有可取消的配音任务。'))
     if (cancelingRef.current) throw new Error(t('已请求取消，请等待当前配音停止。'))
@@ -274,11 +289,11 @@ export function VideoDubbingView({
       presentation: {
         hasArtifact: Boolean(progress?.outputVideoPath || turns.length), busy,
         message: busy ? t('正在生成配音…') : progress?.outputVideoPath ? t('配音视频已生成，可在右侧预览。') : '',
-        issue: mediaError || progress?.error || (!initialSourcePath ? t('请在对话中添加需要配音的视频。') : ''),
+        issue: mediaError || progress?.error || (!sourcePath ? t('请先选择视频文件。') : ''),
       },
-      revision: JSON.stringify([settings, runFingerprint, progress?.status, turns, progress?.outputVideoPath, mediaError]),
+      revision: JSON.stringify([sourcePath, settings, runFingerprint, progress?.status, turns, progress?.outputVideoPath, mediaError]),
       context: {
-        sourcePath: initialSourcePath, settings, progress, turns, audioAnalysis,
+        sourcePath, settings, progress, turns, audioAnalysis,
         outputs: {
           stale, outputDir, videoPath: progress?.outputVideoPath ?? null,
           subtitlePath: progress?.subtitlePath ?? null, reportPath: progress?.reportPath ?? null,
@@ -351,7 +366,10 @@ export function VideoDubbingView({
       )}
 
       <section className="video-translation-settings" aria-label={t('配音设置')}>
-        <div className="video-translation-source-file" title={initialSourcePath}><strong>{fileName(initialSourcePath)}</strong><small>{t('原始视频')}</small></div>
+        <div className="video-translation-source-file" title={sourcePath}>
+          <div><strong>{sourcePath ? fileName(sourcePath) : t('未选择视频')}</strong><small>{t('原始视频')}</small></div>
+          <button type="button" disabled={busy} onClick={() => void chooseSource().catch(showError)}>{t(sourcePath ? '替换视频' : '选择视频')}</button>
+        </div>
         <fieldset disabled={busy}>
           <div className="video-translation-settings-grid">
             <label>{t('配音方式')}<select value={settings.mode} onChange={event => configure({ mode: event.target.value })}>
@@ -370,11 +388,16 @@ export function VideoDubbingView({
               {VIDEO_DUBBING_LANGUAGES.map(language => <option key={language} value={language}>{t(languageLabels[language])}</option>)}
             </select></label>
           </div>
-          <label className="video-translation-instruction">{settings.mode === 'script' ? t('完整配音文案') : t('配音要求')}
-            <textarea value={settings.instruction} maxLength={50000} rows={3} onChange={event => configure({ instruction: event.target.value })} />
+          <label className="video-translation-instruction">
+            <span>{settings.mode === 'script' ? t('完整配音文案') : t('配音要求')}</span>
+            <textarea
+              value={settings.instruction}
+              onChange={event => configure({ instruction: event.target.value })}
+              placeholder={t(settings.mode === 'script' ? '粘贴完整配音文案' : '输入配音要求')}
+            />
           </label>
         </fieldset>
-        <p>{busy ? t('正在按当前设置生成，取消后可继续修改。') : settings.mode !== 'translate' ? t('修改原稿和新文案模式沿用原始语言。') : t('可直接修改设置，也可以在左侧对话中提出要求。')}</p>
+        <p>{busy ? t('正在按当前设置生成，取消后可继续修改。') : settings.mode !== 'translate' ? t('修改原稿和新文案模式沿用原始语言。') : ''}</p>
       </section>
 
       <section className="video-translation-card">
@@ -417,7 +440,7 @@ export function VideoDubbingView({
           </ol>
         )}
 
-        {!busy && <button className="video-translation-retry" type="button" disabled={!initialSourcePath || !settings.instruction.trim()} onClick={() => void run().catch(showError)}><RotateCcw size={13} />{stale || completed ? t('重新生成配音') : idle ? t('开始生成') : t('重试')}</button>}
+        {!busy && <button className="video-translation-retry" type="button" disabled={!sourcePath || !settings.instruction.trim()} onClick={() => void run().catch(showError)}><RotateCcw size={13} />{stale || completed ? t('重新生成配音') : idle ? t('开始生成') : t('重试')}</button>}
 
         {completed && progress?.outputVideoPath && (
           <div className="video-translation-result">

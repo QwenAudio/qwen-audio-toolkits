@@ -17,6 +17,22 @@ import {
   ttsStyleInstruction,
 } from './lib/video-dubbing/script-planner.mjs'
 
+const translationPipelineSource = fs.readFileSync(
+  path.join(process.cwd(), 'scripts/video-translation-demo.mjs'),
+  'utf8',
+)
+const videoTranslationBackendSource = fs.readFileSync(
+  path.join(process.cwd(), 'src-tauri/src/video_translation.rs'),
+  'utf8',
+)
+assert.doesNotMatch(translationPipelineSource, /Library\/Application Support/u)
+assert.match(translationPipelineSource, /function readBailianCredentials\(\)/u)
+assert.match(translationPipelineSource, /process\.env\.DASHSCOPE_API_KEY/u)
+assert.match(translationPipelineSource, /Bailian API key is required/u)
+assert.match(videoTranslationBackendSource, /bailian_video_translation_env\(&app\)/u)
+assert.match(videoTranslationBackendSource, /command\.envs\(bailian_env/u)
+assert.match(videoTranslationBackendSource, /node_preflight/u)
+
 assert.equal(normalizeDubbingMode('rewrite'), 'rewrite')
 assert.equal(normalizeDubbingMode('unknown'), 'translate')
 assert.match(buildTransformationPrompt('translate'), /简体中文/u)
@@ -34,8 +50,22 @@ assert.match(
 assert.match(buildTranslationContextPrompt('ko'), /韩语/u)
 assert.equal(normalizeDubbingLanguage('auto'), 'auto')
 assert.equal(normalizeDubbingLanguage('JA'), 'ja')
-assert.equal(normalizeDubbingLanguage('fr', 'zh'), 'zh')
-assert.equal(speechRateGuidance('en'), '每秒约 2 至 2.5 个单词')
+for (const [code, name, rate] of [
+  ['zh', '简体中文', '每秒约 3.5 至 4.5 个汉字'],
+  ['en', '英语', '每秒约 2 至 2.5 个单词'],
+  ['ja', '日语', '每秒约 5 至 7 个字符'],
+  ['ko', '韩语', '每秒约 5 至 7 个字符'],
+  ['fr', '法语', '每秒约 2 至 2.5 个单词'],
+  ['de', '德语', '每秒约 2 至 2.5 个单词'],
+  ['es', '西班牙语', '每秒约 2 至 2.5 个单词'],
+]) {
+  const prompt = buildTransformationPrompt('translate', '', { source: 'en', target: code })
+  assert.equal(normalizeDubbingLanguage(code, 'zh'), code)
+  assert.match(prompt, new RegExp(name, 'u'))
+  assert.match(prompt, new RegExp(rate, 'u'))
+  assert.match(buildTranslationContextPrompt(code), new RegExp(name, 'u'))
+  assert.equal(speechRateGuidance(code), rate)
+}
 
 assert.equal(formatTranslationContext(null), '')
 assert.equal(formatTranslationContext({}), '')

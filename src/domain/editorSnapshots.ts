@@ -231,6 +231,7 @@ function readAudioAnalysis(value: unknown): VideoDubbingProgress['audioAnalysis'
 
 export interface VideoDubbingSnapshot {
   version: 1
+  sourcePath: string
   taskId: string
   outputDir: string
   progress: VideoDubbingProgress | null
@@ -265,7 +266,8 @@ export function readVideoDubbingSnapshot(value: unknown): VideoDubbingSnapshot |
     }
   }
   return {
-    version: 1, taskId: text(data.taskId), outputDir: path(data.outputDir) || progress?.outputDir || '', progress,
+    version: 1, sourcePath: path(data.sourcePath), taskId: text(data.taskId),
+    outputDir: path(data.outputDir) || progress?.outputDir || '', progress,
     turns: readDubbingTurns(data.turns), audioAnalysis: readAudioAnalysis(data.audioAnalysis) ?? progress?.audioAnalysis,
     settings: readVideoDubbingSettings(data.settings), runFingerprint: text(data.runFingerprint) || undefined,
   }

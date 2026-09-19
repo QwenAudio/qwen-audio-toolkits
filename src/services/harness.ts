@@ -1,6 +1,5 @@
-import { t } from "../i18n"
-import { invoke } from './trace/ipcBridge'
-import { listen, type UnlistenFn } from './trace/ipcBridge'
+import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type {
   ApiModelCatalogEntry,
   ApiProviderSettings,
@@ -22,14 +21,18 @@ import type {
   ModelDependencyBindings,
   ModelPlugin,
   PluginRemovalResult,
-  RealtimeStreamEvent,
-  RealtimeStreamStartRequest,
-  RealtimeStreamStartResponse,
   VadStreamStartResponse,
   VadStreamUpdate,
   EnhancementStreamStartResponse,
   EnhancementStreamChunk,
 } from '../types'
+import {
+  agentInstallRegistry,
+  type AgentInstallRegistry,
+  type AgentInstallationState,
+  type AgentUiSession,
+  type NativeInstalledAgent,
+} from './agentInstallState'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'canceled'])
 const DEFAULT_RUN_TIMEOUT_MS = 15 * 60 * 1000
@@ -54,14 +57,13 @@ class HarnessRunError extends Error {
   run: HarnessRun
 
   constructor(run: HarnessRun) {
-    super(run.error || (run.status === 'canceled' ? t("任务已取消") : t("任务执行失败")))
+    super(run.error || (run.status === 'canceled' ? '任务已取消' : '任务执行失败'))
     this.name = 'HarnessRunError'
     this.run = run
   }
 }
 
 export function isTauriRuntime(): boolean {
-  if (typeof window === 'undefined') return false
   return Boolean(
     (window as Window & { __TAURI_INTERNALS__?: unknown })
       .__TAURI_INTERNALS__,
@@ -98,12 +100,10 @@ export async function readDroppedAudioFile(path: string): Promise<File> {
   const payload = await invoke<DroppedAudioFile>('read_dropped_audio_file', {
     path,
   })
-  const binary = atob(payload.dataBase64)
-  const bytes = new Uint8Array(binary.length)
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index)
-  }
-  const blob = new Blob([bytes], { type: payload.mimeType })
+  const response = await fetch(
+    `data:${payload.mimeType};base64,${payload.dataBase64}`,
+  )
+  const blob = await response.blob()
   return new File([blob], payload.name, { type: payload.mimeType })
 }
 
@@ -112,7 +112,7 @@ export async function executeHarnessTask<T>(
   onUpdate?: (run: HarnessRun) => void,
 ): Promise<HarnessExecution<T>> {
   if (!isTauriRuntime()) {
-    throw new Error(t("真实模型任务需要在 QwenAudio Toolkits 桌面端运行"))
+    throw new Error('真实模型任务需要在 QwenAudio Toolkits 桌面端运行')
   }
 
   const runId = request.runId ?? `run-${crypto.randomUUID()}`
@@ -128,7 +128,7 @@ export async function executeHarnessTask<T>(
       conversationVisible: request.conversationVisible ?? true,
       dependencyRunIds: request.dependencyRunIds ?? [],
       capability: request.capability,
-      title: request.title ?? t("音频任务"),
+      title: request.title ?? '音频任务',
       inputSummary: '',
       providerId: request.providerId ?? 'auto',
       providerName: '',
@@ -137,7 +137,7 @@ export async function executeHarnessTask<T>(
       progress: 100,
       createdAt: Date.now(),
       artifacts: [],
-      error: t("任务等待超时，请在运行记录中检查最终状态"),
+      error: '任务等待超时，请在运行记录中检查最终状态',
       retryable: true,
     })
   }, runTimeoutMs(request))
@@ -205,13 +205,13 @@ export function deleteBailianVoice(voiceId: string): Promise<void> {
   return invoke<void>('harness_delete_bailian_voice', { voiceId })
 }
 
-interface SystemAudioChunk {
+export interface SystemAudioChunk {
   sessionId: string
   pcmBase64: string
   sampleRate: number
 }
 
-interface SystemAudioSession {
+export interface SystemAudioSession {
   sessionId: string
   sampleRate: number
 }
@@ -305,35 +305,12 @@ export function finishFunAsrStream(sessionId: string): Promise<void> {
   return invoke<void>('harness_finish_funasr_stream', { sessionId })
 }
 
-const funAsrListeners = new Set<(event: FunAsrStreamEvent) => void>()
-let stopFunAsrBridge: UnlistenFn | null = null
-let funAsrBridgePromise: Promise<void> | null = null
-
-async function ensureFunAsrBridge(): Promise<void> {
-  if (stopFunAsrBridge || funAsrBridgePromise) return funAsrBridgePromise ?? Promise.resolve()
-  funAsrBridgePromise = listen<FunAsrStreamEvent>('funasr-stream-event', (event) => {
-    for (const listener of funAsrListeners) listener(event.payload)
-  }).then((unlisten) => {
-    if (funAsrListeners.size === 0) unlisten()
-    else stopFunAsrBridge = unlisten
-  }).finally(() => {
-    funAsrBridgePromise = null
-  })
-  return funAsrBridgePromise
-}
-
-export async function subscribeFunAsrStream(
+export function subscribeFunAsrStream(
   callback: (event: FunAsrStreamEvent) => void,
 ): Promise<UnlistenFn> {
-  funAsrListeners.add(callback)
-  await ensureFunAsrBridge()
-  return () => {
-    funAsrListeners.delete(callback)
-    if (funAsrListeners.size === 0 && stopFunAsrBridge) {
-      stopFunAsrBridge()
-      stopFunAsrBridge = null
-    }
-  }
+  return listen<FunAsrStreamEvent>('funasr-stream-event', (event) =>
+    callback(event.payload),
+  )
 }
 
 export function startVadStream(
@@ -405,36 +382,6 @@ export function subscribeCosyVoiceStream(
   callback: (event: CosyVoiceStreamEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<CosyVoiceStreamEvent>('cosyvoice-stream-event', (event) =>
-    callback(event.payload),
-  )
-}
-
-export function startRealtimeStream(
-  request: RealtimeStreamStartRequest,
-): Promise<RealtimeStreamStartResponse> {
-  return invoke<RealtimeStreamStartResponse>('harness_start_realtime_stream', {
-    request,
-  })
-}
-
-export function pushRealtimeStream(
-  sessionId: string,
-  pcmBase64: string,
-): Promise<void> {
-  return invoke<void>('harness_push_realtime_stream', {
-    sessionId,
-    pcmBase64,
-  })
-}
-
-export function finishRealtimeStream(sessionId: string): Promise<void> {
-  return invoke<void>('harness_finish_realtime_stream', { sessionId })
-}
-
-export function subscribeRealtimeStream(
-  callback: (event: RealtimeStreamEvent) => void,
-): Promise<UnlistenFn> {
-  return listen<RealtimeStreamEvent>('realtime-stream-event', (event) =>
     callback(event.payload),
   )
 }
@@ -540,4 +487,163 @@ export function getModelPluginFiles(
 /** Install a complete local Agent project, retaining its resources and README. */
 export function installAgentProject(path: string): Promise<ModelPlugin> {
   return invoke<ModelPlugin>('plugin_install_package', { request: { path } })
+}
+
+export interface AgentServerStatus {
+  url: string
+  available: boolean
+  error: string | null
+}
+
+export interface AgentUiProgress {
+  uiId: string
+  message: string
+  elapsedMs: number
+}
+
+interface NativeAgentUiProgress {
+  id: string
+  message: string
+  elapsedMs: number
+}
+
+type AgentUiInvoke = typeof invoke
+type AgentUiListen = typeof listen
+
+export interface AgentUiHarnessDependencies {
+  registry: AgentInstallRegistry
+  invoke: AgentUiInvoke
+  listen: AgentUiListen
+}
+
+export interface AgentUiHarness {
+  getAgentServerStatus(): Promise<AgentServerStatus>
+  openAgentUi(uiId: string): Promise<AgentUiSession>
+  stopAgentUi(uiId: string, url: string): Promise<void>
+  listInstalledAgentUi(): Promise<readonly AgentInstallationState[]>
+  installAgentUi(uiId: string, update?: boolean): Promise<NativeInstalledAgent>
+  uninstallAgentUi(uiId: string): Promise<void>
+  subscribeAgentUiProgress(
+    listener: (progress: AgentUiProgress) => void,
+  ): Promise<UnlistenFn>
+}
+
+function agentErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function createAgentUiHarness(
+  dependencies: AgentUiHarnessDependencies,
+): AgentUiHarness {
+  const { registry, invoke: invokeAgentCommand, listen: listenAgentEvent } = dependencies
+
+  return {
+    getAgentServerStatus() {
+      return invokeAgentCommand<AgentServerStatus>('agent_server_status')
+    },
+    async openAgentUi(uiId) {
+      const descriptor = registry.resolve(uiId)
+      const session = await invokeAgentCommand<AgentUiSession>('agent_ui_open', {
+        id: descriptor.serverId,
+      })
+      registry.bindSession(uiId, session)
+      return session
+    },
+    async stopAgentUi(uiId, url) {
+      const descriptor = registry.assertSessionUrl(uiId, url)
+      await invokeAgentCommand<void>('agent_ui_stop', {
+        id: descriptor.serverId,
+        url,
+      })
+      registry.clearSession(uiId)
+    },
+    listInstalledAgentUi() {
+      return registry.rehydrate(() =>
+        invokeAgentCommand<NativeInstalledAgent[]>('agent_ui_installed'),
+      )
+    },
+    async installAgentUi(uiId, update = false) {
+      const descriptor = registry.resolve(uiId)
+      registry.transition(uiId, 'installing')
+      try {
+        const installed = await invokeAgentCommand<NativeInstalledAgent>(
+          'agent_ui_install',
+          { id: descriptor.serverId, update },
+        )
+        registry.transition(uiId, 'installed', { revision: installed.revision ?? undefined })
+        return installed
+      } catch (error) {
+        registry.transition(uiId, 'error', { error: agentErrorText(error) })
+        throw error
+      }
+    },
+    async uninstallAgentUi(uiId) {
+      const descriptor = registry.resolve(uiId)
+      registry.transition(uiId, 'uninstalling')
+      try {
+        await invokeAgentCommand<void>('agent_ui_uninstall', {
+          id: descriptor.serverId,
+        })
+        registry.transition(uiId, 'uninstalled')
+      } catch (error) {
+        registry.transition(uiId, 'error', { error: agentErrorText(error) })
+        throw error
+      }
+    },
+    subscribeAgentUiProgress(listener) {
+      return listenAgentEvent<NativeAgentUiProgress>('agent-ui-progress', (event) => {
+        const progress = event.payload
+        if (
+          !progress ||
+          typeof progress.id !== 'string' ||
+          typeof progress.message !== 'string' ||
+          !Number.isFinite(progress.elapsedMs)
+        ) {
+          return
+        }
+        const uiId = registry.uiIdForServerId(progress.id)
+        if (!uiId) return
+        listener({ uiId, message: progress.message, elapsedMs: progress.elapsedMs })
+      })
+    },
+  }
+}
+
+const agentUiHarness = createAgentUiHarness({
+  registry: agentInstallRegistry,
+  invoke,
+  listen,
+})
+
+export function getAgentServerStatus(): Promise<AgentServerStatus> {
+  return agentUiHarness.getAgentServerStatus()
+}
+
+export function openAgentUi(uiId: string): Promise<AgentUiSession> {
+  return agentUiHarness.openAgentUi(uiId)
+}
+
+export function stopAgentUi(uiId: string, url: string): Promise<void> {
+  return agentUiHarness.stopAgentUi(uiId, url)
+}
+
+export function listInstalledAgentUi(): Promise<readonly AgentInstallationState[]> {
+  return agentUiHarness.listInstalledAgentUi()
+}
+
+export function installAgentUi(
+  uiId: string,
+  update = false,
+): Promise<NativeInstalledAgent> {
+  return agentUiHarness.installAgentUi(uiId, update)
+}
+
+export function uninstallAgentUi(uiId: string): Promise<void> {
+  return agentUiHarness.uninstallAgentUi(uiId)
+}
+
+export function subscribeAgentUiProgress(
+  listener: (progress: AgentUiProgress) => void,
+): Promise<UnlistenFn> {
+  return agentUiHarness.subscribeAgentUiProgress(listener)
 }

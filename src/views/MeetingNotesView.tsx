@@ -29,7 +29,6 @@ import {
   subscribeFunAsrStream,
   subscribeSystemAudio,
 } from "../services/harness";
-import { pushMeetingState } from "../services/acp";
 import { getMicrophoneStream } from "../services/audioCapture";
 import { audioFileToClip, pcm16ChunksToWavFile } from "../utils/audio";
 import { readMeetingSnapshot, type MeetingTurn } from "../domain/editorSnapshots";
@@ -107,7 +106,6 @@ interface MeetingNotesViewProps {
   onOpenStore: () => void;
   onAction: (message: string) => void;
   panelMode?: boolean;
-  bridgeSessionId?: string;
 }
 
 const DIARIZATION_INTERVAL_SECONDS = 12;
@@ -217,7 +215,6 @@ export function MeetingNotesView({
   onOpenStore,
   onAction,
   panelMode,
-  bridgeSessionId,
 }: MeetingNotesViewProps) {
   useLocale();
   const [restored] = useState(() => readMeetingSnapshot(readProjectSnapshot(projectId, "meeting-notes") ?? demoProjectSnapshot(projectId)));
@@ -293,8 +290,6 @@ export function MeetingNotesView({
   const pushQueueRef = useRef<Promise<void>>(Promise.resolve());
   const audioChunksRef = useRef<AudioChunk[]>([]);
   const turnsRef = useRef<MeetingTurn[]>(restored?.turns ?? []);
-  const bridgePushAtRef = useRef(0);
-  const bridgeRecordingRef = useRef(false);
   const speakerTimelineRef = useRef<SpeakerSegment[]>([]);
   const nextSpeakerRef = useRef((restored?.turns ?? []).reduce((max, turn) => Math.max(max, turn.speaker ?? 0), 0) + 1);
   const meetingStartRef = useRef(0);
@@ -648,26 +643,6 @@ export function MeetingNotesView({
     }, 1000);
     return () => window.clearInterval(timer);
   }, [recording]);
-
-  useEffect(() => {
-    if (!bridgeSessionId) return;
-    const now = Date.now();
-    const recordingChanged = recording !== bridgeRecordingRef.current;
-    if (!recordingChanged && now - bridgePushAtRef.current < 1500) return;
-    bridgeRecordingRef.current = recording;
-    bridgePushAtRef.current = now;
-    void pushMeetingState(bridgeSessionId, {
-      recording,
-      elapsedSeconds: elapsed,
-      updatedAt: now,
-      segments: turns.map((turn) => ({
-        start: turn.start,
-        end: turn.end,
-        text: turn.text,
-        speaker: turn.speaker,
-      })),
-    }).catch(() => undefined);
-  }, [bridgeSessionId, recording, turns, elapsed]);
 
   const startMeeting = async () => {
     if (captureStateRef.current !== "idle") throw new Error(t("会议记录正在启动、进行或结束中，请稍后再试。"));

@@ -1,4 +1,4 @@
-import { invoke } from './trace/ipcBridge'
+import { invoke } from '@tauri-apps/api/core'
 import { t } from '../i18n'
 
 export interface SourceDocument {

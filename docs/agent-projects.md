@@ -1,148 +1,70 @@
-# Skill and model project manifests
+# 独立 Agent 项目
 
-QwenAudio Toolkits distinguishes three concepts:
+Agent 将模型或 API、资源准备、输入处理、推理和结果展示组成一个独立项目。
+不要求 Agent 是 LLM，也不依赖其他已安装 Agent。例如声纹比较项目自带声纹模型，
+说话人分离项目自带分段和声纹资源，语音克隆项目直接接收参考音频及其文本。
 
-- **Creative Workshop workflows** are user-facing task recipes, such as video
-  editing, AI podcast generation, video dubbing, and meeting notes.
-- **Skills** are reusable capability definitions that an Agent or a workflow can
-  discover and compose.
-- **Model Store entries** provide the local or cloud model capabilities that
-  Skills and direct model conversations call.
+## 两个基础仓库
 
-This document describes the currently implemented `agent.json` project
-manifest. It is a migration contract for reviewed adapters and model-backed
-projects, not yet the full future Skill definition. See
-[Creative Workshop and Skills design](creative-workshop-skills-design.md) for
-the target capability-oriented boundary.
+- Toolkits：桌面应用和可 pip 安装的 `qwenaudio-toolkits`，通过 `import toolkits` 使用 SDK。
+- Agent Server：网站/API 与 `agents/` 中的 51 个正式独立项目。教学代码单独放在 `examples/`。
 
-During the current migration period, imported Skill and model projects can
-still use the `agent.json` manifest name internally. In this document, "project
-manifest" refers to that technical contract rather than the label shown in the
-desktop sidebar.
+不需要单独的 SDK 仓库。Toolkits 的 Python 包只打包运行和渲染界面所需的 Python、HTML、CSS、JS，不要求开发者编译桌面应用。
 
-## Implemented in this version
+## 开发入口
 
-- The desktop UI has separate **Creative Workshop**, **Skills**, and **Model
-  Store** pages. Creative Workshop presents fixed task recipes; the current
-  Skills page shows imported project usage and install actions; Model Store
-  shows model capabilities, variants, dependencies, and install state.
-- `agent.json` v1 selects a reviewed `host-adapter` implementation. This selection
-  is the actual execution adapter, not display-only metadata.
-- Importing `agent.json` copies its containing project directory, including its
-  README and local assets. ZIP and `.cspkg` project archives are also accepted.
-  Each archive must contain exactly one `agent.json` or legacy `plugin.json`.
-- Models download into the project's own installation directory. Declared shared
-  runtime packages use the existing versioned runtime cache; they are not other
-  projects, and hiding/removing one project does not remove that cache.
-- New project manifests cannot declare or bind dependencies on other imported
-  projects.
-  Legacy dependency inference is disabled for them, including UI-side VAD and
-  reference-transcription selection.
-- Bundled local catalog definitions, the built-in Silero VAD, and configured
-  cloud/custom API entries have independent project contracts. A cloud model
-  entry owns its model selection and request adapter; provider endpoint and
-  credential storage remain host services, not another project.
-- Known v1/v2 installations migrate on load when both project ID and adapter
-  match and the selected bundle is known. IDs, model paths and history remain
-  intact. Required files/assets are merged into validation; incomplete installs
-  can be repaired from the catalog. Unknown third-party legacy packages retain
-  their original contract and are not automatically certified as projects.
-- AISHELL3 owns its WeText FST rules and applies normalization inside its TTS
-  invocation. Paraformer GGUF declares its bundled FSMN-VAD. Diarization owns
-  segmentation and CAM++ weights in the same project directory.
-- Voice-cloning model projects take reference audio directly. CosyVoice and ZipVoice
-  also require its matching reference text; automatic transcription through
-  another installed project is disabled. Other ASR entries run their own adapter
-  without external segmentation bindings.
-- Unpublished Zipformer Chinese FP32 and Paraformer bilingual INT8 variants are
-  removed from download choices; the published alternatives remain available.
-- Silero VAD now has a direct catalog installation action. Resource availability
-  and legacy protocol status have separate labels rather than “仅兼容”.
+项目根目录提供 `agent_ui.py`，其中 `create_ui()` 返回界面即可；其余目录和业务代码组织自由。
+不要求 `agent.json`，也不需要修改 Toolkits 的 React 或 Rust 代码。
 
-The current protocol uses reviewed host adapters. It **does not** execute
-project-supplied Python/Rust scripts, create per-project virtual environments,
-or interpret custom multi-step Harness programs. API model entries use the existing
-provider configuration and request adapters; importing a new API protocol via
-`agent.json` is not supported yet.
+```python
+import toolkits as tk
+from processing import process
 
-## Project layout
 
-```text
-3d-speaker/
-  agent.json
-  README.md
-  models/                   # Optional prepackaged weights
-    3dspeaker-campplus/
-      ...onnx
-  resources/                # Optional project-owned usage resources
+def run(request):
+    return process(request["main"], request["additional"][0])
+
+
+def create_ui():
+    return tk.Interface(
+        fn=run,
+        inputs=[{
+            "main": tk.Text("输入文本"),
+            "additional": [tk.Select("语言", choices={"zh": "中文", "en": "英语"}, value="zh")],
+        }],
+        outputs=tk.Text("结果"),
+    )
 ```
 
-Examples:
+每组输入有一个主输入，可选 `additional`；允许多组主输入。附加控件以胶囊呈现在输入框上方。
+`Select.choices` 的字典是「实际值 → 显示文字」。参考文本属于 `tk.Audio(..., transcript=True)`，无需独立文本胶囊。
 
-- `examples/agents/3d-speaker/agent.json`: extraction and pairwise comparison.
-- `examples/agents/audio-to-text/agent.json`: SenseVoice GGUF transcription with
-  its own FSMN-VAD resource and declared FunASR runtime package.
+在项目目录运行 `pip install -r requirements.txt`、`toolkits .` 即可动态预览。
+`prepare()` 可选：负责下载、校验项目资源，在安装阶段执行。函数内只使用本项目缓存，
+重开项目复用缓存和运行环境。`create_ui()` 不应加载模型或联网查询音色。
 
-Open **技能 / Skills** → **导入技能 / Import skill** and select the example
-project folder. The adjacent ZIP import button accepts `.zip` / `.cspkg`
-packages. Selecting the entire folder grants macOS access to the project
-resources, not only to its manifest file. Import is a desktop feature. Browser
-preview displays project definitions but cannot install or run models. If the
-same ID is installed already, installation fails without replacing its files;
-remove the old installation first if you intend to replace it.
+## 浏览、安装、更新、卸载
 
-## Manifest
+Agent Server 挂载已提交的 Git 项目，提供 README、文件、提交记录和源码下载。
+各 Agent 可随 server 仓库管理，也可拆成自己的 Git 仓库。
 
-See `agent-manifest.schema.json` for the machine-readable contract.
+网站在 Toolkits 内请求安装时，桌面下载源码、创建独立 Python 环境、执行资源准备并缓存 UI。
+项目在首页对应分类中出现，打开后动态渲染 Python 界面。新增或修改 Agent 无需重新编译 Toolkits。
+云端 Agent 通过设置中的百炼账号使用 API；独立运行时配置 `DASHSCOPE_API_KEY`。
 
-- `kind`: `data-processing-agent`.
-- `schemaVersion`: `1` (separate from the legacy model schema).
-- `id`, `name`, `version`, `publisher`: stable project identity.
-- `task`: what this project does.
-- `usage`: input requirements, limitations and concrete usage examples.
-- `harness`: `{ kind: "host-adapter", adapter, capability }`.
-- `runtime`: reviewed execution engine and optional versioned runtime package.
-- `models`: exactly **one selected resource bundle** in a local model project.
-  Additional required model files belong in that bundle's `files` / `assets`;
-  multiple entries would mean model variants to the legacy installer, so project
-  v1 rejects them rather than dropping resources silently. Catalog entries may
-  still offer alternative precision bundles before installation.
-- `inputs`, `outputs`: nonempty typed ports supported by the selected adapter.
-- `parameters`: the existing typed parameter controls.
+安装状态操作为「安装 / 更新 / 卸载」。源码归档采用稳定内容摘要，其他项目或 server 的提交不会造成假更新。
+更新失败保留原项目；卸载删除托管的项目与环境。旧宿主适配器仅保留兼容原有工作流，新的 51 个项目安装入口均走独立 Python 项目。
 
-A resource bundle may use an HTTPS `source` with a SHA-256, individual HTTPS
-`assets`, locally included files, or `repositoryHosted` resources in the official
-model repository. Repository-hosted projects retain the published project/model
-IDs because those IDs determine their download paths. Direct URLs allow an
-independently named project to reuse upstream weight files without depending on
-another installed project.
+## 验证与限制
 
-Ports describe the reviewed adapter's contract; this release does not interpret
-arbitrary port names as code or dynamically wire custom graphs. For example,
-`speaker.embed` accepts `audioDataUrl` and optional `comparisonAudioDataUrl` in
-the existing Harness request, and returns embedding / similarity artifacts.
+完整清单、真实推理测试及已知限制记录在 Agent Server 的 `MIGRATION.md`。
+云端协议使用模拟测试，未执行付费请求。部分原流式识别项目目前在录音完成后返回结果；
+大模型资源和平台支持范围以各项目 README/资源声明为准，不能把一次短音频冒烟测试当作完整精度评测。
 
-## Runtime integration
-
-For a standalone desktop preview, build with:
+## 桌面预览
 
 ```sh
 npm run tauri -- build --debug --bundles app --config src-tauri/tauri.agent-preview.conf.json
 ```
 
-This configuration uses a separate application identifier and data directory.
-Its local HTTP API uses `127.0.0.1:3848`, leaving the production application's
-`127.0.0.1:3847` available for an independently running copy.
-Preview builds do not register the updater or check for production updates, so
-a published release cannot overwrite the project preview.
-
-`agents.rs` validates and normalizes the project into the resource installer.
-`plugins.rs` retains the `agent` definition through installation, serialization
-and catalog refresh, exposes it in the descriptor, and registers the selected
-adapter with Harness. Existing `harness_start_run` calls continue to route by
-`plugin.<project-id>` to the installed project's model directory.
-
-Catalog refresh must not replace an installed standalone project's own contract.
-Legacy remote catalog entries also cannot erase the definitions of the
-migrated built-in projects. UI labels distinguish remaining legacy packages
-instead of implying that their cross-model bindings are independent.
+预览使用独立应用标识、数据目录与 `127.0.0.1:3848`，不自动更新为正式发行版本。

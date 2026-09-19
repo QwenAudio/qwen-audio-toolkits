@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qwenaudio-toolkits"
+version = "0.2.0"
+description = "Declarative Python Agent interfaces with grouped inputs and compact parameter chips"
+readme = "docs/python-sdk.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+toolkits = "toolkits.__main__:main"
+
+[tool.setuptools.package-data]
+toolkits = ["ui.html", "ui.css", "ui.js", "ui-content.js", "ui-streaming.js", "py.typed"]
+
+[tool.setuptools]
+packages = ["toolkits"]

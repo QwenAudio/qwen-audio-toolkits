@@ -12,6 +12,52 @@ const SUPPORTED_VIDEO_EXTENSIONS: &[&str] = &["mp4", "mov", "m4v", "webm", "mkv"
 const FRAME_WIDTH: usize = 64;
 const FRAME_HEIGHT: usize = 36;
 
+fn ffmpeg_encoder_is_listed(listing: &str, encoder: &str) -> bool {
+    listing.lines().any(|line| {
+        let mut columns = line.split_whitespace();
+        matches!(columns.next(), Some(flags) if flags.starts_with('V'))
+            && columns.next() == Some(encoder)
+    })
+}
+
+fn video_encoder_args(encoder_listing: &str) -> Option<&'static [&'static str]> {
+    if ffmpeg_encoder_is_listed(encoder_listing, "h264_videotoolbox") {
+        Some(&["-c:v", "h264_videotoolbox", "-q:v", "60"])
+    } else if ffmpeg_encoder_is_listed(encoder_listing, "libx264") {
+        Some(&["-c:v", "libx264", "-crf", "23", "-preset", "medium"])
+    } else if ffmpeg_encoder_is_listed(encoder_listing, "mpeg4") {
+        Some(&["-c:v", "mpeg4", "-q:v", "2"])
+    } else {
+        None
+    }
+}
+
+fn required_video_encoder_args(encoder_listing: &str) -> Result<&'static [&'static str], String> {
+    video_encoder_args(encoder_listing).ok_or_else(|| {
+        "无法导出视频：FFmpeg 未列出受支持的视频编码器（需要 h264_videotoolbox、libx264 或 mpeg4）"
+            .to_string()
+    })
+}
+
+fn detected_video_encoder_args(ffmpeg: &Path) -> Result<&'static [&'static str], String> {
+    let encoder_listing = Command::new(ffmpeg)
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .map_err(|error| format!("无法导出视频：无法检测 FFmpeg 视频编码器: {error}"))?;
+    if !encoder_listing.status.success() {
+        let stderr = String::from_utf8_lossy(&encoder_listing.stderr);
+        let detail = if stderr.trim().is_empty() {
+            format!("ffmpeg -encoders exited with {}", encoder_listing.status)
+        } else {
+            stderr.trim().to_string()
+        };
+        return Err(format!(
+            "无法导出视频：无法检测 FFmpeg 视频编码器: {detail}"
+        ));
+    }
+    required_video_encoder_args(&String::from_utf8_lossy(&encoder_listing.stdout))
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoEditorStatus {
@@ -99,25 +145,37 @@ fn subtitle_srt(cues: &[SubtitleCue]) -> String {
         .collect()
 }
 
-fn executable(name: &str) -> Option<PathBuf> {
-    let candidates = if cfg!(target_os = "macos") {
-        vec![
-            PathBuf::from(format!("/opt/homebrew/bin/{name}")),
-            PathBuf::from(format!("/usr/local/bin/{name}")),
-        ]
+fn executable_candidates(
+    target_os: &str,
+    name: &str,
+    inherited_directories: &[PathBuf],
+) -> Vec<PathBuf> {
+    let executable_name = if target_os == "windows" && !name.ends_with(".exe") {
+        format!("{name}.exe")
     } else {
-        Vec::new()
+        name.to_owned()
     };
-    candidates
+    let mut directories = Vec::with_capacity(inherited_directories.len() + 2);
+    if target_os == "macos" {
+        directories.extend([
+            PathBuf::from("/opt/homebrew/bin"),
+            PathBuf::from("/usr/local/bin"),
+        ]);
+    }
+    directories.extend_from_slice(inherited_directories);
+    directories
+        .into_iter()
+        .map(|directory| directory.join(&executable_name))
+        .collect()
+}
+
+fn executable(name: &str) -> Option<PathBuf> {
+    let inherited_directories = std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .unwrap_or_default();
+    executable_candidates(std::env::consts::OS, name, &inherited_directories)
         .into_iter()
         .find(|path| path.is_file())
-        .or_else(|| {
-            std::env::var_os("PATH").and_then(|paths| {
-                std::env::split_paths(&paths)
-                    .map(|directory| directory.join(name))
-                    .find(|path| path.is_file())
-            })
-        })
 }
 
 fn video_path(value: &str) -> Result<PathBuf, String> {
@@ -359,6 +417,7 @@ fn export_smart_cut_sync(
     if ranges.is_empty() {
         return Err("剪辑方案没有可保留的视频片段".to_string());
     }
+    let encoder_args = detected_video_encoder_args(&ffmpeg)?;
     let mut filter = String::new();
     let mut concat_inputs = String::new();
     for (index, range) in ranges.iter().enumerate() {
@@ -412,18 +471,8 @@ fn export_smart_cut_sync(
         ]);
     }
     let output = command
-        .args([
-            "-c:v",
-            "h264_videotoolbox",
-            "-q:v",
-            "60",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-movflags",
-            "+faststart",
-        ])
+        .args(encoder_args)
+        .args(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"])
         .arg(&destination)
         .output()
         .map_err(|error| format!("无法启动视频导出: {error}"))?;
@@ -512,6 +561,88 @@ mod tests {
     }
 
     #[test]
+    fn plans_macos_and_windows_executable_candidates() {
+        let inherited = vec![PathBuf::from("/inherited/bin")];
+        assert_eq!(
+            executable_candidates("macos", "ffmpeg", &inherited),
+            vec![
+                PathBuf::from("/opt/homebrew/bin/ffmpeg"),
+                PathBuf::from("/usr/local/bin/ffmpeg"),
+                PathBuf::from("/inherited/bin/ffmpeg"),
+            ]
+        );
+        for tool in ["ffmpeg", "ffprobe", "node"] {
+            assert_eq!(
+                executable_candidates("windows", tool, &inherited),
+                vec![PathBuf::from("/inherited/bin").join(format!("{tool}.exe"))],
+                "{tool} must use its ordinary Windows executable name"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_ffmpeg_encoder_listing_entries() {
+        let listing = "Encoders:\n V..... h264_videotoolbox  Apple VideoToolbox H.264 Encoder\n V....D libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10\n";
+        assert!(ffmpeg_encoder_is_listed(listing, "h264_videotoolbox"));
+        assert!(ffmpeg_encoder_is_listed(listing, "libx264"));
+        assert!(!ffmpeg_encoder_is_listed(listing, "mpeg4"));
+    }
+
+    #[test]
+    fn plans_videotoolbox_arguments_when_ffmpeg_lists_it() {
+        assert_eq!(
+            video_encoder_args(" V..... h264_videotoolbox  Apple VideoToolbox H.264 Encoder\n")
+                .expect("listed VideoToolbox encoder"),
+            ["-c:v", "h264_videotoolbox", "-q:v", "60"]
+        );
+    }
+
+    #[test]
+    fn plans_libx264_arguments_when_videotoolbox_is_unavailable() {
+        assert_eq!(
+            video_encoder_args(" V....D libx264  libx264 H.264 / AVC\n")
+                .expect("listed libx264 encoder"),
+            ["-c:v", "libx264", "-crf", "23", "-preset", "medium"]
+        );
+    }
+
+    #[test]
+    fn plans_mpeg4_arguments_when_h264_encoders_are_unavailable() {
+        assert_eq!(
+            video_encoder_args("Encoders:\n V..... mpeg4  MPEG-4 part 2\n")
+                .expect("listed mpeg4 encoder"),
+            ["-c:v", "mpeg4", "-q:v", "2"]
+        );
+    }
+
+    #[test]
+    fn refuses_to_select_an_encoder_that_ffmpeg_did_not_list() {
+        assert_eq!(
+            video_encoder_args("Encoders:\n V..... hevc  H.265 / HEVC\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn reports_encoder_discovery_failure() {
+        let missing_ffmpeg =
+            std::env::temp_dir().join(format!("qwenaudio-missing-ffmpeg-{}", Uuid::new_v4()));
+        let error = detected_video_encoder_args(&missing_ffmpeg)
+            .expect_err("encoder discovery must not assume mpeg4 after a command failure");
+        assert!(
+            error.starts_with("无法导出视频：无法检测 FFmpeg 视频编码器:"),
+            "unexpected discovery error: {error}"
+        );
+    }
+
+    #[test]
+    fn reports_when_ffmpeg_lists_no_supported_video_encoder() {
+        let error = required_video_encoder_args("Encoders:\n V..... hevc  H.265 / HEVC\n")
+            .expect_err("an unsupported encoder listing must reject export");
+        assert!(error.contains("h264_videotoolbox、libx264 或 mpeg4"));
+    }
+
+    #[test]
     fn analyzes_and_exports_a_generated_video() {
         let Some(ffmpeg) = executable("ffmpeg") else {
             return;
@@ -536,11 +667,12 @@ mod tests {
                 "-i",
                 "sine=frequency=440:sample_rate=16000:duration=2",
                 "-shortest",
-                "-c:v",
-                "h264_videotoolbox",
-                "-c:a",
-                "aac",
             ])
+            .args(
+                detected_video_encoder_args(&ffmpeg)
+                    .expect("detect a supported encoder for generated test video"),
+            )
+            .args(["-c:a", "aac"])
             .arg(&source)
             .output()
             .expect("generate test video");
