@@ -9,6 +9,21 @@ const $ = (id) => document.getElementById(id),
   });
 let running = false;
 let leaving = false;
+const toolkitsHost = (() => {
+  let origin;
+  window.addEventListener("message", event => {
+    if (event.source !== window.parent || event.data?.type !== "toolkits-host-ready" || !event.origin || event.origin === "null") return;
+    origin = event.origin;
+  });
+  return {
+    isHostEvent: event => event.source === window.parent && event.origin === origin,
+    post: message => {
+      if (!origin) throw Error("Toolkits 宿主尚未准备好");
+      window.parent.postMessage(message, origin);
+    },
+  };
+})();
+window.ToolkitsHost = toolkitsHost;
 window.addEventListener("pagehide", () => { leaving = true; });
 const status = (message) => {
   $("status").textContent = message;
@@ -56,12 +71,12 @@ function systemAudio(action, streaming = false) {
     const requestId = crypto.randomUUID();
     const timeout = setTimeout(() => { window.removeEventListener("message", receive); reject(Error("电脑音频请求超时，请在 Toolkits 中打开此 Agent")); }, 60000);
     function receive(event) {
-      if (event.source !== window.parent || event.data?.type !== "toolkits-system-audio-result" || event.data.requestId !== requestId) return;
+      if (!toolkitsHost.isHostEvent(event) || event.data?.type !== "toolkits-system-audio-result" || event.data.requestId !== requestId) return;
       clearTimeout(timeout); window.removeEventListener("message", receive);
       event.data.error ? reject(Error(event.data.error)) : resolve(event.data);
     }
     window.addEventListener("message", receive);
-    window.parent.postMessage({ type: "toolkits-system-audio", action, requestId, streaming }, "*");
+    toolkitsHost.post({ type: "toolkits-system-audio", action, requestId, streaming });
   });
 }
 async function setup() {
@@ -534,7 +549,7 @@ async function setup() {
       setRecording(false);
       let stop;
       window.addEventListener("message", event => {
-        if (event.source === window.parent && event.data?.type === "toolkits-system-audio-ended" && audioSource === "system") stop?.();
+        if (toolkitsHost.isHostEvent(event) && event.data?.type === "toolkits-system-audio-ended" && audioSource === "system") stop?.();
       });
       record.onclick = async () => {
         if (stop) {
@@ -663,13 +678,13 @@ async function setup() {
     if (action === "open") {
       const timeout = setTimeout(() => { window.removeEventListener("message", receive); status("字幕窗口未响应，请更新 Toolkits 桌面"); }, 5000);
       function receive(event) {
-        if (event.source !== window.parent || event.data?.type !== "toolkits-captions-result" || event.data.requestId !== requestId) return;
+        if (!toolkitsHost.isHostEvent(event) || event.data?.type !== "toolkits-captions-result" || event.data.requestId !== requestId) return;
         clearTimeout(timeout); window.removeEventListener("message", receive);
         if (event.data.error) status(event.data.error);
       }
       window.addEventListener("message", receive);
     }
-    window.parent.postMessage({type:"toolkits-captions", action, text:captionText.get(reply) || "", requestId}, "*");
+    toolkitsHost.post({type:"toolkits-captions", action, text:captionText.get(reply) || "", requestId});
   }
   function captionButton(section, reply) {
     if (!schema.streaming) return;

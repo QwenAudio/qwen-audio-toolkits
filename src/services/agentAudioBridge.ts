@@ -1,10 +1,21 @@
 import { startSystemAudio, stopSystemAudio, subscribeSystemAudio } from './harness'
 import { showCaptionOutput, publishCaptionSnapshot, stopCaptionOutput } from './captionOutput'
+import { agentInstallRegistry, type AgentUiSession } from './agentInstallState'
 import { pcm16ChunksToWavFile } from '../utils/audio'
 
-/** Restrict capture requests to the currently mounted local Agent frame. */
-export function attachAgentAudioBridge(frame: HTMLIFrameElement, url: string) {
-  const origin = new URL(url).origin
+/** Restrict capture requests to the registry-bound local Agent frame. */
+export function attachAgentAudioBridge({
+  uiId,
+  session,
+  frame,
+}: {
+  uiId: string
+  session: AgentUiSession
+  frame: HTMLIFrameElement
+}) {
+  agentInstallRegistry.assertSession(uiId, session)
+  const origin = new URL(session.url).origin
+  frame.contentWindow?.postMessage({ type: 'toolkits-host-ready' }, origin)
   let sessionId: string | null = null
   let chunks: string[] = []
   let rate = 48000

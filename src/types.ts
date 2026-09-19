@@ -67,6 +67,7 @@ export interface AgentExtension {
   outputs?: PluginPortDefinition[]
   parameterSchema?: PluginParameterDefinition[]
   recommendedDependencies?: ModelDependencyDefinition[]
+  extensionKind?: 'model' | 'workspace-agent'
 }
 
 /** Compatibility alias for existing model execution components. */
@@ -417,6 +418,105 @@ export interface CosyVoiceStreamEvent {
   sampleRate: number
   chunkIndex?: number
   error?: string
+}
+
+export type AcpProviderKind = 'external'
+
+export interface AcpProviderInfo {
+  id: string
+  name: string
+  available: boolean
+  kind?: AcpProviderKind
+  requiresApiProvider?: boolean
+}
+
+export interface AcpSessionStartRequest {
+  providerId: string
+  cwd?: string
+  modelId?: string
+  /** Accepted only to avoid breaking persisted calls from pre-removal clients. */
+  apiProviderId?: string
+  enableTools?: boolean
+}
+
+export interface AcpSessionStartResponse {
+  sessionId: string
+  providerId: string
+  providerName: string
+  models: string[]
+  modelOptions?: Array<{ id: string; name: string }>
+  currentModelId?: string | null
+  modes: Array<{ id?: string; name?: string }>
+}
+
+export interface AcpPermissionOption {
+  optionId: string
+  name: string
+  kind: string
+}
+
+export interface AcpQuestionOption {
+  id: string
+  label: string
+}
+
+export interface AcpQuestion {
+  id: string
+  prompt: string
+  options: AcpQuestionOption[]
+  allowMultiple?: boolean
+}
+
+export interface AcpQuestionAnswer {
+  questionId: string
+  selectedOptionIds: string[]
+}
+
+export interface AcpPlanEntry {
+  id?: string
+  content?: string
+  status?: string
+}
+
+export interface AcpPlanPhase {
+  id?: string
+  name?: string
+  todos?: AcpPlanEntry[]
+}
+
+export interface AcpSessionEvent {
+  sessionId: string
+  kind:
+    | 'agent_message_chunk'
+    | 'agent_thought_chunk'
+    | 'tool_call'
+    | 'tool_call_update'
+    | 'plan'
+    | 'turn_completed'
+    | 'turn_failed'
+    | 'permission_requested'
+    | 'permission_resolved'
+    | 'question_requested'
+    | 'question_resolved'
+    | 'plan_approval_requested'
+    | 'plan_approval_resolved'
+    | 'closed'
+    | 'error'
+  messageId?: string
+  text?: string
+  toolCallId?: string
+  toolTitle?: string
+  toolKind?: string
+  status?: string
+  content?: string
+  plan?: AcpPlanEntry[]
+  stopReason?: string
+  error?: string
+  requestId?: string
+  title?: string
+  options?: AcpPermissionOption[]
+  questions?: AcpQuestion[]
+  phases?: AcpPlanPhase[]
 }
 
 interface HarnessCapability {

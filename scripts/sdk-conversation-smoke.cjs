@@ -5,7 +5,10 @@ const source=fs.readFileSync('toolkits/ui.js','utf8');
 const end=source.indexOf('\n  try {\n    const response = await fetch("history")');
 let reset=0,calls=0;
 const context={console,structuredClone,Map,Array,JSON,Error,atob,running:false,$:id=>ids[id],element:(t,p,text)=>{const e=new E(t);e.textContent=text;p.append(e);return e},render:(p,c,v)=>{const e=new E();e.value=v;p.append(e);return e},document:{createElement:tag=>new E(tag),querySelector:()=>new E(),querySelectorAll:()=>[]},components:[{kind:'audio',label:'Audio'}],schema:{title:'ASR',outputs:[{kind:'text'},{kind:'table'}]},mounts:[{classList:{contains:()=>true}}],audioResets:new Map([[0,()=>reset++]]),inputValues:[null],pack:x=>x,status:()=>{},fetch:async(url)=>{if(url==='history')return {ok:true};calls++;return {ok:true,json:async()=>({outputs:['recognized',[[0,1,'recognized']]]})}}};
-vm.createContext(context);vm.runInContext(fs.readFileSync("toolkits/ui-content.js","utf8"),context);vm.runInContext(source.slice(source.indexOf('  let captionTarget = null;'),end),context);
+const hostListeners=new Map(),hostParent={postMessage(){}};
+context.window={parent:hostParent,addEventListener(type,listener){const listeners=hostListeners.get(type)||new Set();listeners.add(listener);hostListeners.set(type,listeners)},removeEventListener(type,listener){hostListeners.get(type)?.delete(listener)},dispatchMessage(event){for(const listener of hostListeners.get('message')||[])listener(event)}};
+const hostBootstrap=source.slice(source.indexOf('const toolkitsHost = (() => {'),source.indexOf('\nconst status = '));
+vm.createContext(context);vm.runInContext(fs.readFileSync("toolkits/ui-content.js","utf8"),context);vm.runInContext(hostBootstrap,context);context.window.dispatchMessage({source:hostParent,origin:'https://toolkits-host.test',data:{type:'toolkits-host-ready'}});vm.runInContext(source.slice(source.indexOf('  let captionTarget = null;'),end),context);
 (async()=>{await context.submit([{name:'one.wav',data:'AAAA'}]);assert.equal(calls,1);assert.equal(reset,1);assert.equal(ids.history.children.length,1);assert.equal(ids['result-detail'].children.length,0); context.showDetail(context.ToolkitsContent.content({kind:"text"},"recognized")); assert.equal(ids['result-detail'].hidden,false);assert.equal(ids.history.children[0].children.length,2);await context.submit([{name:'two.wav',data:'BBBB'}]);assert.equal(ids.history.children.length,2);assert.equal(reset,2);ids['close-detail'].click();assert.equal(ids['result-detail'].hidden,true);console.log('Conversation: paired turns, audio reset, details and close passed')})().catch(e=>{console.error(e);process.exit(1)});
 const content=context.ToolkitsContent;
 for (const [input,output] of [['audio','text'],['text','audio'],['text','text'],['audio','audio']]) {
@@ -63,7 +66,7 @@ context.crypto=require('crypto').webcrypto;
 context.setTimeout=setTimeout;context.clearTimeout=clearTimeout;
 context.window={parent:{postMessage(message){
   captionEvents.push(message);
-  if(message.action==='open')captionReceiver?.({source:context.window.parent,data:{type:'toolkits-captions-result',requestId:message.requestId}});
+  if(message.action==='open')captionReceiver?.({source:context.window.parent,origin:'https://toolkits-host.test',data:{type:'toolkits-captions-result',requestId:message.requestId}});
 }},addEventListener(type,fn){captionReceiver=fn},removeEventListener(){captionReceiver=null}};
 context.schema.streaming=true;
 const liveReply=new E(),liveContent=new E();

@@ -7692,6 +7692,30 @@ mod tests {
     }
 
     #[test]
+    fn video_translation_bailian_environment_requires_enabled_credentials() {
+        let mut config = BailianProviderConfig {
+            api_key: " secret ".to_string(),
+            base_url: "https://bailian.example.test/".to_string(),
+            enabled: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            bailian_video_translation_env_from_config(&config)
+                .expect("configured provider environment"),
+            vec![
+                ("DASHSCOPE_API_KEY".to_string(), "secret".to_string()),
+                (
+                    "DASHSCOPE_HTTP_BASE_URL".to_string(),
+                    "https://bailian.example.test".to_string(),
+                ),
+            ],
+        );
+
+        config.enabled = false;
+        assert!(bailian_video_translation_env_from_config(&config).is_err());
+    }
+
+    #[test]
     fn bailian_error_uses_service_message() {
         let raw = json!({ "code": "InvalidApiKey", "message": "key is invalid" });
         assert_eq!(
@@ -8152,6 +8176,31 @@ fn configured_bailian_provider(app: &AppHandle) -> Result<BailianProviderConfig,
     }
 }
 
+fn bailian_video_translation_env_from_config(
+    config: &BailianProviderConfig,
+) -> Result<Vec<(String, String)>, String> {
+    if !config.configured() {
+        return Err("阿里云百炼尚未配置或未启用".to_string());
+    }
+    let base_url = config.base_url.trim().trim_end_matches('/');
+    if base_url.is_empty() {
+        return Err("阿里云百炼服务地址未配置".to_string());
+    }
+    Ok(vec![
+        (
+            "DASHSCOPE_API_KEY".to_string(),
+            config.api_key.trim().to_string(),
+        ),
+        ("DASHSCOPE_HTTP_BASE_URL".to_string(), base_url.to_string()),
+    ])
+}
+
+pub(crate) fn bailian_video_translation_env(
+    app: &AppHandle,
+) -> Result<Vec<(String, String)>, String> {
+    bailian_video_translation_env_from_config(&configured_bailian_provider(app)?)
+}
+
 fn decode_data_url_bytes(data_url: &str) -> Result<Vec<u8>, String> {
     let encoded = data_url
         .split_once(',')
@@ -8182,14 +8231,45 @@ fn timestamp_millis() -> u64 {
 }
 
 // Share the configured provider only with the built-in independent Bailian projects.
-pub(crate) fn python_agent_provider_env(app: &AppHandle, id: &str) -> Result<Vec<(String, String)>, String> {
-    if !matches!(id, "bailian-cosyvoice-v2" | "bailian-cosyvoice-v3-plus" | "bailian-cosyvoice-v35-flash" | "bailian-cosyvoice-v35-plus" | "bailian-fun-audio-denoising" | "bailian-funasr-8k-realtime" | "bailian-funasr-realtime" | "bailian-paraformer-8k-realtime-v2" | "bailian-paraformer-realtime-v2" | "bailian-qwen-audio-asr-filetrans" | "bailian-qwen-audio-asr-flash" | "bailian-qwen-audio-tts" | "bailian-qwen-audio-tts-plus" | "bailian-qwen3-asr" | "bailian-qwen36-plus" | "bailian-qwen37-plus") { return Ok(vec![]); }
+pub(crate) fn python_agent_provider_env(
+    app: &AppHandle,
+    id: &str,
+) -> Result<Vec<(String, String)>, String> {
+    if !matches!(
+        id,
+        "bailian-cosyvoice-v2"
+            | "bailian-cosyvoice-v3-plus"
+            | "bailian-cosyvoice-v35-flash"
+            | "bailian-cosyvoice-v35-plus"
+            | "bailian-fun-audio-denoising"
+            | "bailian-funasr-8k-realtime"
+            | "bailian-funasr-realtime"
+            | "bailian-paraformer-8k-realtime-v2"
+            | "bailian-paraformer-realtime-v2"
+            | "bailian-qwen-audio-asr-filetrans"
+            | "bailian-qwen-audio-asr-flash"
+            | "bailian-qwen-audio-tts"
+            | "bailian-qwen-audio-tts-plus"
+            | "bailian-qwen3-asr"
+            | "bailian-qwen36-plus"
+            | "bailian-qwen37-plus"
+    ) {
+        return Ok(vec![]);
+    }
     let config = read_bailian_provider_config(app)?;
-    if !config.configured() { return Ok(vec![]); }
+    if !config.configured() {
+        return Ok(vec![]);
+    }
     let base = config.base_url.trim_end_matches('/');
     Ok(vec![
         ("DASHSCOPE_API_KEY".into(), config.api_key),
         ("DASHSCOPE_HTTP_BASE_URL".into(), base.into()),
-        ("DASHSCOPE_WEBSOCKET_BASE_URL".into(), format!("{}/api-ws/v1/inference", base.replacen("https://", "wss://", 1))),
+        (
+            "DASHSCOPE_WEBSOCKET_BASE_URL".into(),
+            format!(
+                "{}/api-ws/v1/inference",
+                base.replacen("https://", "wss://", 1)
+            ),
+        ),
     ])
 }

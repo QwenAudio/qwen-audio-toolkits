@@ -1,3 +1,4 @@
+mod acp;
 mod advanced_models;
 mod agent_server;
 mod agent_ui;
@@ -5,16 +6,22 @@ mod agents;
 mod asr;
 mod audio_io;
 mod audio_processing;
+mod document_reader;
 mod downloads;
 mod harness;
 #[cfg(all(target_os = "macos", debug_assertions))]
 mod macos_window_smoke;
 mod onnx_audio;
 mod plugins;
+mod podcast_audio;
+mod process_tree;
 mod system_audio;
 mod tts;
 mod vad;
+mod video_editor;
+mod video_translation;
 mod wetext;
+mod workspace_storage;
 
 use asr::AsrRuntime;
 use audio_io::MAX_AUDIO_BYTES;
@@ -26,6 +33,7 @@ use axum::{
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use document_reader::read_source_document;
 use harness::{
     harness_api_provider_settings, harness_bailian_provider_settings, harness_cancel_run,
     harness_catalog, harness_create_bailian_voice, harness_delete_api_provider,
@@ -48,6 +56,7 @@ use plugins::{
     plugin_set_download_paused, plugin_set_sidebar_visible, plugin_uninstall, DependencyBindings,
     PluginDescriptor, PluginInstallRequest,
 };
+use podcast_audio::compose_podcast_audio;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -64,13 +73,16 @@ use system_audio::{
     system_audio_flush_playback, system_audio_play_chunk, system_audio_start, system_audio_stop,
     SystemAudioRuntime,
 };
-use tauri::Manager;
 #[cfg(target_os = "macos")]
-use tauri::{
-    menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem},
-    Emitter, RunEvent, WindowEvent,
-};
+use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
+use video_editor::{
+    analyze_cut_boundaries, export_smart_cut, prepare_video_media, video_editor_status,
+};
+use video_translation::{
+    cancel_video_translation, start_video_translation, VideoTranslationRuntime,
+};
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
 
@@ -707,6 +719,7 @@ pub fn run() {
     let asr_runtime = Arc::new(AsrRuntime::default());
     let tts_runtime = Arc::new(TtsRuntime::default());
     let harness_runtime = Arc::new(HarnessRuntime::default());
+    let acp_runtime = Arc::new(acp::AcpRuntime::default());
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -715,9 +728,23 @@ pub fn run() {
         .manage(asr_runtime)
         .manage(tts_runtime)
         .manage(harness_runtime)
+        .manage(acp_runtime)
         .manage(CloseBehavior(AtomicBool::new(false)))
         .manage(SystemAudioRuntime::new())
         .manage(agent_ui::AgentUiRuntime::default())
+        .manage(VideoTranslationRuntime::default())
+        .manage(workspace_storage::WorkspaceStorageRuntime::default())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
+            {
+                // A reload discards JavaScript listeners before React cleanup
+                // can run. Closing keeps its native behavior until reattached.
+                webview
+                    .state::<workspace_storage::WorkspaceStorageRuntime>()
+                    .clear_close_guard();
+            }
+        })
         .setup(|app| {
             if let Err(error) = downloads::clear_completed_downloads(app.handle()) {
                 log::warn!("could not clear completed model downloads: {error}");
@@ -763,6 +790,20 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "main" {
+                let storage = window.state::<workspace_storage::WorkspaceStorageRuntime>();
+                if let WindowEvent::Destroyed = event {
+                    storage.clear_close_guard();
+                }
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    if storage.close_guard_ready()
+                        && window.emit("workspace-close-requested", false).is_ok()
+                    {
+                        api.prevent_close();
+                        return;
+                    }
+                }
+            }
             #[cfg(target_os = "macos")]
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
@@ -780,18 +821,39 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             agent_server::agent_server_status,
+            acp::acp_list_providers,
+            acp::acp_start_session,
+            acp::acp_send_prompt,
+            acp::acp_cancel_turn,
+            acp::acp_respond_permission,
+            acp::acp_respond_question,
+            acp::acp_respond_plan_approval,
+            acp::acp_finish_session,
             agent_ui::agent_ui_open,
             agent_ui::agent_ui_install,
             agent_ui::agent_ui_installed,
             agent_ui::agent_ui_uninstall,
             agent_ui::agent_ui_stop,
             runtime_status,
+            workspace_storage::workspace_load,
+            workspace_storage::workspace_save,
+            workspace_storage::workspace_restore_media,
+            workspace_storage::workspace_set_close_guard,
+            workspace_storage::workspace_finish_close,
             set_close_behavior,
             app_data_directory,
             reveal_in_file_manager,
             cleanup_download_cache,
             read_dropped_audio_file,
+            read_source_document,
             export_audio_file,
+            compose_podcast_audio,
+            video_editor_status,
+            prepare_video_media,
+            analyze_cut_boundaries,
+            export_smart_cut,
+            start_video_translation,
+            cancel_video_translation,
             plugin_runtime_catalog,
             audio_processor_status,
             process_audio,
@@ -851,6 +913,8 @@ pub fn run() {
     app.run(|app, event| {
         if let RunEvent::Exit = event {
             app.state::<agent_ui::AgentUiRuntime>().stop();
+            app.state::<VideoTranslationRuntime>().stop();
+            tauri::async_runtime::block_on(acp::acp_shutdown_all(app));
         }
         #[cfg(target_os = "macos")]
         if let RunEvent::Reopen { .. } = event {

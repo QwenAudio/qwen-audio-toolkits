@@ -26,6 +26,13 @@ import type {
   EnhancementStreamStartResponse,
   EnhancementStreamChunk,
 } from '../types'
+import {
+  agentInstallRegistry,
+  type AgentInstallRegistry,
+  type AgentInstallationState,
+  type AgentUiSession,
+  type NativeInstalledAgent,
+} from './agentInstallState'
 
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'canceled'])
 const DEFAULT_RUN_TIMEOUT_MS = 15 * 60 * 1000
@@ -198,13 +205,13 @@ export function deleteBailianVoice(voiceId: string): Promise<void> {
   return invoke<void>('harness_delete_bailian_voice', { voiceId })
 }
 
-interface SystemAudioChunk {
+export interface SystemAudioChunk {
   sessionId: string
   pcmBase64: string
   sampleRate: number
 }
 
-interface SystemAudioSession {
+export interface SystemAudioSession {
   sessionId: string
   sampleRate: number
 }
@@ -488,19 +495,155 @@ export interface AgentServerStatus {
   error: string | null
 }
 
+export interface AgentUiProgress {
+  uiId: string
+  message: string
+  elapsedMs: number
+}
+
+interface NativeAgentUiProgress {
+  id: string
+  message: string
+  elapsedMs: number
+}
+
+type AgentUiInvoke = typeof invoke
+type AgentUiListen = typeof listen
+
+export interface AgentUiHarnessDependencies {
+  registry: AgentInstallRegistry
+  invoke: AgentUiInvoke
+  listen: AgentUiListen
+}
+
+export interface AgentUiHarness {
+  getAgentServerStatus(): Promise<AgentServerStatus>
+  openAgentUi(uiId: string): Promise<AgentUiSession>
+  stopAgentUi(uiId: string, url: string): Promise<void>
+  listInstalledAgentUi(): Promise<readonly AgentInstallationState[]>
+  installAgentUi(uiId: string, update?: boolean): Promise<NativeInstalledAgent>
+  uninstallAgentUi(uiId: string): Promise<void>
+  subscribeAgentUiProgress(
+    listener: (progress: AgentUiProgress) => void,
+  ): Promise<UnlistenFn>
+}
+
+function agentErrorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+export function createAgentUiHarness(
+  dependencies: AgentUiHarnessDependencies,
+): AgentUiHarness {
+  const { registry, invoke: invokeAgentCommand, listen: listenAgentEvent } = dependencies
+
+  return {
+    getAgentServerStatus() {
+      return invokeAgentCommand<AgentServerStatus>('agent_server_status')
+    },
+    async openAgentUi(uiId) {
+      const descriptor = registry.resolve(uiId)
+      const session = await invokeAgentCommand<AgentUiSession>('agent_ui_open', {
+        id: descriptor.serverId,
+      })
+      registry.bindSession(uiId, session)
+      return session
+    },
+    async stopAgentUi(uiId, url) {
+      const descriptor = registry.assertSessionUrl(uiId, url)
+      await invokeAgentCommand<void>('agent_ui_stop', {
+        id: descriptor.serverId,
+        url,
+      })
+      registry.clearSession(uiId)
+    },
+    listInstalledAgentUi() {
+      return registry.rehydrate(() =>
+        invokeAgentCommand<NativeInstalledAgent[]>('agent_ui_installed'),
+      )
+    },
+    async installAgentUi(uiId, update = false) {
+      const descriptor = registry.resolve(uiId)
+      registry.transition(uiId, 'installing')
+      try {
+        const installed = await invokeAgentCommand<NativeInstalledAgent>(
+          'agent_ui_install',
+          { id: descriptor.serverId, update },
+        )
+        registry.transition(uiId, 'installed', { revision: installed.revision ?? undefined })
+        return installed
+      } catch (error) {
+        registry.transition(uiId, 'error', { error: agentErrorText(error) })
+        throw error
+      }
+    },
+    async uninstallAgentUi(uiId) {
+      const descriptor = registry.resolve(uiId)
+      registry.transition(uiId, 'uninstalling')
+      try {
+        await invokeAgentCommand<void>('agent_ui_uninstall', {
+          id: descriptor.serverId,
+        })
+        registry.transition(uiId, 'uninstalled')
+      } catch (error) {
+        registry.transition(uiId, 'error', { error: agentErrorText(error) })
+        throw error
+      }
+    },
+    subscribeAgentUiProgress(listener) {
+      return listenAgentEvent<NativeAgentUiProgress>('agent-ui-progress', (event) => {
+        const progress = event.payload
+        if (
+          !progress ||
+          typeof progress.id !== 'string' ||
+          typeof progress.message !== 'string' ||
+          !Number.isFinite(progress.elapsedMs)
+        ) {
+          return
+        }
+        const uiId = registry.uiIdForServerId(progress.id)
+        if (!uiId) return
+        listener({ uiId, message: progress.message, elapsedMs: progress.elapsedMs })
+      })
+    },
+  }
+}
+
+const agentUiHarness = createAgentUiHarness({
+  registry: agentInstallRegistry,
+  invoke,
+  listen,
+})
+
 export function getAgentServerStatus(): Promise<AgentServerStatus> {
-  return invoke<AgentServerStatus>('agent_server_status')
+  return agentUiHarness.getAgentServerStatus()
 }
 
-export function openAgentUi(id: string): Promise<{ url: string; title: string }> {
-  return invoke('agent_ui_open', { id })
-}
-export function stopAgentUi(url: string): Promise<void> {
-  return invoke('agent_ui_stop', { url })
+export function openAgentUi(uiId: string): Promise<AgentUiSession> {
+  return agentUiHarness.openAgentUi(uiId)
 }
 
-export interface InstalledPythonAgent { revision?: string | null; id: string; title: string; status?: string; error?: string }
-export function installPythonAgent(id: string, update = false): Promise<InstalledPythonAgent> { return invoke('agent_ui_install', { id, update }) }
-export function listInstalledPythonAgents(): Promise<InstalledPythonAgent[]> { return invoke('agent_ui_installed') }
+export function stopAgentUi(uiId: string, url: string): Promise<void> {
+  return agentUiHarness.stopAgentUi(uiId, url)
+}
 
-export function uninstallPythonAgent(id: string): Promise<void> { return invoke("agent_ui_uninstall", { id }) }
+export function listInstalledAgentUi(): Promise<readonly AgentInstallationState[]> {
+  return agentUiHarness.listInstalledAgentUi()
+}
+
+export function installAgentUi(
+  uiId: string,
+  update = false,
+): Promise<NativeInstalledAgent> {
+  return agentUiHarness.installAgentUi(uiId, update)
+}
+
+export function uninstallAgentUi(uiId: string): Promise<void> {
+  return agentUiHarness.uninstallAgentUi(uiId)
+}
+
+export function subscribeAgentUiProgress(
+  listener: (progress: AgentUiProgress) => void,
+): Promise<UnlistenFn> {
+  return agentUiHarness.subscribeAgentUiProgress(listener)
+}

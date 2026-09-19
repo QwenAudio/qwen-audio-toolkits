@@ -6,6 +6,7 @@ export const MODEL_PRIMARY_CATEGORIES = [
   { id: 'vision', label: 'Vision' },
   { id: 'text', label: 'Text' },
   { id: 'audio', label: 'Audio' },
+  { id: 'agents', label: 'Agents' },
 ] as const
 
 export type ModelPrimaryCategory =
@@ -17,6 +18,7 @@ interface ModelTaxonomySource {
   harnessCapabilities: HarnessCapabilityId[]
   inputs?: ReadonlyArray<{ type: string }>
   outputs?: ReadonlyArray<{ type: string }>
+  extensionKind?: 'model' | 'workspace-agent'
 }
 
 interface ModelTaxonomy {
@@ -119,7 +121,9 @@ export function modelTaxonomy(model: ModelTaxonomySource): ModelTaxonomy {
   )
 
   let primaryCategory: ModelPrimaryCategory
-  if (
+  if (model.extensionKind === 'workspace-agent') {
+    primaryCategory = 'agents'
+  } else if (
     normalizedInputs.length > 1 ||
     normalizedOutputs.length > 1 ||
     mediaModalities.size > 1

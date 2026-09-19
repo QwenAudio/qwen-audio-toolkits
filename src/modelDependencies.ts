@@ -1,3 +1,4 @@
+import { t } from "./i18n"
 import type { ModelDependencyBindings, ModelPlugin } from './types'
 
 type ModelDependencyRole = string
@@ -39,7 +40,7 @@ export function recommendedDependencies(plugin: ModelPlugin): ModelDependency[] 
     return [
       {
         role: 'speech-segmentation',
-        label: '自动分段',
+        get label() { return t("自动分段") },
         pluginId: 'funaudiollm.fsmn-vad-gguf',
         capability: 'speech.detect',
         default: true,
@@ -55,7 +56,7 @@ export function recommendedDependencies(plugin: ModelPlugin): ModelDependency[] 
     ? [
         {
           role: 'reference-transcription',
-          label: '参考文本识别',
+          get label() { return t("参考文本识别") },
           pluginId: 'funaudiollm.sensevoice-small-gguf',
           capability: 'speech.transcribe',
           default: true,

@@ -6,13 +6,48 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::{Duration, Instant},
 };
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
+
+const PYTHON_AGENT_PROVIDER_ENV_NAMES: [&str; 9] = [
+    "DASHSCOPE_API_KEY",
+    "DASHSCOPE_HTTP_BASE_URL",
+    "DASHSCOPE_WEBSOCKET_BASE_URL",
+    "DASHSCOPE_BASE_URL",
+    "DASHSCOPE_MODEL",
+    "QWEN_AUDIO_BAILIAN_API_KEY",
+    "QWEN_AUDIO_BAILIAN_BASE_URL",
+    "QWEN_AUDIO_BAILIAN_TTS_MODEL",
+    "QWEN_AUDIO_BAILIAN_ASR_MODEL",
+];
+
+fn configure_python_agent_install_env(command: &mut Command) {
+    for name in PYTHON_AGENT_PROVIDER_ENV_NAMES {
+        command.env_remove(name);
+    }
+}
+
+fn configure_python_agent_provider_env(command: &mut Command, provider_env: &[(String, String)]) {
+    configure_python_agent_install_env(command);
+    command.envs(provider_env.iter().map(|(key, value)| (key, value)));
+}
+
+const MAX_WARM_AGENTS: usize = 3;
+
+fn terminate_agent_process(child: &mut Child) {
+    if let Err(error) = crate::process_tree::terminate(child) {
+        log::warn!("could not terminate Python Agent process tree: {error}");
+    }
+}
 
 struct WarmAgent {
     session: Session,
@@ -20,10 +55,45 @@ struct WarmAgent {
     fingerprint: String,
     last_used: Instant,
 }
+
+fn insert_warm_agent(
+    runtime: &AgentUiRuntime,
+    id: String,
+    mut agent: WarmAgent,
+) -> Result<(), String> {
+    let (previous, evicted) = {
+        let mut agents = runtime.0.lock().map_err(|e| e.to_string())?;
+        if runtime.2.load(Ordering::Acquire) {
+            drop(agents);
+            terminate_agent_process(&mut agent.child);
+            return Err("应用正在退出，无法启动 Agent".to_string());
+        }
+        let previous = agents.remove(&id);
+        let evicted_id = (agents.len() >= MAX_WARM_AGENTS)
+            .then(|| {
+                agents
+                    .iter()
+                    .min_by_key(|(_, candidate)| candidate.last_used)
+                    .map(|(id, _)| id.clone())
+            })
+            .flatten();
+        let evicted = evicted_id.and_then(|id| agents.remove(&id));
+        agents.insert(id, agent);
+        (previous, evicted)
+    };
+    for mut agent in previous.into_iter().chain(evicted) {
+        terminate_agent_process(&mut agent.child);
+    }
+    Ok(())
+}
+
 #[derive(Default, Clone)]
 pub struct AgentUiRuntime(
     Arc<Mutex<BTreeMap<String, WarmAgent>>>,
     Arc<Mutex<BTreeMap<String, Arc<Mutex<()>>>>>,
+    Arc<AtomicBool>,
+    Arc<Mutex<()>>,
+    Arc<Mutex<BTreeMap<String, Child>>>,
 );
 impl AgentUiRuntime {
     fn agent_lock(&self, id: &str) -> Result<Arc<Mutex<()>>, String> {
@@ -31,12 +101,35 @@ impl AgentUiRuntime {
         Ok(locks.entry(id.to_owned()).or_default().clone())
     }
 
+    fn project_links_lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+        self.3.lock().map_err(|e| e.to_string())
+    }
+
+    fn ensure_running(&self) -> Result<(), String> {
+        if self.2.load(Ordering::Acquire) {
+            Err("应用正在退出，无法启动 Agent".to_string())
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn stop(&self) {
-        if let Ok(mut agents) = self.0.lock() {
-            for (_, mut agent) in std::mem::take(&mut *agents) {
-                let _ = agent.child.kill();
-                let _ = agent.child.wait();
-            }
+        self.2.store(true, Ordering::Release);
+        let pending = self
+            .4
+            .lock()
+            .map(|mut agents| std::mem::take(&mut *agents))
+            .unwrap_or_default();
+        let warm = self
+            .0
+            .lock()
+            .map(|mut agents| std::mem::take(&mut *agents))
+            .unwrap_or_default();
+        for (_, mut child) in pending {
+            terminate_agent_process(&mut child);
+        }
+        for (_, mut agent) in warm {
+            terminate_agent_process(&mut agent.child);
         }
     }
 }
@@ -76,6 +169,44 @@ fn valid_id(id: &str) -> bool {
         && !id.starts_with('.')
         && !id.contains("..")
 }
+
+fn read_project_links(path: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
+    match fs::read(path) {
+        Ok(raw) => serde_json::from_slice(&raw).map_err(|e| format!("本地项目记录无效：{e}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let temporary = path.with_extension("tmp");
+    fs::write(&temporary, bytes).map_err(|e| e.to_string())?;
+    fs::rename(temporary, path).map_err(|e| e.to_string())
+}
+
+fn write_project_links(path: &Path, projects: &BTreeMap<String, PathBuf>) -> Result<(), String> {
+    let bytes = serde_json::to_vec(projects).map_err(|e| e.to_string())?;
+    replace_file_atomically(path, &bytes)
+}
+
+fn read_agent_control_file(path: &Path, max_bytes: u64) -> Result<Option<String>, String> {
+    let file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.to_string()),
+    };
+    let mut bytes = Vec::new();
+    file.take(max_bytes.saturating_add(1))
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > max_bytes {
+        return Err("Agent 控制文件超过大小限制".to_string());
+    }
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
 fn uv_path() -> PathBuf {
     if let Some(home) = std::env::var_os("HOME") {
         let candidate = PathBuf::from(home).join(".local/bin/uv");
@@ -99,6 +230,7 @@ fn checked_timeout(command: &mut Command, log: &Path, timeout: Duration) -> Resu
         .append(true)
         .open(log)
         .map_err(|e| e.to_string())?;
+    crate::process_tree::configure_command(command);
     let mut child = command
         .stdin(Stdio::null())
         .stdout(output.try_clone().map_err(|e| e.to_string())?)
@@ -115,19 +247,24 @@ fn checked_timeout(command: &mut Command, log: &Path, timeout: Duration) -> Resu
             };
         }
         if start.elapsed() > timeout {
-            let _ = child.kill();
-            let _ = child.wait();
+            terminate_agent_process(&mut child);
             return Err("环境准备超时，请检查网络后重试".into());
         }
         std::thread::sleep(Duration::from_millis(100));
     }
 }
 fn launch(
-    root: &Path, project: &Path, id: &str, runtime: AgentUiRuntime,
-    prepare: bool, provider_env: Vec<(String, String)>, app: &tauri::AppHandle,
+    root: &Path,
+    project: &Path,
+    id: &str,
+    runtime: AgentUiRuntime,
+    prepare: bool,
+    provider_env: Vec<(String, String)>,
+    app: &tauri::AppHandle,
 ) -> Result<Session, String> {
     let lock = runtime.agent_lock(id)?;
     let _operation = lock.lock().map_err(|e| e.to_string())?;
+    runtime.ensure_running()?;
     launch_inner(root, project, id, runtime, prepare, provider_env, app)
 }
 fn launch_inner(
@@ -156,35 +293,20 @@ fn launch_inner(
     progress("检查 UI SDK，复用未变化的文件");
     for (name, content) in [
         ("streaming.py", include_str!("../../toolkits/streaming.py")),
-        ("ui-streaming.js", include_str!("../../toolkits/ui-streaming.js")),
         (
-            "__init__.py",
-            include_str!("../../toolkits/__init__.py"),
+            "ui-streaming.js",
+            include_str!("../../toolkits/ui-streaming.js"),
         ),
-        (
-            "__main__.py",
-            include_str!("../../toolkits/__main__.py"),
-        ),
-        (
-            "server.py",
-            include_str!("../../toolkits/server.py"),
-        ),
-        (
-            "ui.html",
-            include_str!("../../toolkits/ui.html"),
-        ),
-        (
-            "ui.css",
-            include_str!("../../toolkits/ui.css"),
-        ),
+        ("__init__.py", include_str!("../../toolkits/__init__.py")),
+        ("__main__.py", include_str!("../../toolkits/__main__.py")),
+        ("server.py", include_str!("../../toolkits/server.py")),
+        ("ui.html", include_str!("../../toolkits/ui.html")),
+        ("ui.css", include_str!("../../toolkits/ui.css")),
         (
             "ui-content.js",
             include_str!("../../toolkits/ui-content.js"),
         ),
-        (
-            "ui.js",
-            include_str!("../../toolkits/ui.js"),
-        ),
+        ("ui.js", include_str!("../../toolkits/ui.js")),
     ] {
         let path = package.join(name);
         if fs::read(&path).ok().as_deref() != Some(content.as_bytes()) {
@@ -195,11 +317,16 @@ fn launch_inner(
     // can depend on qwenaudio-toolkits without requiring a PyPI publication.
     for (name, content) in [
         ("pyproject.toml", include_str!("../../pyproject.toml")),
-        ("docs/python-sdk.md", include_str!("../../docs/python-sdk.md")),
+        (
+            "docs/python-sdk.md",
+            include_str!("../../docs/python-sdk.md"),
+        ),
         ("toolkits/py.typed", ""),
     ] {
         let path = sdk.join(name);
-        if let Some(parent) = path.parent() { fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
         if fs::read(&path).ok().as_deref() != Some(content.as_bytes()) {
             fs::write(path, content).map_err(|e| e.to_string())?;
         }
@@ -277,8 +404,7 @@ fn launch_inner(
     let previous = guard.remove(id);
     drop(guard);
     if let Some(mut agent) = previous {
-        let _ = agent.child.kill();
-        let _ = agent.child.wait();
+        terminate_agent_process(&mut agent.child);
     }
     // Installation and startup must never evict another Agent's active session.
     let marker = env.join("dependencies.sha256");
@@ -302,25 +428,24 @@ fn launch_inner(
             if pyproject.is_file() {
                 command.args(["-e", "."]);
             }
+            configure_python_agent_install_env(&mut command);
             checked(&mut command, &log)?;
         }
         fs::write(marker, fingerprint).map_err(|e| e.to_string())?;
     }
     if prepare {
         progress("下载并校验模型与运行资源");
-        checked_timeout(
-            Command::new(&python)
-                .arg("-m")
-                .arg("toolkits")
-                .arg(project)
-                .arg("--prepare")
-                .arg("--ui-cache")
-                .arg(env.join("ui-definition.json"))
-                .envs(provider_env.iter().cloned())
-                .env("PYTHONPATH", &sdk),
-            &log,
-            Duration::from_secs(1800),
-        )?;
+        let mut command = Command::new(&python);
+        command
+            .arg("-m")
+            .arg("toolkits")
+            .arg(project)
+            .arg("--prepare")
+            .arg("--ui-cache")
+            .arg(env.join("ui-definition.json"))
+            .env("PYTHONPATH", &sdk);
+        configure_python_agent_provider_env(&mut command, &provider_env);
+        checked_timeout(&mut command, &log, Duration::from_secs(1800))?;
     }
     progress("启动 Python，等待 Agent 初始化");
     let progress_path = env.join("startup-progress.jsonl");
@@ -335,9 +460,9 @@ fn launch_inner(
         .append(true)
         .open(&log)
         .map_err(|e| e.to_string())?;
-    let mut child = Command::new(python)
+    let mut command = Command::new(python);
+    command
         .env("TOOLKITS_STARTUP_PROGRESS", &progress_path)
-        .envs(provider_env)
         .arg("-m")
         .arg("toolkits")
         .arg(project)
@@ -350,13 +475,19 @@ fn launch_inner(
         .env("PYTHONPATH", sdk)
         .stdin(Stdio::null())
         .stdout(output.try_clone().map_err(|e| e.to_string())?)
-        .stderr(output)
-        .spawn()
-        .map_err(|e| e.to_string())?;
+        .stderr(output);
+    configure_python_agent_provider_env(&mut command, &provider_env);
+    crate::process_tree::configure_command(&mut command);
+    {
+        let mut pending = runtime.4.lock().map_err(|e| e.to_string())?;
+        runtime.ensure_running()?;
+        let child = command.spawn().map_err(|e| e.to_string())?;
+        pending.insert(id.to_string(), child);
+    }
     let start = Instant::now();
     let result = loop {
-        if let Ok(raw) = fs::read_to_string(&progress_path) {
-            if raw.len() < 32768 {
+        match read_agent_control_file(&progress_path, 32 * 1024) {
+            Ok(Some(raw)) => {
                 let lines: Vec<_> = raw.lines().collect();
                 for line in lines.iter().skip(progress_lines) {
                     if let Ok(message) = serde_json::from_str::<String>(line) {
@@ -365,38 +496,54 @@ fn launch_inner(
                 }
                 progress_lines = lines.len();
             }
+            Ok(None) => {}
+            Err(error) => break Err(format!("无法读取 Agent 启动进度: {error}")),
         }
-        if let Ok(Some(_)) = child.try_wait() {
+        let child_exited = {
+            let mut pending = runtime.4.lock().map_err(|e| e.to_string())?;
+            match pending.get_mut(id) {
+                Some(child) => child.try_wait().map_err(|e| e.to_string())?,
+                None => break Err("Agent 启动已被终止".to_string()),
+            }
+        };
+        if child_exited.is_some() {
             break Err(format!("Agent 启动失败，请查看 {}", log.display()));
         }
-        if let Ok(raw) = fs::read_to_string(&ready) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(url) = value["url"].as_str() {
-                    if let Ok(parsed) = reqwest::Url::parse(url) {
-                        if parsed.scheme() == "http"
-                            && parsed.host_str() == Some("127.0.0.1")
-                            && parsed.port().is_some()
-                            && parsed.username().is_empty()
-                            && parsed.password().is_none()
-                        {
-                            progress("本地服务已就绪，加载页面");
-                            break Ok(Session {
-                                url: url.into(),
-                                title: value["title"].as_str().unwrap_or(id).into(),
-                            });
+        match read_agent_control_file(&ready, 8 * 1024) {
+            Ok(Some(raw)) => {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let Some(url) = value["url"].as_str() {
+                        if let Ok(parsed) = reqwest::Url::parse(url) {
+                            if parsed.scheme() == "http"
+                                && parsed.host_str() == Some("127.0.0.1")
+                                && parsed.port().is_some()
+                                && parsed.username().is_empty()
+                                && parsed.password().is_none()
+                            {
+                                progress("本地服务已就绪，加载页面");
+                                break Ok(Session {
+                                    url: url.into(),
+                                    title: value["title"].as_str().unwrap_or(id).into(),
+                                });
+                            }
                         }
                     }
+                    break Err("Agent 返回了无效的本地界面地址".into());
                 }
-                break Err("Agent 返回了无效的本地界面地址".into());
             }
+            Ok(None) => {}
+            Err(error) => break Err(format!("无法读取 Agent 就绪信息: {error}")),
         }
         if start.elapsed() > Duration::from_secs(30) {
             break Err(format!("Agent 启动超时，请查看 {}", log.display()));
         }
         std::thread::sleep(Duration::from_millis(100));
     };
+    let child = runtime.4.lock().map_err(|e| e.to_string())?.remove(id);
     if let Ok(session) = &result {
-        runtime.0.lock().map_err(|e| e.to_string())?.insert(
+        let child = child.ok_or("Agent 启动已被终止")?;
+        insert_warm_agent(
+            &runtime,
             id.to_string(),
             WarmAgent {
                 session: session.clone(),
@@ -404,10 +551,9 @@ fn launch_inner(
                 fingerprint: runtime_fingerprint,
                 last_used: Instant::now(),
             },
-        );
-    } else {
-        let _ = child.kill();
-        let _ = child.wait();
+        )?;
+    } else if let Some(mut child) = child {
+        terminate_agent_process(&mut child);
     }
     result
 }
@@ -425,41 +571,34 @@ pub async fn agent_ui_open(
     let state = runtime.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-        let links = root.join("agent-project-links.json");
-        let mut projects: BTreeMap<String, PathBuf> = match fs::read(&links) {
-            Ok(raw) => {
-                serde_json::from_slice(&raw).map_err(|e| format!("本地项目记录无效：{e}"))?
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
-            Err(e) => return Err(e.to_string()),
-        };
-        let project = match projects
-            .get(&id)
-            .filter(|path| path.join("agent_ui.py").is_file())
-        {
-            Some(path) => path.clone(),
-            None => {
-                let selected = app
-                    .dialog()
-                    .file()
-                    .set_title("选择此 Agent 的本地项目目录")
-                    .blocking_pick_folder()
-                    .ok_or("已取消打开 Agent")?;
-                let path = selected
-                    .into_path()
-                    .map_err(|e| e.to_string())?
-                    .canonicalize()
-                    .map_err(|e| e.to_string())?;
-                if !path.join("agent_ui.py").is_file() {
-                    return Err("项目根目录缺少 agent_ui.py".into());
+        let project = {
+            let _links_guard = state.project_links_lock()?;
+            let links = root.join("agent-project-links.json");
+            let mut projects = read_project_links(&links)?;
+            match projects
+                .get(&id)
+                .filter(|path| path.join("agent_ui.py").is_file())
+            {
+                Some(path) => path.clone(),
+                None => {
+                    let selected = app
+                        .dialog()
+                        .file()
+                        .set_title("选择此 Agent 的本地项目目录")
+                        .blocking_pick_folder()
+                        .ok_or("已取消打开 Agent")?;
+                    let path = selected
+                        .into_path()
+                        .map_err(|e| e.to_string())?
+                        .canonicalize()
+                        .map_err(|e| e.to_string())?;
+                    if !path.join("agent_ui.py").is_file() {
+                        return Err("项目根目录缺少 agent_ui.py".into());
+                    }
+                    projects.insert(id.clone(), path.clone());
+                    write_project_links(&links, &projects)?;
+                    path
                 }
-                projects.insert(id.clone(), path.clone());
-                fs::write(
-                    &links,
-                    serde_json::to_vec(&projects).map_err(|e| e.to_string())?,
-                )
-                .map_err(|e| e.to_string())?;
-                path
             }
         };
         launch(&root, &project, &id, state, false, provider_env, &app)
@@ -467,28 +606,36 @@ pub async fn agent_ui_open(
     .await
     .map_err(|e| e.to_string())?
 }
+fn stop_agent_session(runtime: &AgentUiRuntime, id: &str, url: &str) -> Result<(), String> {
+    let operation = runtime.agent_lock(id)?;
+    let _operation = operation.lock().map_err(|e| e.to_string())?;
+    let agent = {
+        let mut agents = runtime.0.lock().map_err(|e| e.to_string())?;
+        if agents.get(id).is_some_and(|agent| agent.session.url == url) {
+            agents.remove(id)
+        } else {
+            None
+        }
+    };
+    if let Some(mut agent) = agent {
+        terminate_agent_process(&mut agent.child);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn agent_ui_stop(
     runtime: tauri::State<'_, AgentUiRuntime>,
+    id: String,
     url: String,
 ) -> Result<(), String> {
+    if !valid_id(&id) {
+        return Err("Agent ID 无效".into());
+    }
     let runtime = runtime.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        if let Ok(mut guard) = runtime.0.lock() {
-            let id = guard
-                .iter()
-                .find(|(_, agent)| agent.session.url == url)
-                .map(|(id, _)| id.clone());
-            if let Some(id) = id {
-                if let Some(mut agent) = guard.remove(&id) {
-                    let _ = agent.child.kill();
-                    let _ = agent.child.wait();
-                }
-            }
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || stop_agent_session(&runtime, &id, &url))
+        .await
+        .map_err(|e| e.to_string())?
 }
 #[cfg(test)]
 mod tests {
@@ -497,17 +644,352 @@ mod tests {
         let runtime = super::AgentUiRuntime::default();
         let installing = runtime.agent_lock("installing").unwrap();
         let _held = installing.lock().unwrap();
-        assert!(runtime.agent_lock("installing").unwrap().try_lock().is_err());
+        assert!(runtime
+            .agent_lock("installing")
+            .unwrap()
+            .try_lock()
+            .is_err());
         assert!(runtime.agent_lock("ready").unwrap().try_lock().is_ok());
         assert!(runtime.0.try_lock().is_ok());
     }
 
+    #[test]
+    fn stopped_runtime_rejects_new_agent_launches() {
+        let runtime = super::AgentUiRuntime::default();
+        runtime.stop();
+        assert!(runtime.ensure_running().is_err());
+    }
+
+    #[test]
+    fn project_link_registry_operations_are_serialized() {
+        let runtime = super::AgentUiRuntime::default();
+        let _held = runtime.project_links_lock().expect("lock project links");
+        assert!(runtime.3.try_lock().is_err());
+    }
+
     use super::*;
+
+    #[cfg(unix)]
+    fn process_exists(pid: libc::pid_t) -> bool {
+        let result = unsafe { libc::kill(pid, 0) };
+        result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+
+    #[cfg(unix)]
+    fn wait_until(mut condition: impl FnMut() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if condition() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        condition()
+    }
+
+    #[cfg(unix)]
+    static NEXT_PROCESS_TREE_FIXTURE: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+
+    #[cfg(unix)]
+    fn spawn_process_tree(name: &str) -> (Child, libc::pid_t, libc::pid_t, PathBuf) {
+        let fixture_id = NEXT_PROCESS_TREE_FIXTURE.fetch_add(1, Ordering::Relaxed);
+        let descendant_path = std::env::temp_dir().join(format!(
+            "toolkits-{name}-descendant-{}-{fixture_id}",
+            std::process::id(),
+        ));
+        let mut command = Command::new("sh");
+        command
+            .args([
+                "-c",
+                "sleep 30 & child=$!; printf '%s' \"$child\" > \"$1.tmp\"; mv \"$1.tmp\" \"$1\"; wait \"$child\"",
+                "sh",
+            ])
+            .arg(&descendant_path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        crate::process_tree::configure_command(&mut command);
+        let child = command.spawn().expect("start process tree");
+        let root_pid = libc::pid_t::try_from(child.id()).expect("root PID fits pid_t");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let descendant_pid = loop {
+            if let Ok(value) = fs::read_to_string(&descendant_path) {
+                break value
+                    .trim()
+                    .parse::<libc::pid_t>()
+                    .expect("descendant PID is valid");
+            }
+            assert!(
+                Instant::now() < deadline,
+                "process tree did not report its descendant PID"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        (child, root_pid, descendant_pid, descendant_path)
+    }
+
+    #[cfg(unix)]
+    fn cleanup_process_group(root_pid: libc::pid_t) {
+        let _ = unsafe { libc::kill(-root_pid, libc::SIGKILL) };
+    }
+
+    #[cfg(unix)]
+    fn assert_process_tree_stopped(root_pid: libc::pid_t, descendant_pid: libc::pid_t) {
+        let root_stopped = wait_until(|| !process_exists(root_pid));
+        let descendant_stopped = wait_until(|| !process_exists(descendant_pid));
+        if !descendant_stopped {
+            cleanup_process_group(root_pid);
+            let _ = wait_until(|| !process_exists(descendant_pid));
+        }
+        assert!(root_stopped, "root process must be reaped");
+        assert!(descendant_stopped, "descendant process must be terminated");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_process_tree_helper_terminates_and_reaps_root_and_descendant() {
+        let (mut child, root_pid, descendant_pid, descendant_path) = spawn_process_tree("helper");
+
+        crate::process_tree::terminate(&mut child).expect("terminate managed process tree");
+
+        assert_process_tree_stopped(root_pid, descendant_pid);
+        fs::remove_file(descendant_path).expect("remove descendant PID file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stopping_runtime_terminates_starting_agent_processes() {
+        let (child, root_pid, descendant_pid, descendant_path) = spawn_process_tree("pending");
+        let runtime = AgentUiRuntime::default();
+        runtime
+            .4
+            .lock()
+            .expect("register pending agent")
+            .insert("test-agent".to_string(), child);
+
+        runtime.stop();
+
+        assert!(runtime.4.lock().expect("read pending agents").is_empty());
+        assert_process_tree_stopped(root_pid, descendant_pid);
+        fs::remove_file(descendant_path).expect("remove descendant PID file");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stopping_runtime_terminates_warm_agent_processes() {
+        let (child, root_pid, descendant_pid, descendant_path) = spawn_process_tree("warm");
+        let runtime = AgentUiRuntime::default();
+        runtime.0.lock().expect("register warm agent").insert(
+            "test-agent".to_string(),
+            WarmAgent {
+                session: Session {
+                    url: "http://127.0.0.1:1".to_string(),
+                    title: "Test agent".to_string(),
+                },
+                child,
+                fingerprint: "test".to_string(),
+                last_used: Instant::now(),
+            },
+        );
+
+        runtime.stop();
+
+        assert!(runtime.0.lock().expect("read runtime").is_empty());
+        assert_process_tree_stopped(root_pid, descendant_pid);
+        fs::remove_file(descendant_path).expect("remove descendant PID file");
+    }
+
+    #[cfg(unix)]
+    fn warm_agent(url: &str, last_used: Instant) -> (WarmAgent, libc::pid_t, libc::pid_t, PathBuf) {
+        let (child, root_pid, descendant_pid, descendant_path) = spawn_process_tree("warm-agent");
+        (
+            WarmAgent {
+                session: Session {
+                    url: url.to_string(),
+                    title: "Test agent".to_string(),
+                },
+                child,
+                fingerprint: "test".to_string(),
+                last_used,
+            },
+            root_pid,
+            descendant_pid,
+            descendant_path,
+        )
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn adding_fourth_warm_agent_evicts_least_recently_used_process_tree() {
+        let runtime = AgentUiRuntime::default();
+        let now = Instant::now();
+        let (oldest, oldest_root, oldest_descendant, oldest_path) =
+            warm_agent("http://127.0.0.1:1", now - Duration::from_secs(3));
+        let (middle, middle_root, _, middle_path) =
+            warm_agent("http://127.0.0.1:2", now - Duration::from_secs(2));
+        let (newest, newest_root, _, newest_path) =
+            warm_agent("http://127.0.0.1:3", now - Duration::from_secs(1));
+        {
+            let mut agents = runtime.0.lock().expect("seed warm agents");
+            agents.insert("oldest".to_string(), oldest);
+            agents.insert("middle".to_string(), middle);
+            agents.insert("newest".to_string(), newest);
+        }
+        let (fourth, fourth_root, _, fourth_path) = warm_agent("http://127.0.0.1:4", now);
+
+        insert_warm_agent(&runtime, "fourth".to_string(), fourth)
+            .expect("insert fourth warm agent");
+
+        let agents = runtime.0.lock().expect("read warm agents");
+        assert_eq!(agents.len(), 3);
+        assert!(!agents.contains_key("oldest"));
+        assert!(agents.contains_key("middle"));
+        assert!(agents.contains_key("newest"));
+        assert!(agents.contains_key("fourth"));
+        drop(agents);
+        assert_process_tree_stopped(oldest_root, oldest_descendant);
+        fs::remove_file(oldest_path).expect("remove evicted descendant PID file");
+
+        runtime.stop();
+        for (root_pid, path) in [
+            (middle_root, middle_path),
+            (newest_root, newest_path),
+            (fourth_root, fourth_path),
+        ] {
+            cleanup_process_group(root_pid);
+            fs::remove_file(path).expect("remove descendant PID file");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stopping_session_terminates_the_matching_agent_process_tree() {
+        let (child, root_pid, descendant_pid, descendant_path) = spawn_process_tree("session");
+        let runtime = AgentUiRuntime::default();
+        runtime.0.lock().expect("register warm agent").insert(
+            "test-agent".to_string(),
+            WarmAgent {
+                session: Session {
+                    url: "http://127.0.0.1:1".to_string(),
+                    title: "Test agent".to_string(),
+                },
+                child,
+                fingerprint: "test".to_string(),
+                last_used: Instant::now(),
+            },
+        );
+
+        stop_agent_session(&runtime, "test-agent", "http://127.0.0.1:1")
+            .expect("stop matching agent session");
+
+        assert!(runtime.0.lock().expect("read runtime").is_empty());
+        assert_process_tree_stopped(root_pid, descendant_pid);
+        fs::remove_file(descendant_path).expect("remove descendant PID file");
+    }
+
     #[test]
     fn ids_cannot_be_paths() {
         assert!(valid_id("author.audio-agent"));
         for id in ["", "..", "../agent", "a/b", "/tmp/agent", ".hidden", "a\\b"] {
             assert!(!valid_id(id));
+        }
+    }
+
+    #[test]
+    fn project_links_are_saved_atomically() {
+        let root =
+            std::env::temp_dir().join(format!("toolkits-agent-links-test-{}", std::process::id()));
+        fs::create_dir_all(&root).expect("create project-link directory");
+        let path = root.join("agent-project-links.json");
+        let mut projects = BTreeMap::new();
+        projects.insert("test-agent".to_string(), PathBuf::from("/tmp/test-agent"));
+
+        write_project_links(&path, &projects).expect("save project links");
+
+        assert_eq!(
+            read_project_links(&path).expect("load project links"),
+            projects
+        );
+        assert!(!path.with_extension("tmp").exists());
+        fs::remove_dir_all(root).expect("remove project-link directory");
+    }
+
+    #[test]
+    fn control_file_reader_rejects_oversized_files() {
+        let path = std::env::temp_dir().join(format!(
+            "toolkits-agent-control-file-test-{}",
+            std::process::id()
+        ));
+        fs::write(&path, "oversized").expect("write control file");
+
+        assert!(read_agent_control_file(&path, 4).is_err());
+
+        fs::remove_file(path).expect("remove control file");
+    }
+
+    #[test]
+    fn python_commands_clear_inherited_provider_credentials() {
+        let mut command = Command::new("python3");
+        configure_python_agent_provider_env(&mut command, &[]);
+
+        for name in PYTHON_AGENT_PROVIDER_ENV_NAMES {
+            assert!(command
+                .get_envs()
+                .any(|(key, value)| key == name && value.is_none()));
+        }
+
+        let mut allowed = Command::new("python3");
+        configure_python_agent_provider_env(
+            &mut allowed,
+            &[(
+                "DASHSCOPE_API_KEY".to_string(),
+                "allowlisted-key".to_string(),
+            )],
+        );
+        assert!(allowed.get_envs().any(|(key, value)| {
+            key == "DASHSCOPE_API_KEY" && value.is_some_and(|value| value == "allowlisted-key")
+        }));
+    }
+
+    #[test]
+    fn dependency_install_commands_clear_provider_credentials() {
+        let mut command = Command::new("uv");
+        configure_python_agent_install_env(&mut command);
+
+        for name in PYTHON_AGENT_PROVIDER_ENV_NAMES {
+            assert!(command
+                .get_envs()
+                .any(|(key, value)| key == name && value.is_none()));
+        }
+    }
+
+    #[test]
+    fn python_commands_clear_legacy_bailian_environment_aliases() {
+        let mut command = Command::new("python3");
+        configure_python_agent_provider_env(&mut command, &[]);
+
+        for name in [
+            "QWEN_AUDIO_BAILIAN_API_KEY",
+            "QWEN_AUDIO_BAILIAN_BASE_URL",
+            "QWEN_AUDIO_BAILIAN_TTS_MODEL",
+            "QWEN_AUDIO_BAILIAN_ASR_MODEL",
+        ] {
+            assert!(command
+                .get_envs()
+                .any(|(key, value)| key == name && value.is_none()));
+        }
+    }
+
+    #[test]
+    fn python_commands_clear_general_dashscope_configuration() {
+        let mut command = Command::new("python3");
+        configure_python_agent_provider_env(&mut command, &[]);
+
+        for name in ["DASHSCOPE_BASE_URL", "DASHSCOPE_MODEL"] {
+            assert!(command
+                .get_envs()
+                .any(|(key, value)| key == name && value.is_none()));
         }
     }
 }
@@ -558,7 +1040,10 @@ pub async fn agent_ui_install(
         return Err("Agent ID 无效".into());
     }
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    if let Some(record) = read_installed(&root)?.into_iter().find(|a| a.id == id && !update.unwrap_or(false)) {
+    if let Some(record) = read_installed(&root)?
+        .into_iter()
+        .find(|a| a.id == id && !update.unwrap_or(false))
+    {
         return Ok(record);
     }
     let base = crate::agent_server::server_url(
@@ -590,12 +1075,14 @@ pub async fn agent_ui_install(
     let provider_env = crate::harness::python_agent_provider_env(&app, &id)?;
     let state = runtime.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-
         let operation = state.agent_lock(&id)?;
         let _operation = operation.lock().map_err(|e| e.to_string())?;
         let _install = INSTALL_LOCK.lock().map_err(|e| e.to_string())?;
         let mut installed = read_installed(&root)?;
-        if let Some(record) = installed.iter().find(|a| a.id == id && !update.unwrap_or(false)) {
+        if let Some(record) = installed
+            .iter()
+            .find(|a| a.id == id && !update.unwrap_or(false))
+        {
             return Ok(record.clone());
         }
         let project = root.join("agent-projects").join(&id);
@@ -610,22 +1097,40 @@ pub async fn agent_ui_install(
         }
         let backup = root.join("agent-projects").join(format!(".previous-{id}"));
         let environment = root.join("agent-environments").join(&id);
-        let env_backup = root.join("agent-environments").join(format!(".previous-{id}"));
-        if backup.exists() || env_backup.exists() { return Err("上一次更新备份仍存在，请先恢复安装".into()); }
+        let env_backup = root
+            .join("agent-environments")
+            .join(format!(".previous-{id}"));
+        if backup.exists() || env_backup.exists() {
+            return Err("上一次更新备份仍存在，请先恢复安装".into());
+        }
         {
             let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-            if let Some(mut agent) = guard.remove(&id) { let _ = agent.child.kill(); let _ = agent.child.wait(); }
+            if let Some(mut agent) = guard.remove(&id) {
+                terminate_agent_process(&mut agent.child);
+            }
         }
-        if project.exists() { fs::rename(&project, &backup).map_err(|e| e.to_string())?; }
+        if project.exists() {
+            fs::rename(&project, &backup).map_err(|e| e.to_string())?;
+        }
         if environment.exists() {
             if let Err(error) = fs::rename(&environment, &env_backup) {
-                if backup.exists() { let _ = fs::rename(&backup, &project); }
+                if backup.exists() {
+                    let _ = fs::rename(&backup, &project);
+                }
                 return Err(error.to_string());
             }
         }
         let result = (|| -> Result<Session, String> {
             fs::rename(&staging, &project).map_err(|e| e.to_string())?;
-            launch_inner(&root, &project, &id, state.clone(), true, provider_env, &app)
+            launch_inner(
+                &root,
+                &project,
+                &id,
+                state.clone(),
+                true,
+                provider_env,
+                &app,
+            )
         })();
         let session = match result {
             Ok(session) => session,
@@ -636,67 +1141,79 @@ pub async fn agent_ui_install(
                 if failed_log.is_file() && fs::create_dir_all(&log_directory).is_ok() {
                     let retained_log = log_directory.join(format!("{id}-install.log"));
                     if fs::copy(&failed_log, &retained_log).is_ok() {
-                        error = error.replace(failed_log.to_string_lossy().as_ref(), retained_log.to_string_lossy().as_ref());
+                        error = error.replace(
+                            failed_log.to_string_lossy().as_ref(),
+                            retained_log.to_string_lossy().as_ref(),
+                        );
                     }
                 }
                 if let Ok(mut guard) = state.0.lock() {
-                    if let Some(mut agent) = guard.remove(&id) { let _ = agent.child.kill(); let _ = agent.child.wait(); }
+                    if let Some(mut agent) = guard.remove(&id) {
+                        terminate_agent_process(&mut agent.child);
+                    }
                 }
                 let _ = fs::remove_dir_all(&project);
                 let _ = fs::remove_dir_all(&environment);
-                if backup.exists() { fs::rename(&backup, &project).map_err(|e| e.to_string())?; }
-                if env_backup.exists() { fs::rename(&env_backup, &environment).map_err(|e| e.to_string())?; }
+                if backup.exists() {
+                    fs::rename(&backup, &project).map_err(|e| e.to_string())?;
+                }
+                if env_backup.exists() {
+                    fs::rename(&env_backup, &environment).map_err(|e| e.to_string())?;
+                }
                 return Err(error);
             }
         };
         {
             let mut guard = state.0.lock().map_err(|e| e.to_string())?;
             if let Some(mut agent) = guard.remove(&id) {
-                let _ = agent.child.kill();
-                let _ = agent.child.wait();
+                terminate_agent_process(&mut agent.child);
             }
         }
+        let _links_guard = state.project_links_lock()?;
         let links_path = root.join("agent-project-links.json");
         let previous_links = fs::read(&links_path).ok();
         let save = (|| -> Result<InstalledAgent, String> {
-        let mut links: BTreeMap<String, PathBuf> = if links_path.exists() {
-            serde_json::from_slice(&fs::read(&links_path).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?
-        } else {
-            BTreeMap::new()
-        };
-        links.insert(id.clone(), project.clone());
-        fs::write(
-            &links_path,
-            serde_json::to_vec(&links).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        let record = InstalledAgent {
-            revision: Some(Sha256::digest(&bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>()),
-            id,
-            title: session.title,
-        };
-        installed.retain(|agent| agent.id != record.id);
-        installed.push(record.clone());
-        let path = root.join("installed-python-agents.json");
-        let temporary = path.with_extension("tmp");
-        fs::write(
-            &temporary,
-            serde_json::to_vec(&installed).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
-        fs::rename(temporary, path).map_err(|e| e.to_string())?;
-        Ok(record)
+            let mut links = read_project_links(&links_path)?;
+            links.insert(id.clone(), project.clone());
+            write_project_links(&links_path, &links)?;
+            let record = InstalledAgent {
+                revision: Some(
+                    Sha256::digest(&bytes)
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>(),
+                ),
+                id,
+                title: session.title,
+            };
+            installed.retain(|agent| agent.id != record.id);
+            installed.push(record.clone());
+            let path = root.join("installed-python-agents.json");
+            let temporary = path.with_extension("tmp");
+            fs::write(
+                &temporary,
+                serde_json::to_vec(&installed).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+            fs::rename(temporary, path).map_err(|e| e.to_string())?;
+            Ok(record)
         })();
         let record = match save {
             Ok(record) => record,
             Err(error) => {
-                if let Some(raw) = previous_links { let _ = fs::write(&links_path, raw); }
-                else { let _ = fs::remove_file(&links_path); }
+                if let Some(raw) = previous_links {
+                    let _ = replace_file_atomically(&links_path, &raw);
+                } else {
+                    let _ = fs::remove_file(&links_path);
+                }
                 let _ = fs::remove_dir_all(&project);
                 let _ = fs::remove_dir_all(&environment);
-                if backup.exists() { fs::rename(&backup, &project).map_err(|e| e.to_string())?; }
-                if env_backup.exists() { fs::rename(&env_backup, &environment).map_err(|e| e.to_string())?; }
+                if backup.exists() {
+                    fs::rename(&backup, &project).map_err(|e| e.to_string())?;
+                }
+                if env_backup.exists() {
+                    fs::rename(&env_backup, &environment).map_err(|e| e.to_string())?;
+                }
                 return Err(error);
             }
         };
@@ -769,38 +1286,57 @@ mod installation_tests {
 }
 
 #[tauri::command]
-pub async fn agent_ui_uninstall(app: tauri::AppHandle, id: String, runtime: tauri::State<'_, AgentUiRuntime>) -> Result<(), String> {
-    if !valid_id(&id) { return Err("Agent ID 无效".into()); }
+pub async fn agent_ui_uninstall(
+    app: tauri::AppHandle,
+    id: String,
+    runtime: tauri::State<'_, AgentUiRuntime>,
+) -> Result<(), String> {
+    if !valid_id(&id) {
+        return Err("Agent ID 无效".into());
+    }
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let state = runtime.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let operation = state.agent_lock(&id)?;
         let _operation = operation.lock().map_err(|e| e.to_string())?;
         let _install = INSTALL_LOCK.lock().map_err(|e| e.to_string())?;
-        let mut installed: Vec<InstalledAgent> = match fs::read(root.join("installed-python-agents.json")) {
-            Ok(raw) => serde_json::from_slice(&raw).map_err(|e| e.to_string())?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(error.to_string()),
-        };
-        let mut guard = state.0.lock().map_err(|e| e.to_string())?;
-        if let Some(mut agent) = guard.remove(&id) { let _ = agent.child.kill(); let _ = agent.child.wait(); }
-        // Delete only application-managed copies, never the author's source repository.
-        for directory in [root.join("agent-projects").join(&id), root.join("agent-environments").join(&id)] {
-            if directory.exists() { fs::remove_dir_all(directory).map_err(|e| e.to_string())?; }
+        let mut installed: Vec<InstalledAgent> =
+            match fs::read(root.join("installed-python-agents.json")) {
+                Ok(raw) => serde_json::from_slice(&raw).map_err(|e| e.to_string())?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+                Err(error) => return Err(error.to_string()),
+            };
+        let agent = state.0.lock().map_err(|e| e.to_string())?.remove(&id);
+        if let Some(mut agent) = agent {
+            terminate_agent_process(&mut agent.child);
         }
+        // Delete only application-managed copies, never the author's source repository.
+        for directory in [
+            root.join("agent-projects").join(&id),
+            root.join("agent-environments").join(&id),
+        ] {
+            if directory.exists() {
+                fs::remove_dir_all(directory).map_err(|e| e.to_string())?;
+            }
+        }
+        let _links_guard = state.project_links_lock()?;
         let links_path = root.join("agent-project-links.json");
         if links_path.exists() {
-            let mut links: BTreeMap<String, PathBuf> = serde_json::from_slice(&fs::read(&links_path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            let mut links = read_project_links(&links_path)?;
             links.remove(&id);
-            let temporary = links_path.with_extension("tmp");
-            fs::write(&temporary, serde_json::to_vec(&links).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-            fs::rename(temporary, links_path).map_err(|e| e.to_string())?;
+            write_project_links(&links_path, &links)?;
         }
         installed.retain(|agent| agent.id != id);
         let path = root.join("installed-python-agents.json");
         let temporary = path.with_extension("tmp");
-        fs::write(&temporary, serde_json::to_vec(&installed).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        fs::write(
+            &temporary,
+            serde_json::to_vec(&installed).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         fs::rename(temporary, path).map_err(|e| e.to_string())?;
         Ok(())
-    }).await.map_err(|e| e.to_string())?
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

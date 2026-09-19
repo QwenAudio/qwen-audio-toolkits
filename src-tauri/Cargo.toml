@@ -23,6 +23,7 @@ axum = "0.8"
 base64 = "0.22"
 futures-util = "0.3"
 hound = "3.5"
+libc = "0.2"
 deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet.git", tag = "v0.5.6", default-features = false, features = ["tract"] }
 ndarray = "0.15"
 nnnoiseless = { version = "0.5.2", default-features = false }
@@ -34,11 +35,12 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 sherpa-onnx = "1.13.4"
 log = "0.4"
+pdf-extract = "0.7.11"
 minisign-verify = "0.2.5"
 tauri = { version = "2.11.3", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-log = "2"
-tokio = { version = "1", features = ["net", "time"] }
+tokio = { version = "1", features = ["net", "time", "process", "io-util"] }
 tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
 uuid = { version = "1", features = ["v4"] }
 zip = { version = "2.2", default-features = false, features = ["deflate"] }

@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n"
 import { useEffect, useRef, useState } from 'react'
 
 interface SpectrogramProps {
@@ -271,7 +272,7 @@ function audioFingerprint(audioUrl: string): string {
 function decodeDataUrl(audioUrl: string): ArrayBuffer | null {
   if (!audioUrl.startsWith('data:')) return null
   const separator = audioUrl.indexOf(',')
-  if (separator < 0) throw new Error('音频 data URL 缺少内容')
+  if (separator < 0) throw new Error(t("音频 data URL 缺少内容"))
   const metadata = audioUrl.slice(0, separator)
   const payload = audioUrl.slice(separator + 1)
   if (!metadata.toLowerCase().includes(';base64')) {
@@ -290,7 +291,7 @@ async function readAudioBytes(audioUrl: string): Promise<ArrayBuffer> {
   if (inline) return inline
   const response = await fetch(audioUrl)
   if (!response.ok) {
-    throw new Error(`音频请求失败: ${response.status}`)
+    throw new Error(t("音频请求失败: {0}", [response.status]))
   }
   return response.arrayBuffer()
 }
@@ -303,6 +304,8 @@ export function Spectrogram({
   onSeek,
   onSelectionChange,
 }: SpectrogramProps) {
+  useLocale()
+
   const cacheKey = audioUrl
     ? `${CACHE_VERSION}:${sampleRate ?? 'decoded'}:${audioFingerprint(audioUrl)}`
     : ''
@@ -482,10 +485,10 @@ export function Spectrogram({
     return (
       <div className="spectrogram-state" role="status">
         {status === 'loading'
-          ? '正在分析 Mel 频谱…'
+          ? t("正在分析 Mel 频谱…")
           : status === 'error'
-            ? '无法读取该音频的 Mel 频谱'
-            : '导入真实音频后可查看 Mel 频谱'}
+            ? t("无法读取该音频的 Mel 频谱")
+            : t("导入真实音频后可查看 Mel 频谱")}
       </div>
     )
   }
@@ -495,7 +498,7 @@ export function Spectrogram({
       ref={canvasRef}
       className="spectrogram-canvas"
       role="slider"
-      aria-label="音频 Mel 频谱图"
+      aria-label={t("音频 Mel 频谱图")}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(progress * 100)}

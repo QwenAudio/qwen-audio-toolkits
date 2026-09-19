@@ -1,7 +1,23 @@
-import { installationStates, installationListeners, installationChanged } from './services/agentInstallState'
-import { installCatalogModel, setModelPluginSidebarVisible, uninstallPythonAgent } from './services/harness'
+import {
+  agentInstallRegistry,
+  type AgentInstallationState,
+} from './services/agentInstallState'
+import type { AgentServerCatalogActions } from './services/agentServerCatalogBridge'
+import {
+  buildPythonAgentSidebarGroups,
+  reconcilePythonAgentSelection,
+} from './services/agentSidebarState'
+import {
+  extensionWorkbenchPageLabels,
+  readExtensionWorkbenchEnabled,
+  resolveExtensionWorkbenchPage,
+  writeExtensionWorkbenchEnabled,
+  type ExtensionWorkbenchPage,
+} from './services/extensionWorkbenchState'
+import { refreshThenPersistCloudModelState } from './services/extensionModelStoreLifecycle'
+import { useWorkspaceCloseFlush, useWorkspaceReady } from './hooks/useProjectAutosave'
 import { PythonAgentWorkspace } from './views/PythonAgentWorkspace'
-import { listInstalledPythonAgents, type InstalledPythonAgent } from './services/harness'
+import type { ExtensionExecutionContext } from './views/ExtensionWorkbenchView'
 import {
   lazy,
   Suspense,
@@ -44,24 +60,33 @@ import {
 } from './components/ProviderSettings'
 import { initialPlugins, fallbackRuntime } from './data'
 import { cloudModelsFromCatalog, isRetiredCloudModelId } from './cloudModels'
+import { resolveRunnerAttribution } from './domain/executionAttribution'
 import { modelTaxonomy } from './domain/modelTaxonomy'
+import { setLocale, t, useLocale, type Locale } from './i18n'
 import {
   appDataDirectory,
   cleanupDownloadCache,
   executeHarnessTask,
   deleteHarnessRun,
+  getAgentServerStatus,
   getHarnessCatalog,
   getModelDependencyBindings,
+  installAgentUi,
+  installCatalogModel,
   installRecommendedModelDependency,
   isTauriRuntime,
   listApiModelCatalog,
   listHarnessRuns,
+  listInstalledAgentUi,
   listModelPlugins,
   refreshModelPlugins,
   replaceModelDependencyBindings,
   revealInFileManager,
   setCloseBehavior,
+  setModelDependencyBinding,
+  setModelPluginSidebarVisible,
   subscribeHarnessRuns,
+  uninstallAgentUi,
   uninstallModelPlugin,
 } from './services/harness'
 import {
@@ -98,6 +123,12 @@ import type {
 import type { WorkflowChatTurn } from './views/WorkflowChatView'
 import './App.css'
 
+const agentServerCatalogActions: AgentServerCatalogActions = {
+  installAgentUi,
+  uninstallAgentUi,
+  listInstalledAgentUi,
+}
+
 const ModelWorkspaceView = lazy(() =>
   import('./views/ModelWorkspaceView').then((module) => ({
     default: module.ModelWorkspaceView,
@@ -106,6 +137,16 @@ const ModelWorkspaceView = lazy(() =>
 const PluginsView = lazy(() =>
   import('./views/PluginsView').then((module) => ({
     default: module.PluginsView,
+  })),
+)
+const ExtensionWorkbenchView = lazy(() =>
+  import('./views/ExtensionWorkbenchView').then((module) => ({
+    default: module.ExtensionWorkbenchView,
+  })),
+)
+const ExtensionModelStoreView = lazy(() =>
+  import('./views/ExtensionModelStoreView').then((module) => ({
+    default: module.ExtensionModelStoreView,
   })),
 )
 const WorkflowChatView = lazy(() =>
@@ -120,6 +161,7 @@ const WorkflowsView = lazy(() =>
 )
 
 type AppView = 'workspace' | 'workflows'
+type AppRunnerMode = 'boss' | 'workbench'
 type ThemePreference = 'system' | 'light' | 'dark'
 type AppUpdateState = {
   status:
@@ -162,6 +204,10 @@ const DEFAULT_SIDEBAR_WIDTH = 260
 const MIN_SIDEBAR_WIDTH = 160
 const MAX_SIDEBAR_WIDTH = 520
 const MIN_WORKSPACE_WIDTH = 480
+const LOCALE_OPTIONS: ReadonlyArray<readonly [Locale, string]> = [
+  ['zh-CN', '简体中文'],
+  ['en', 'English'],
+]
 
 interface SidebarModelGroup {
   id: string
@@ -224,6 +270,15 @@ function getInitialAutoUpdate(): boolean {
     return window.localStorage.getItem(AUTO_UPDATE_STORAGE_KEY) !== 'off'
   } catch {
     return true
+  }
+}
+
+function getInitialExtensionWorkbenchEnabled(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return readExtensionWorkbenchEnabled(window.localStorage)
+  } catch {
+    return false
   }
 }
 
@@ -451,7 +506,11 @@ function summarizeRun(run: HarnessRun): HarnessRun {
   }
 }
 
-type ShellPage = 'workspace' | 'extensions' | 'settings'
+type ShellPage =
+  | 'workspace'
+  | 'extensions'
+  | 'extension-workbench'
+  | 'settings'
 type SettingsSection = 'general' | 'appearance' | 'storage' | 'accounts'
 
 type AccentColor = 'mint' | 'indigo' | 'amber' | 'rose'
@@ -489,37 +548,39 @@ const SETTINGS_SECTIONS: {
 ]
 
 function App() {
+  const locale = useLocale()
   const [view, setView] = useState<AppView>('workspace')
   const [shellPage, setShellPage] = useState<ShellPage>('workspace')
   const [agentCategory, setAgentCategory] = useState('all')
   const [expandedAgentCategory, setExpandedAgentCategory] = useState<string | null>(null)
   const [agentSecondary, setAgentSecondary] = useState('all')
-  const [pythonAgents, setPythonAgents] = useState<InstalledPythonAgent[]>([])
+  const [pythonAgents, setPythonAgents] = useState<readonly AgentInstallationState[]>(
+    () => agentInstallRegistry.snapshot(),
+  )
   useEffect(() => {
-    const update = () => setPythonAgents(current => {
-      const next = new Map(current.map(agent => [agent.id, agent]))
-      for (const item of installationStates.values()) {
-        if (item.kind === "host") continue
-        if (item.status === 'uninstalled') { next.delete(item.id); continue }
-        next.set(item.id, { ...next.get(item.id), id: item.id, title: next.get(item.id)?.title ?? item.id, status: item.status, error: item.error })
-      }
-      return [...next.values()]
-    })
-    installationListeners.add(update)
-    return () => { installationListeners.delete(update) }
+    const unsubscribe = agentInstallRegistry.subscribe(setPythonAgents)
+    setPythonAgents(agentInstallRegistry.snapshot())
+    if (isTauriRuntime()) {
+      void listInstalledAgentUi().then(setPythonAgents).catch(() => {
+        // Keep the trusted local snapshot while native rehydration is unavailable.
+      })
+    }
+    return unsubscribe
   }, [])
+  const visiblePythonAgents = useMemo(
+    () => pythonAgents.filter((agent) => agent.status !== 'uninstalled'),
+    [pythonAgents],
+  )
   const [selectedPythonAgent, setSelectedPythonAgent] = useState<string | null>(null)
+  const activePythonAgent = useMemo(
+    () => reconcilePythonAgentSelection(selectedPythonAgent, pythonAgents),
+    [pythonAgents, selectedPythonAgent],
+  )
   useEffect(() => {
-    if (isTauriRuntime()) void listInstalledPythonAgents().then(agents => setPythonAgents(() => {
-      const merged = new Map(agents.map(agent => [agent.id, agent]))
-      for (const item of installationStates.values()) {
-        if (item.kind === "host") continue
-        if (item.status === 'uninstalled') merged.delete(item.id)
-        else merged.set(item.id, { ...merged.get(item.id), id: item.id, title: merged.get(item.id)?.title ?? item.id, status: item.status, error: item.error })
-      }
-      return [...merged.values()]
-    })).catch(console.error)
-  }, [])
+    if (selectedPythonAgent !== activePythonAgent) {
+      setSelectedPythonAgent(activePythonAgent)
+    }
+  }, [activePythonAgent, selectedPythonAgent])
 
   const [plugins, setPlugins] = useState<ModelPlugin[]>(initialPlugins)
   const [pluginsLoaded, setPluginsLoaded] = useState(() => !isTauriRuntime())
@@ -582,6 +643,7 @@ function App() {
     string | null
   >(null)
   const extensionsTriggerRef = useRef<HTMLButtonElement>(null)
+  const extensionWorkbenchTriggerRef = useRef<HTMLButtonElement>(null)
   const extensionsReturnFocusRef = useRef<HTMLElement | null>(null)
   const settingsTriggerRef = useRef<HTMLButtonElement>(null)
   const [settingsSection, setSettingsSection] =
@@ -603,6 +665,18 @@ function App() {
   const [autoUpdateCheck, setAutoUpdateCheck] = useState<boolean>(
     getInitialAutoUpdate,
   )
+  const [extensionWorkbenchEnabled, setExtensionWorkbenchEnabled] =
+    useState(getInitialExtensionWorkbenchEnabled)
+  const [extensionWorkbenchPage, setExtensionWorkbenchPage] =
+    useState<ExtensionWorkbenchPage>(
+      () =>
+        resolveExtensionWorkbenchPage(
+          getInitialExtensionWorkbenchEnabled(),
+          null,
+        ) ?? 'models',
+    )
+  const workbenchWorkspaceReady = useWorkspaceReady(extensionWorkbenchEnabled)
+  useWorkspaceCloseFlush(extensionWorkbenchEnabled)
   const [dataDirectory, setDataDirectory] = useState<string | null>(null)
   const [cleaningCache, setCleaningCache] = useState(false)
   const [systemDark, setSystemDark] = useState(() =>
@@ -627,7 +701,9 @@ function App() {
       const trigger =
         leaving === 'settings'
           ? settingsTriggerRef.current
-          : extensionsTriggerRef.current
+          : leaving === 'extension-workbench'
+            ? extensionWorkbenchTriggerRef.current
+            : extensionsTriggerRef.current
       const target = returnTarget?.isConnected ? returnTarget : trigger
       target?.focus()
     })
@@ -723,6 +799,32 @@ function App() {
     }
   }
 
+  const selectExtensionWorkbenchEnabled = (enabled: boolean) => {
+    setExtensionWorkbenchEnabled(enabled)
+    const resolvedPage = resolveExtensionWorkbenchPage(
+      enabled,
+      extensionWorkbenchPage,
+    )
+    if (resolvedPage) setExtensionWorkbenchPage(resolvedPage)
+    try {
+      writeExtensionWorkbenchEnabled(window.localStorage, enabled)
+    } catch {
+      // Keep the preference for the current session when storage is unavailable.
+    }
+    if (!enabled && shellPage === 'extension-workbench') {
+      setShellPage('workspace')
+      setView('workspace')
+    }
+  }
+
+  const changeExtensionWorkbenchPage = (page: ExtensionWorkbenchPage) => {
+    const resolvedPage = resolveExtensionWorkbenchPage(
+      extensionWorkbenchEnabled,
+      page,
+    )
+    if (resolvedPage) setExtensionWorkbenchPage(resolvedPage)
+  }
+
   const revealDataDirectory = async () => {
     if (!dataDirectory) return
     try {
@@ -807,6 +909,43 @@ function App() {
     })
   }
 
+  const saveModelDependencyBinding = async (
+    pluginId: string,
+    role: string,
+    dependencyId: string,
+  ) => {
+    const next = await setModelDependencyBinding(pluginId, role, dependencyId)
+    setModelBindings(next)
+  }
+
+  const refreshModelStore = async (): Promise<void> => {
+    const [nextPlugins, nextCatalog] = await Promise.all([
+      listModelPlugins(),
+      getHarnessCatalog(),
+    ])
+    setPlugins(nextPlugins)
+    setCatalog(nextCatalog)
+  }
+  const installModelStoreModel = (
+    pluginId: string,
+    variantId?: string,
+  ) => installCatalogModel(pluginId, variantId)
+  const installModelStoreDependency = async (
+    dependencyId: string,
+  ): Promise<void> => {
+    await installRecommendedModelDependency(dependencyId)
+  }
+  const restoreModelStoreModel = async (pluginId: string): Promise<void> => {
+    await setModelPluginSidebarVisible(pluginId, true)
+  }
+  const uninstallModelStoreModel = async (pluginId: string) => {
+    const { plugins: nextPlugins, removal } = await uninstallModelPlugin(pluginId)
+    setPlugins(nextPlugins)
+    if (removal.deleted) removeModelBindings(pluginId)
+    setCatalog(await getHarnessCatalog())
+    return removal
+  }
+
   const setCloudModelInstalled = (modelId: string, installed: boolean) => {
     if (!installed) removeModelBindings(modelId)
     setInstalledCloudModelIds((current) => {
@@ -883,22 +1022,23 @@ function App() {
     ]
   }, [pinnedModelIds, orderedRunnablePlugins])
   const sidebarAgentGroups = useMemo(() => {
-    const definitions = [...plugins, ...cloudModelsFromCatalog(catalog, installedCloudModelIds, apiModelCatalog, customApiModels)]
-    const groups = sidebarModelGroups.map(group => ({
-      ...group,
-      models: group.models.filter(model => !pythonAgents.some(agent => agent.id === model.id)),
-      agents: [] as InstalledPythonAgent[],
-    }))
-    for (const agent of pythonAgents) {
-      const definition = definitions.find(model => model.id === agent.id)
-      const label = definition ? modelTaxonomy(definition).secondaryCategory : '其他'
-      let group = groups.find(item => item.id === label)
-      if (!group) { group = { id: label, label, models: [], agents: [] }; groups.push(group) }
-      group.agents.push({ ...agent, title: definition?.name ?? agent.title })
-    }
-    const rank = (id: string) => id === 'pinned' ? -1 : SIDEBAR_TAXONOMY_GROUP_ORDER.includes(id) ? SIDEBAR_TAXONOMY_GROUP_ORDER.indexOf(id) : SIDEBAR_TAXONOMY_GROUP_ORDER.length
-    return groups.filter(group => group.models.length + group.agents.length > 0).sort((a, b) => rank(a.id) - rank(b.id))
-  }, [sidebarModelGroups, pythonAgents, plugins, catalog, installedCloudModelIds, apiModelCatalog, customApiModels])
+    const definitions = [
+      ...plugins,
+      ...cloudModelsFromCatalog(
+        catalog,
+        installedCloudModelIds,
+        apiModelCatalog,
+        customApiModels,
+      ),
+    ]
+    return buildPythonAgentSidebarGroups({
+      modelGroups: sidebarModelGroups,
+      agents: visiblePythonAgents,
+      definitions,
+      groupOrder: SIDEBAR_TAXONOMY_GROUP_ORDER,
+      categoryForModel: (model) => modelTaxonomy(model).secondaryCategory,
+    })
+  }, [sidebarModelGroups, visiblePythonAgents, plugins, catalog, installedCloudModelIds, apiModelCatalog, customApiModels])
   const responsiveSidebarMaxWidth = Math.max(
     MIN_SIDEBAR_WIDTH,
     Math.min(
@@ -1431,6 +1571,22 @@ function App() {
     setSidebarOpen(false)
   }
   const openExtensions = () => openShellPage('extensions')
+  const openExtensionWorkbench = () => {
+    const resolvedPage = resolveExtensionWorkbenchPage(
+      extensionWorkbenchEnabled,
+      extensionWorkbenchPage,
+    )
+    if (!resolvedPage) return
+    setExtensionWorkbenchPage(resolvedPage)
+    openShellPage('extension-workbench')
+  }
+  const openExtensionModelStore = () => {
+    if (!extensionWorkbenchEnabled) return
+    setExtensionWorkbenchPage('models')
+    if (shellPage !== 'extension-workbench') {
+      openShellPage('extension-workbench')
+    }
+  }
   const openSettings = () => {
     setSettingsSection('all')
     openShellPage('settings')
@@ -1443,6 +1599,13 @@ function App() {
     }
     setSettingsSection('accounts')
     openShellPage('settings')
+  }
+
+  const notifyModelStoreProviderConfiguration = (providerId: string) => {
+    const providerName =
+      catalog?.providers.find((provider) => provider.id === providerId)?.name ??
+      providerId
+    notify(t('{0} 尚未配置；请完成账号配置后返回当前模型商店。', [providerName]))
   }
 
   const selectPlugin = (pluginId: string) => {
@@ -1554,13 +1717,22 @@ function App() {
     modelParameters: Record<string, unknown>,
     dependencyRunIds: string[] = [],
     conversationVisible = true,
+    runnerMode: AppRunnerMode = 'boss',
   ): Promise<
     HarnessExecution<TtsGenerateResult | TextGenerateResult | Record<string, unknown>>
   > => {
+    const attribution = resolveRunnerAttribution({
+      mode: runnerMode,
+      providerId,
+      modelId,
+      selectedPlugin,
+      plugins,
+    })
     const providerKey = selectedPlugin.providerId ?? ''
-    const history = capability === 'text.generate'
-      ? (textHistory[providerKey] ?? [])
-      : []
+    const history =
+      capability === 'text.generate' && attribution.readsBossTextHistory
+        ? (textHistory[providerKey] ?? [])
+        : []
     const systemPrompt = typeof modelParameters.systemPrompt === 'string'
       ? modelParameters.systemPrompt.trim()
       : ''
@@ -1570,7 +1742,7 @@ function App() {
     }[] =
       capability === 'text.generate'
         ? [
-            ...(systemPrompt
+            ...(attribution.includesSystemPrompt && systemPrompt
               ? [{ role: 'system' as const, content: systemPrompt }]
               : []),
             ...history,
@@ -1583,11 +1755,11 @@ function App() {
       {
         capability,
         providerId,
-        conversationProviderId: selectedPlugin.providerId,
+        conversationProviderId: attribution.conversationProviderId,
         conversationVisible,
         dependencyRunIds,
         routing: capability === 'text.generate' ? 'quality' : 'local',
-        title: `${selectedPlugin.name} · ${
+        title: `${attribution.titlePluginName} · ${
           capability === 'text.generate'
             ? '文本生成'
             : capability === 'text.punctuate'
@@ -1613,7 +1785,7 @@ function App() {
       },
     )
     recordRun(execution.run)
-    if (capability === 'text.generate') {
+    if (capability === 'text.generate' && attribution.appendsBossTextHistory) {
       const reply = (execution.output as TextGenerateResult).text
       if (typeof reply === 'string') {
         setTextHistory((current) => ({
@@ -1679,6 +1851,7 @@ function App() {
     conversationVisible = true,
     dependencyRunIds: string[] = [],
     comparisonClip?: AudioClip,
+    runnerMode: AppRunnerMode = 'boss',
   ): Promise<
     HarnessExecution<
       | AsrTranscriptionResult
@@ -1687,6 +1860,13 @@ function App() {
       | Record<string, unknown>
     >
   > => {
+    const attribution = resolveRunnerAttribution({
+      mode: runnerMode,
+      providerId,
+      modelId,
+      selectedPlugin,
+      plugins,
+    })
     const audioDataUrl =
       capability === 'speech.transcribe' || capability === 'speech.detect'
         ? clip.transcriptionAudioUrl
@@ -1709,7 +1889,7 @@ function App() {
       {
         capability,
         providerId,
-        conversationProviderId: selectedPlugin.providerId,
+        conversationProviderId: attribution.conversationProviderId,
         conversationVisible,
         dependencyRunIds,
         routing: 'local',
@@ -1766,11 +1946,61 @@ function App() {
     return execution
   }
 
+  const runWorkbenchText: ExtensionExecutionContext['runText'] = (
+    text,
+    capability,
+    providerId,
+    modelId,
+    modelParameters,
+    dependencyRunIds,
+    conversationVisible,
+  ) =>
+    runText(
+      text,
+      capability,
+      providerId,
+      modelId,
+      modelParameters,
+      dependencyRunIds,
+      conversationVisible,
+      'workbench',
+    )
+  const runWorkbenchAudio: ExtensionExecutionContext['runAudio'] = (
+    clip,
+    capability,
+    providerId,
+    modelId,
+    modelParameters,
+    conversationVisible,
+    dependencyRunIds,
+    comparisonClip,
+  ) =>
+    runAudio(
+      clip,
+      capability,
+      providerId,
+      modelId,
+      modelParameters,
+      conversationVisible,
+      dependencyRunIds,
+      comparisonClip,
+      'workbench',
+    )
+
+  const extensionExecutionContext: ExtensionExecutionContext = {
+    models: orderedRunnablePlugins,
+    catalog,
+    runText: runWorkbenchText,
+    runAudio: runWorkbenchAudio,
+    openModelStore: openExtensionModelStore,
+    notify,
+  }
+
   const renderPluginSidebarEntry = (plugin: ModelPlugin) => {
     const active =
       view === 'workspace' &&
       !workflowSelected &&
-      !selectedPythonAgent &&
+      !activePythonAgent &&
       selectedPlugin.id === plugin.id
     const apiPlugin = plugin.providerId?.startsWith('api.') === true
     const pinned = pinnedModelIds.includes(plugin.id)
@@ -1911,8 +2141,19 @@ function App() {
                 }
                 setPendingSidebarRemovalId(null)
                 if (apiPlugin) {
-                  setCloudModelInstalled(plugin.id, false)
-                  notify(`${plugin.name} 已从侧栏移除`)
+                  void refreshThenPersistCloudModelState({
+                    refreshModels: refreshModelStore,
+                    persistCloudState: () =>
+                      setCloudModelInstalled(plugin.id, false),
+                  })
+                    .then(() => notify(`${plugin.name} 已从侧栏移除`))
+                    .catch((error) =>
+                      notify(
+                        `移除失败：${
+                          error instanceof Error ? error.message : String(error)
+                        }`,
+                      ),
+                    )
                 } else {
                   void uninstallModelPlugin(plugin.id)
                     .then(({ plugins: next, removal }) => {
@@ -1952,6 +2193,26 @@ function App() {
         <div className="settings-card">
         <div className="settings-row">
           <span>
+            <strong>界面语言</strong>
+            <small>选择界面显示语言，立即生效</small>
+          </span>
+          <div className="settings-segmented" aria-label="界面语言">
+            {LOCALE_OPTIONS.map(([value, label]) => (
+              <button
+                className={locale === value ? 'active' : ''}
+                type="button"
+                key={value}
+                lang={value}
+                aria-pressed={locale === value}
+                onClick={() => setLocale(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="settings-row">
+          <span>
             <strong>关闭窗口时</strong>
             <small>隐藏到程序坞可以快速唤回，退出则完全关闭应用</small>
           </span>
@@ -1986,6 +2247,22 @@ function App() {
             aria-checked={autoUpdateCheck}
             aria-label="自动检查更新"
             onClick={() => selectAutoUpdateCheck(!autoUpdateCheck)}
+          />
+        </div>
+        <div className="settings-row">
+          <span>
+            <strong>{t('扩展工作台')}</strong>
+            <small>{t('启用后可从程序坞访问扩展工具')}</small>
+          </span>
+          <button
+            className="settings-switch"
+            type="button"
+            role="switch"
+            aria-checked={extensionWorkbenchEnabled}
+            aria-label={t('扩展工作台')}
+            onClick={() =>
+              selectExtensionWorkbenchEnabled(!extensionWorkbenchEnabled)
+            }
           />
         </div>
         </div>
@@ -2265,7 +2542,7 @@ function App() {
                   </div>
                 })}
               </nav>
-            ) : (
+            ) : shellPage === 'settings' ? (
               <nav
                 className="sidebar-page-nav-body settings-nav"
                 aria-label="设置分类"
@@ -2291,7 +2568,7 @@ function App() {
                   </button>
                 ))}
               </nav>
-            )}
+            ) : null}
           </div>
         )}
 
@@ -2319,15 +2596,13 @@ function App() {
                 {!collapsed && (
                   <div className="sidebar-model-group-items">
                     {models.map(renderPluginSidebarEntry)}
-                    {group.agents.map(agent => <div key={agent.id} className="installed-model-entry python-agent-entry">
-                      <button className={`installed-model-button${selectedPythonAgent === agent.id ? ' active' : ''}`} title={agent.error ?? agent.title} disabled={agent.status === 'installing' || agent.status === 'updating' || agent.status === 'uninstalling'} aria-current={selectedPythonAgent === agent.id ? 'page' : undefined} onClick={() => { if (agent.status === 'failed') { openExtensions(); return }; setSelectedPythonAgent(agent.id); setView('workspace'); setWorkflowSelected(false) }}><span className="activity-model-name"><span className="activity-model-name-text">{agent.title}</span></span></button>
-                      <span className="python-agent-action">{agent.status === 'installing' ? <span className="python-agent-progress" title="安装中"><LoaderCircle size={14} className="model-spin" /><span className="agent-install-label">安装中</span></span> : agent.status === 'failed' ? <span className="agent-install-label" title={agent.error}>安装失败</span> : <button className="installed-model-pin" aria-label={`卸载 ${agent.title}`} title="卸载" disabled={agent.status === 'uninstalling'} onClick={() => {
-                        installationChanged(agent.id, 'uninstalling')
-                        void uninstallPythonAgent(agent.id).then(() => {
-                          installationChanged(agent.id, 'uninstalled')
-                          if (selectedPythonAgent === agent.id) setSelectedPythonAgent(null)
+                    {group.agents.map(agent => <div key={agent.uiId} className="installed-model-entry python-agent-entry">
+                      <button className={`installed-model-button${activePythonAgent === agent.uiId ? ' active' : ''}`} title={agent.error ?? agent.title} disabled={agent.status === 'installing' || agent.status === 'uninstalling'} aria-current={activePythonAgent === agent.uiId ? 'page' : undefined} onClick={() => { if (agent.status === 'error') { openExtensions(); return }; setSelectedPythonAgent(agent.uiId); setView('workspace'); setWorkflowSelected(false) }}><span className="activity-model-name"><span className="activity-model-name-text">{agent.title}</span></span></button>
+                      <span className="python-agent-action">{agent.status === 'installing' ? <span className="python-agent-progress" title="安装中"><LoaderCircle size={14} className="model-spin" /><span className="agent-install-label">安装中</span></span> : agent.status === 'error' ? <span className="agent-install-label" title={agent.error}>安装失败</span> : <button className="installed-model-pin" aria-label={`卸载 ${agent.title}`} title="卸载" disabled={agent.status === 'uninstalling'} onClick={() => {
+                        void uninstallAgentUi(agent.uiId).then(() => {
+                          if (selectedPythonAgent === agent.uiId) setSelectedPythonAgent(null)
                           notify(`${agent.title} 已卸载`)
-                        }).catch(error => { installationChanged(agent.id, 'installed'); notify(`卸载失败：${String(error)}`) })
+                        }).catch(error => notify(`卸载失败：${String(error)}`))
                       }}>{agent.status === 'uninstalling' ? <LoaderCircle size={14} className="model-spin" /> : <Trash2 size={14} />}</button>}</span>
                     </div>)}
                   </div>
@@ -2352,6 +2627,25 @@ function App() {
           >
             <ShoppingBag size={18} />
           </button>
+          {extensionWorkbenchEnabled && (
+            <button
+              ref={extensionWorkbenchTriggerRef}
+              className={`sidebar-dock-button${
+                shellPage === 'extension-workbench' ? ' active' : ''
+              }`}
+              type="button"
+              aria-label={t('扩展工作台')}
+              aria-pressed={shellPage === 'extension-workbench'}
+              data-tooltip={t('扩展工作台')}
+              onClick={
+                shellPage === 'extension-workbench'
+                  ? leaveShellPage
+                  : openExtensionWorkbench
+              }
+            >
+              <Settings2 size={18} />
+            </button>
+          )}
           <button
             ref={settingsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'settings' ? ' active' : ''}`}
@@ -2480,14 +2774,16 @@ function App() {
             <span>
               {shellPage === 'extensions'
                 ? 'Agents'
-                : shellPage === 'settings'
-                  ? `设置 · ${activeSettingsSection.label}`
-                  : view === 'workspace'
+                : shellPage === 'extension-workbench'
+                  ? t(extensionWorkbenchPageLabels[extensionWorkbenchPage])
+                  : shellPage === 'settings'
+                    ? `设置 · ${activeSettingsSection.label}`
+                    : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
                   ? workflows.find(
                       (workflow) => workflow.id === selectedWorkflowId,
                     )?.name ?? '虚拟模型'
-                  : pythonAgents.find(agent => agent.id === selectedPythonAgent)?.title ?? selectedPlugin.name
+                  : pythonAgents.find(agent => agent.uiId === activePythonAgent)?.title ?? selectedPlugin.name
                 : '流程编排'}
             </span>
           </div>
@@ -2510,36 +2806,49 @@ function App() {
             }
           >
           {shellPage === 'extensions' && (
-            <PluginsView installedAgents={pythonAgents} onUninstalled={id => {
-              setPythonAgents(current => current.filter(agent => agent.id !== id))
-              if (selectedPythonAgent === id) setSelectedPythonAgent(null)
-            }} onUninstallHost={async id => {
-              if (plugins.some(p => p.id === id)) {
-                await uninstallModelPlugin(id)
-                setPlugins(await listModelPlugins())
-              } else setCloudModelInstalled(id, false)
-              setCatalog(await getHarnessCatalog())
-            }} hostInstalledIds={[...plugins.filter(p => p.installed && p.sidebarVisible !== false).map(p => p.id), ...installedCloudModelIds]} onInstallHost={async id => {
-              const local = plugins.find(p => p.id === id)
-              const cloud = cloudModelsFromCatalog(catalog, installedCloudModelIds, apiModelCatalog, customApiModels).find(p => p.id === id)
-              const agent = local ?? cloud
-              if (!agent) throw new Error('当前 Toolkits 不支持此 Agent')
-              if (local && !local.installed) await installCatalogModel(id)
-              for (const dependency of recommendedDependencies(agent)) {
-                await installRecommendedModelDependency(dependency.pluginId)
-              }
-              if (local) setPlugins(await setModelPluginSidebarVisible(id, true))
-              else setCloudModelInstalled(id, true)
-              setCatalog(await getHarnessCatalog())
-            }} category={agentCategory} secondary={agentSecondary} onBack={leaveShellPage} installedIds={pythonAgents.filter(agent => !agent.status || agent.status === "installed").map(agent => agent.id)} onInstalled={agent => {
-              setPythonAgents(current => [...current.filter(item => item.id !== agent.id), agent])
-              // A migrated project replaces the old sidebar entry while retaining its cached weights.
-              const legacy = plugins.find(plugin => plugin.id === agent.id)
-              if (legacy?.installed && legacy.sidebarVisible !== false) {
-                void setModelPluginSidebarVisible(agent.id, false).then(setPlugins).catch(error => notify(String(error)))
-              }
-              if (installedCloudModelIds.includes(agent.id)) setCloudModelInstalled(agent.id, false)
-            }} />
+            <PluginsView
+              agentRegistry={agentInstallRegistry}
+              installationState={pythonAgents}
+              getAgentServerStatus={getAgentServerStatus}
+              catalogActions={agentServerCatalogActions}
+              category={agentCategory}
+              secondary={agentSecondary}
+            />
+          )}
+          {extensionWorkbenchEnabled && shellPage === 'extension-workbench' && !workbenchWorkspaceReady && (
+            <div className="app-view-loading" role="status" aria-label={t('正在加载')}>
+              <LoaderCircle className="model-spin" size={19} />
+            </div>
+          )}
+          {extensionWorkbenchEnabled && shellPage === 'extension-workbench' && workbenchWorkspaceReady && (
+            <ExtensionWorkbenchView
+              page={extensionWorkbenchPage}
+              context={extensionExecutionContext}
+              onPageChange={changeExtensionWorkbenchPage}
+              onClose={leaveShellPage}
+            >
+              {extensionWorkbenchPage === 'models' ? (
+                <ExtensionModelStoreView
+                  catalogKind="models"
+                  plugins={plugins}
+                  modelBindings={modelBindings}
+                  runtime={runtime}
+                  catalog={catalog}
+                  apiModelCatalog={apiModelCatalog}
+                  customApiModels={customApiModels}
+                  installedCloudModelIds={installedCloudModelIds}
+                  onConfigureProvider={notifyModelStoreProviderConfiguration}
+                  onRefreshModels={refreshModelStore}
+                  onInstallModel={installModelStoreModel}
+                  onInstallModelDependency={installModelStoreDependency}
+                  onRestoreModel={restoreModelStoreModel}
+                  onUninstallModel={uninstallModelStoreModel}
+                  onSetModelBinding={saveModelDependencyBinding}
+                  onCloudModelInstalled={setCloudModelInstalled}
+                  onAction={notify}
+                />
+              ) : null}
+            </ExtensionWorkbenchView>
           )}
           {shellPage === 'settings' && (
             <section
@@ -2560,7 +2869,7 @@ function App() {
             </section>
           )}
           {shellPage === 'workspace' && view === 'workspace' && (
-            selectedPythonAgent ? <PythonAgentWorkspace key={selectedPythonAgent} id={selectedPythonAgent} title={pythonAgents.find(agent => agent.id === selectedPythonAgent)?.title ?? selectedPythonAgent} onConfigureAccount={() => openProviderSettings("api.bailian")} /> : WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
+            activePythonAgent ? <PythonAgentWorkspace key={activePythonAgent} id={activePythonAgent} title={pythonAgents.find(agent => agent.uiId === activePythonAgent)?.title ?? activePythonAgent} onConfigureAccount={() => openProviderSettings("api.bailian")} /> : WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
               <WorkflowChatView
                 workflowId={selectedWorkflowId}
                 turns={workflowTurns[selectedWorkflowId] ?? []}

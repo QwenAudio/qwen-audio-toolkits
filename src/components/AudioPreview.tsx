@@ -1,3 +1,4 @@
+import { t, useLocale } from "../i18n"
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pause, Play, Volume2 } from 'lucide-react'
 import WaveSurfer from 'wavesurfer.js'
@@ -86,6 +87,8 @@ export function AudioPreview({
   playRange,
   onTimeChange,
 }: AudioPreviewProps) {
+  useLocale()
+
   const waveformRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<HTMLDivElement>(null)
   const waveSurferRef = useRef<WaveSurfer | null>(null)
@@ -303,8 +306,8 @@ export function AudioPreview({
       <div className="audio-preview-controls">
         <button
           type="button"
-          title={playing ? '暂停' : '播放'}
-          aria-label={playing ? '暂停' : '播放'}
+          title={playing ? t("暂停") : t("播放")}
+          aria-label={playing ? t("暂停") : t("播放")}
           disabled={!ready}
           onClick={() => void waveSurferRef.current?.playPause()}
         >

@@ -1,110 +1,171 @@
 import { useEffect, useRef, useState } from 'react'
-import { getAgentServerStatus, isTauriRuntime, installPythonAgent, uninstallPythonAgent, type InstalledPythonAgent } from '../services/harness'
+import { isTauriRuntime } from '../services/harness'
+import type {
+  AgentInstallRegistry,
+  AgentInstallationState,
+} from '../services/agentInstallState'
+import {
+  createAgentServerCatalogBridge,
+  resolveAgentServerCatalogConnection,
+  type AgentServerCatalogActions,
+  type AgentServerCatalogBridge,
+  type AgentServerCatalogStatus,
+} from '../services/agentServerCatalogBridge'
 
-import { installationStates, installationListeners, installationChanged } from '../services/agentInstallState'
+interface PluginsViewProps {
+  agentRegistry: AgentInstallRegistry
+  installationState: readonly AgentInstallationState[]
+  getAgentServerStatus(): Promise<AgentServerCatalogStatus>
+  catalogActions: AgentServerCatalogActions
+  category: string
+  secondary: string
+}
 
-export function PluginsView({ category, secondary, installedAgents, installedIds, hostInstalledIds, onInstallHost, onUninstallHost, onInstalled, onUninstalled }: { installedAgents: InstalledPythonAgent[]; onUninstalled: (id: string) => void; onUninstallHost: (id: string) => Promise<void>; hostInstalledIds: string[]; onInstallHost: (id: string) => Promise<void>; category: string; secondary: string; onBack: () => void; installedIds: string[]; onInstalled: (agent: InstalledPythonAgent) => void }) {
+function isReadyMessage(data: unknown): boolean {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return false
+  const message = data as Record<string, unknown>
+  return Object.keys(message).length === 1 && message.type === 'agent-server:ready'
+}
+
+export function PluginsView({
+  agentRegistry,
+  installationState,
+  getAgentServerStatus,
+  catalogActions,
+  category,
+  secondary,
+}: PluginsViewProps) {
   const frame = useRef<HTMLIFrameElement>(null)
-  const actualPythonAgents = useRef(installedAgents)
-  useEffect(() => { actualPythonAgents.current = installedAgents }, [installedAgents])
-  const removeCallback = useRef(onUninstalled)
-  const hostRemove = useRef(onUninstallHost)
-  useEffect(() => { removeCallback.current = onUninstalled; hostRemove.current = onUninstallHost }, [onUninstalled, onUninstallHost])
-  const hostCallback = useRef(onInstallHost)
-  useEffect(() => { hostCallback.current = onInstallHost }, [onInstallHost])
-  const installedCallback = useRef(onInstalled)
-  useEffect(() => { installedCallback.current = onInstalled }, [onInstalled])
+  const bridge = useRef<AgentServerCatalogBridge | null>(null)
+  const catalogLoadTimeout = useRef<number | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [url, setUrl] = useState('')
+  const [origin, setOrigin] = useState('')
   const [ready, setReady] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
     let canceled = false
-    setUrl(''); setReady(false); setError('')
+    setUrl('')
+    setOrigin('')
+    setReady(false)
+    setError('')
     const connect = async () => {
       try {
         const status = isTauriRuntime()
           ? await getAgentServerStatus()
-          : { url: import.meta.env.VITE_AGENT_SERVER_URL || 'http://127.0.0.1:8787/', available: true, error: null }
-        const target = new URL(status.url)
-        if (!(target.protocol === 'https:' || (target.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)))) {
-          throw new Error('Agent Server 地址需要 HTTPS 或本机 HTTP')
-        }
+          : {
+              url: import.meta.env.VITE_AGENT_SERVER_URL || 'http://127.0.0.1:8787/',
+              available: true,
+              error: null,
+            }
+        const connection = resolveAgentServerCatalogConnection(status)
+        if (!connection.ok) throw new Error(connection.error)
         if (canceled) return
-        if (!status.available) { setError(status.error || '无法连接 Agent Server'); return }
-        target.searchParams.set('embedded', '1'); setUrl(target.href)
-      } catch (e) { if (!canceled) setError(String(e)) }
+        setUrl(connection.iframeUrl)
+        setOrigin(connection.origin)
+      } catch (connectError) {
+        if (!canceled) setError(String(connectError))
+      }
     }
     void connect()
-    return () => { canceled = true }
+    return () => {
+      canceled = true
+    }
   }, [attempt])
 
   useEffect(() => {
-    if (!url) return
-    const update = () => frame.current?.contentWindow?.postMessage({ type: 'agent-client:installations', items: [...installationStates.values()] }, new URL(url).origin)
-    installationListeners.add(update)
-    update()
-    return () => { installationListeners.delete(update) }
-  }, [url])
-
-  useEffect(() => {
-    if (!url) return
-    const origin = new URL(url).origin
-    // Only the configured website can request a known Agent ID; it never supplies commands or paths.
-    const receive = (event: MessageEvent) => {
-      if (event.origin !== origin || event.source !== frame.current?.contentWindow) return
-      if (['agent-server:install', 'agent-server:update', 'agent-server:uninstall'].includes(event.data?.type) && isTauriRuntime() && typeof event.data.id === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9.-]{0,99}$/.test(event.data.id) && !["installing", "updating", "uninstalling"].includes(installationStates.get(event.data.id)?.status ?? "")) {
-        const id = event.data.id
-        const kind = event.data.type === 'agent-server:uninstall'
-          ? (actualPythonAgents.current.some(agent => agent.id === id) ? undefined : 'host')
-          : event.data.kind === 'host' ? 'host' : undefined
-        if (event.data.type === 'agent-server:uninstall') {
-          installationChanged(id, 'uninstalling', undefined, kind)
-          void (kind === 'host' ? hostRemove.current(id) : uninstallPythonAgent(id)).then(() => {
-            removeCallback.current(id)
-            installationChanged(id, 'uninstalled', undefined, kind)
-          }).catch(e => installationChanged(id, 'remove-failed', String(e), kind))
-          return
-        }
-        const update = event.data.type === 'agent-server:update'
-        installationChanged(id, update ? 'updating' : 'installing', undefined, kind)
-        if (kind === 'host') {
-          void hostCallback.current(id).then(() => installationChanged(id, 'installed', undefined, kind)).catch(e => installationChanged(id, 'failed', String(e), kind))
-          return
-        }
-        void installPythonAgent(id, update).then(value => {
-          installedCallback.current(value)
-          installationChanged(id, 'installed')
-        }).catch(e => installationChanged(id, update ? 'update-failed' : 'failed', String(e)))
-      }
-      if (event.data?.type === 'agent-server:ready') {
-        clearTimeout(timeout); setReady(true); setError('')
-        frame.current?.contentWindow?.postMessage({ type: 'agent-client:installations', items: [...installationStates.values()] }, origin)
+    if (!url || !origin || !frame.current) return undefined
+    const currentFrame = frame.current
+    const clearCatalogLoadTimeout = () => {
+      if (catalogLoadTimeout.current !== null) {
+        window.clearTimeout(catalogLoadTimeout.current)
+        catalogLoadTimeout.current = null
       }
     }
-    const timeout = window.setTimeout(() => setError('项目网页未能加载，请检查服务连接后重试。'), 12000)
-    window.addEventListener('message', receive)
-    return () => { clearTimeout(timeout); window.removeEventListener('message', receive) }
-  }, [url])
+    const catalogBridge = createAgentServerCatalogBridge({
+      registry: agentRegistry,
+      actions: catalogActions,
+      confirmMutation: async (mutation, uiId) => {
+        const agent = agentRegistry.resolve(uiId)
+        const action = mutation.type === 'agent-server:install'
+          ? '安装'
+          : mutation.type === 'agent-server:update'
+            ? '更新'
+            : '卸载'
+        return window.confirm(`允许 Agent 目录${action}“${agent.title}”？`)
+      },
+      eventTarget: window,
+      frame: currentFrame,
+      expectedOrigin: origin,
+    })
+    bridge.current = catalogBridge
+    const detach = catalogBridge.attach()
+    const unsubscribe = agentRegistry.subscribe(() => {
+      catalogBridge.sendInstallations()
+    })
+    const receiveReady = (event: MessageEvent) => {
+      if (
+        event.source === currentFrame.contentWindow &&
+        event.origin === origin &&
+        isReadyMessage(event.data)
+      ) {
+        clearCatalogLoadTimeout()
+        setReady(true)
+        setError('')
+      }
+    }
+    catalogLoadTimeout.current = window.setTimeout(() => {
+      catalogLoadTimeout.current = null
+      setError('项目网页未能加载，请检查服务连接后重试。')
+    }, 12_000)
+    window.addEventListener('message', receiveReady)
+    return () => {
+      clearCatalogLoadTimeout()
+      window.removeEventListener('message', receiveReady)
+      unsubscribe()
+      detach()
+      if (bridge.current === catalogBridge) bridge.current = null
+    }
+  }, [agentRegistry, catalogActions, origin, url])
 
   useEffect(() => {
-    if (url && ready) frame.current?.contentWindow?.postMessage({ type: 'agent-client:category', category, secondary }, new URL(url).origin)
-  }, [category, secondary, url, ready])
+    bridge.current?.sendInstallations()
+  }, [installationState])
 
   useEffect(() => {
-    if (url && ready) frame.current?.contentWindow?.postMessage({ type: 'agent-client:installed', installedAgents, installedIds: [...installedIds, ...hostInstalledIds] }, new URL(url).origin)
-  }, [url, ready, installedAgents, installedIds, hostInstalledIds])
+    if (url && ready) {
+      frame.current?.contentWindow?.postMessage(
+        { type: 'agent-client:category', category, secondary },
+        origin,
+      )
+    }
+  }, [category, secondary, origin, ready, url])
 
   return <section className="agent-browser" aria-label="Agents 网页">
     <div className="agent-browser-content">
-      {url && <iframe key={`${attempt}:${url}`} ref={frame} src={url} title="Agent Server 项目浏览器"
-        onLoad={() => frame.current?.contentWindow?.postMessage({ type: 'agent-client:hello', canInstall: isTauriRuntime(), installedAgents, installedIds: [...installedIds, ...hostInstalledIds] }, new URL(url).origin)}
+      {url && <iframe
+        key={`${attempt}:${url}`}
+        ref={frame}
+        src={url}
+        title="Agent Server 项目浏览器"
+        onLoad={() => bridge.current?.sendHello()}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-        referrerPolicy="no-referrer" />}
+        referrerPolicy="no-referrer"
+      />}
       {(!ready || error) && <div className="agent-browser-status" role="status">
         <strong>{error ? '无法打开 Agents 页面' : '正在连接 Agent Server…'}</strong>
-        {error && <><p>{error}</p><p>请确认 Agent Server 已启动。</p><button type="button" className="secondary-action" onClick={() => setAttempt(value => value + 1)}>重新连接</button></>}
+        {error && <>
+          <p>{error}</p>
+          <p>请确认 Agent Server 已启动。</p>
+          <button
+            type="button"
+            className="secondary-action"
+            onClick={() => setAttempt(value => value + 1)}
+          >
+            重新连接
+          </button>
+        </>}
       </div>}
     </div>
   </section>
