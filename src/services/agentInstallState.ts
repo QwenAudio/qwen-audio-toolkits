@@ -1,7 +1,9 @@
 export interface PythonAgentDescriptor {
-  uiId: string
-  serverId: string
+  id: string
   title: string
+  description?: string
+  version?: string
+  category?: string
 }
 
 export interface AgentUiSession {
@@ -36,7 +38,7 @@ export type AgentInstallationListener = (
 const ID_PATTERN = /^(?!\.)(?!.*\.\.)[A-Za-z0-9.-]{1,100}$/
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
-function assertId(id: string, label: string): void {
+function assertId(id: string, label = 'Agent ID'): void {
   if (typeof id !== 'string' || !ID_PATTERN.test(id)) {
     throw new Error(`${label} is invalid`)
   }
@@ -46,11 +48,7 @@ function assertDescriptor(descriptor: PythonAgentDescriptor): void {
   if (!descriptor || typeof descriptor !== 'object') {
     throw new Error('Agent descriptor is required')
   }
-  assertId(descriptor.uiId, 'Agent UI ID')
-  assertId(descriptor.serverId, 'Agent server ID')
-  if (descriptor.uiId === descriptor.serverId) {
-    throw new Error('Agent UI ID and server ID must be distinct')
-  }
+  assertId(descriptor.id)
   if (typeof descriptor.title !== 'string' || !descriptor.title.trim()) {
     throw new Error('Agent title is required')
   }
@@ -78,6 +76,11 @@ function sameState(
   right: AgentInstallationState,
 ): boolean {
   return (
+    left.id === right.id &&
+    left.title === right.title &&
+    left.description === right.description &&
+    left.version === right.version &&
+    left.category === right.category &&
     left.status === right.status &&
     left.revision === right.revision &&
     left.error === right.error
@@ -85,103 +88,124 @@ function sameState(
 }
 
 export interface AgentInstallRegistry {
-  register(descriptor: PythonAgentDescriptor): void
-  resolve(uiId: string): Readonly<PythonAgentDescriptor>
-  uiIdForServerId(serverId: string): string | undefined
+  replaceCatalog(descriptors: readonly PythonAgentDescriptor[]): void
+  resolve(id: string): Readonly<PythonAgentDescriptor>
   snapshot(): readonly AgentInstallationState[]
   subscribe(listener: AgentInstallationListener): () => void
   transition(
-    uiId: string,
+    id: string,
     status: AgentInstallationStatus,
     details?: Pick<AgentInstallationState, 'revision' | 'error'>,
   ): void
   rehydrate(loader: NativeInstalledAgentLoader): Promise<readonly AgentInstallationState[]>
-  bindSession(uiId: string, session: AgentUiSession): void
-  clearSession(uiId: string): void
-  assertSessionUrl(uiId: string, url: string): Readonly<PythonAgentDescriptor>
+  bindSession(id: string, session: AgentUiSession): void
+  clearSession(id: string): void
+  assertSessionUrl(id: string, url: string): Readonly<PythonAgentDescriptor>
   assertSession(
-    uiId: string,
+    id: string,
     session: AgentUiSession,
   ): Readonly<PythonAgentDescriptor>
 }
 
-/** Holds trusted local descriptors; remote catalog data never becomes identity. */
+/** Stores catalog entries delivered by the native ModelScope client, never by remote page code. */
 export function createAgentInstallRegistry(
-  descriptors: readonly PythonAgentDescriptor[] = [],
+  initialDescriptors: readonly PythonAgentDescriptor[] = [],
 ): AgentInstallRegistry {
-  const descriptorsByUiId = new Map<string, PythonAgentDescriptor>()
-  const uiIdByServerId = new Map<string, string>()
+  const descriptors = new Map<string, PythonAgentDescriptor>()
   const states = new Map<string, AgentInstallationState>()
   const sessions = new Map<string, AgentUiSession>()
   const listeners = new Set<AgentInstallationListener>()
 
   const snapshot = (): readonly AgentInstallationState[] =>
-    [...descriptorsByUiId.keys()].map((uiId) => ({ ...states.get(uiId)! }))
+    [...states.values()]
+      .map((state) => ({ ...state }))
+      .sort((left, right) => left.title.localeCompare(right.title))
 
   const notify = () => {
     const next = snapshot()
     for (const listener of listeners) listener(next)
   }
 
-  const resolve = (uiId: string): Readonly<PythonAgentDescriptor> => {
-    if (typeof uiId !== 'string') throw new Error('Agent UI ID is invalid')
-    const descriptor = descriptorsByUiId.get(uiId)
-    if (!descriptor) throw new Error(`Unknown Agent UI ID: ${uiId}`)
+  const replaceCatalog = (nextDescriptors: readonly PythonAgentDescriptor[]) => {
+    const next = new Map<string, PythonAgentDescriptor>()
+    for (const candidate of nextDescriptors) {
+      assertDescriptor(candidate)
+      if (next.has(candidate.id)) throw new Error(`Duplicate Agent ID: ${candidate.id}`)
+      next.set(candidate.id, {
+        ...candidate,
+        title: candidate.title.trim(),
+        description: candidate.description?.trim(),
+        version: candidate.version?.trim(),
+        category: candidate.category?.trim(),
+      })
+    }
+    let changed = false
+    for (const [id, descriptor] of next) {
+      const current = states.get(id)
+      const replacement: AgentInstallationState = current
+        ? {
+            ...descriptor,
+            status: current.status,
+            ...(current.revision ? { revision: current.revision } : {}),
+            ...(current.error ? { error: current.error } : {}),
+          }
+        : stateFor(descriptor)
+      if (!current || !sameState(current, replacement)) {
+        states.set(id, replacement)
+        changed = true
+      }
+    }
+    for (const [id, state] of states) {
+      if (!next.has(id) && state.status === 'uninstalled') {
+        states.delete(id)
+        sessions.delete(id)
+        changed = true
+      }
+    }
+    descriptors.clear()
+    for (const [id, descriptor] of next) descriptors.set(id, descriptor)
+    if (changed) notify()
+  }
+
+  const resolve = (id: string): Readonly<PythonAgentDescriptor> => {
+    if (typeof id !== 'string') throw new Error('Agent ID is invalid')
+    const descriptor = descriptors.get(id)
+    if (!descriptor) throw new Error(`Unknown Agent ID: ${id}`)
     return descriptor
   }
 
-  const register = (descriptor: PythonAgentDescriptor): void => {
-    assertDescriptor(descriptor)
-    if (descriptorsByUiId.has(descriptor.uiId)) {
-      throw new Error(`Duplicate Agent UI ID: ${descriptor.uiId}`)
-    }
-    if (uiIdByServerId.has(descriptor.serverId)) {
-      throw new Error(`Duplicate Agent server ID: ${descriptor.serverId}`)
-    }
-    const trusted = { ...descriptor, title: descriptor.title.trim() }
-    descriptorsByUiId.set(trusted.uiId, trusted)
-    uiIdByServerId.set(trusted.serverId, trusted.uiId)
-    states.set(trusted.uiId, stateFor(trusted))
-  }
-
   const transition = (
-    uiId: string,
+    id: string,
     status: AgentInstallationStatus,
     details: Pick<AgentInstallationState, 'revision' | 'error'> = {},
   ): void => {
-    const descriptor = resolve(uiId)
-    const current = states.get(descriptor.uiId)!
+    const descriptor = resolve(id)
+    const current = states.get(descriptor.id) ?? stateFor(descriptor)
     const next: AgentInstallationState = {
       ...descriptor,
       status,
       ...(status === 'installed' && details.revision
         ? { revision: details.revision }
-        : {}),
+        : status === 'installed' && current.revision
+          ? { revision: current.revision }
+          : {}),
       ...(status === 'error' && details.error ? { error: details.error } : {}),
     }
     if (sameState(current, next)) return
-    states.set(descriptor.uiId, next)
-    if (status === 'uninstalled') sessions.delete(descriptor.uiId)
+    states.set(descriptor.id, next)
+    if (status === 'uninstalled') sessions.delete(descriptor.id)
     notify()
   }
 
-  const bindSession = (uiId: string, session: AgentUiSession): void => {
-    const descriptor = resolve(uiId)
-    if (!session || typeof session.title !== 'string') {
-      throw new Error('Agent UI session is invalid')
-    }
-    trustedOrigin(session.url)
-    sessions.set(descriptor.uiId, { ...session })
+  for (const descriptor of initialDescriptors) {
+    assertDescriptor(descriptor)
+    descriptors.set(descriptor.id, { ...descriptor, title: descriptor.title.trim() })
+    states.set(descriptor.id, stateFor(descriptor))
   }
 
-  for (const descriptor of descriptors) register(descriptor)
-
   return {
-    register,
+    replaceCatalog,
     resolve,
-    uiIdForServerId(serverId) {
-      return uiIdByServerId.get(serverId)
-    },
     snapshot,
     subscribe(listener) {
       listeners.add(listener)
@@ -190,55 +214,61 @@ export function createAgentInstallRegistry(
     transition,
     async rehydrate(loader) {
       const installed = await loader()
-      const nativeByServerId = new Map<string, NativeInstalledAgent>()
+      const nativeById = new Map<string, NativeInstalledAgent>()
       for (const native of installed) {
-        if (!native || typeof native.id !== 'string') continue
-        const uiId = uiIdByServerId.get(native.id)
-        if (uiId) nativeByServerId.set(native.id, native)
+        if (!native || typeof native.id !== 'string' || !ID_PATTERN.test(native.id)) continue
+        nativeById.set(native.id, native)
+        if (!descriptors.has(native.id)) {
+          const descriptor = { id: native.id, title: native.title?.trim() || native.id }
+          descriptors.set(native.id, descriptor)
+          states.set(native.id, stateFor(descriptor))
+        }
       }
       let changed = false
-      for (const descriptor of descriptorsByUiId.values()) {
-        const native = nativeByServerId.get(descriptor.serverId)
-        const next: AgentInstallationState = native
+      for (const [id, descriptor] of descriptors) {
+        const native = nativeById.get(id)
+        const current = states.get(id) ?? stateFor(descriptor)
+        const next = native
           ? {
               ...descriptor,
-              status: 'installed',
-              ...(typeof native.revision === 'string'
-                ? { revision: native.revision }
-                : {}),
+              title: descriptor.title || native.title,
+              status: 'installed' as const,
+              ...(typeof native.revision === 'string' ? { revision: native.revision } : {}),
             }
           : stateFor(descriptor)
-        const current = states.get(descriptor.uiId)!
-        if (!native) sessions.delete(descriptor.uiId)
+        if (!native) sessions.delete(id)
         if (!sameState(current, next)) {
-          states.set(descriptor.uiId, next)
+          states.set(id, next)
           changed = true
         }
       }
       if (changed) notify()
       return snapshot()
     },
-    bindSession,
-    clearSession(uiId) {
-      sessions.delete(resolve(uiId).uiId)
+    bindSession(id, session) {
+      const descriptor = resolve(id)
+      if (!session || typeof session.title !== 'string') {
+        throw new Error('Agent UI session is invalid')
+      }
+      trustedOrigin(session.url)
+      sessions.set(descriptor.id, { ...session })
     },
-    assertSessionUrl(uiId, url) {
-      const descriptor = resolve(uiId)
-      const trusted = sessions.get(descriptor.uiId)
+    clearSession(id) {
+      sessions.delete(resolve(id).id)
+    },
+    assertSessionUrl(id, url) {
+      const descriptor = resolve(id)
+      const trusted = sessions.get(descriptor.id)
       if (!trusted || trusted.url !== url) {
         throw new Error('Agent UI session is not trusted')
       }
       trustedOrigin(trusted.url)
       return descriptor
     },
-    assertSession(uiId, session) {
-      const descriptor = resolve(uiId)
-      const trusted = sessions.get(descriptor.uiId)
-      if (
-        !trusted ||
-        trusted.url !== session.url ||
-        trusted.title !== session.title
-      ) {
+    assertSession(id, session) {
+      const descriptor = resolve(id)
+      const trusted = sessions.get(descriptor.id)
+      if (!trusted || trusted.url !== session.url || trusted.title !== session.title) {
         throw new Error('Agent UI session is not trusted')
       }
       trustedOrigin(trusted.url)
@@ -247,25 +277,4 @@ export function createAgentInstallRegistry(
   }
 }
 
-export const BUILTIN_PYTHON_AGENT_DESCRIPTORS: readonly PythonAgentDescriptor[] = [
-  { uiId: 'python.bailian-cosyvoice-v2', serverId: 'bailian-cosyvoice-v2', title: 'CosyVoice v2' },
-  { uiId: 'python.bailian-cosyvoice-v3-plus', serverId: 'bailian-cosyvoice-v3-plus', title: 'CosyVoice v3 Plus' },
-  { uiId: 'python.bailian-cosyvoice-v35-flash', serverId: 'bailian-cosyvoice-v35-flash', title: 'CosyVoice v3.5 Flash' },
-  { uiId: 'python.bailian-cosyvoice-v35-plus', serverId: 'bailian-cosyvoice-v35-plus', title: 'CosyVoice v3.5 Plus' },
-  { uiId: 'python.bailian-fun-audio-denoising', serverId: 'bailian-fun-audio-denoising', title: 'Fun Audio Denoising' },
-  { uiId: 'python.bailian-funasr-8k-realtime', serverId: 'bailian-funasr-8k-realtime', title: 'FunASR 8k Realtime' },
-  { uiId: 'python.bailian-funasr-realtime', serverId: 'bailian-funasr-realtime', title: 'FunASR Realtime' },
-  { uiId: 'python.bailian-paraformer-8k-realtime-v2', serverId: 'bailian-paraformer-8k-realtime-v2', title: 'Paraformer 8k Realtime v2' },
-  { uiId: 'python.bailian-paraformer-realtime-v2', serverId: 'bailian-paraformer-realtime-v2', title: 'Paraformer Realtime v2' },
-  { uiId: 'python.bailian-qwen-audio-asr-filetrans', serverId: 'bailian-qwen-audio-asr-filetrans', title: 'Qwen Audio ASR FileTrans' },
-  { uiId: 'python.bailian-qwen-audio-asr-flash', serverId: 'bailian-qwen-audio-asr-flash', title: 'Qwen Audio ASR Flash' },
-  { uiId: 'python.bailian-qwen-audio-tts', serverId: 'bailian-qwen-audio-tts', title: 'Qwen Audio TTS' },
-  { uiId: 'python.bailian-qwen-audio-tts-plus', serverId: 'bailian-qwen-audio-tts-plus', title: 'Qwen Audio TTS Plus' },
-  { uiId: 'python.bailian-qwen3-asr', serverId: 'bailian-qwen3-asr', title: 'Qwen3 ASR' },
-  { uiId: 'python.bailian-qwen36-plus', serverId: 'bailian-qwen36-plus', title: 'Qwen 3.6 Plus' },
-  { uiId: 'python.bailian-qwen37-plus', serverId: 'bailian-qwen37-plus', title: 'Qwen 3.7 Plus' },
-]
-
-export const agentInstallRegistry = createAgentInstallRegistry(
-  BUILTIN_PYTHON_AGENT_DESCRIPTORS,
-)
+export const agentInstallRegistry = createAgentInstallRegistry()

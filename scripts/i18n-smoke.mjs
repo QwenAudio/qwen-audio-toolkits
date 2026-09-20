@@ -113,7 +113,7 @@ assert.match(
   /t\(extensionWorkbenchPageLabels\[extensionWorkbenchPage\]\)/u,
 )
 assert.match(workbenchSource, /t\('扩展工作台'\)/u)
-assert.match(storeSource, /t\('扩展工作台'\)/u)
+assert.match(storeSource, /t\('模型与运行环境'\)/u)
 assert.match(workbenchSource, /t\('返回工作区'\)/u)
 assert.match(workbenchSource, /t\('扩展工作台页面'\)/u)
 assert.match(

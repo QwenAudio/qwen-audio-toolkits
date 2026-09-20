@@ -1,4 +1,5 @@
-//! Generic local Python Agent UI launcher. Websites supply IDs, never paths or commands.
+//! Generic local Python Agent UI launcher. Agent projects come from the signed-in
+//! ModelScope repository and always run on this device.
 static SDK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 static INSTALL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{Emitter, Manager};
-use tauri_plugin_dialog::DialogExt;
 
 const PYTHON_AGENT_PROVIDER_ENV_NAMES: [&str; 9] = [
     "DASHSCOPE_API_KEY",
@@ -92,17 +92,12 @@ pub struct AgentUiRuntime(
     Arc<Mutex<BTreeMap<String, WarmAgent>>>,
     Arc<Mutex<BTreeMap<String, Arc<Mutex<()>>>>>,
     Arc<AtomicBool>,
-    Arc<Mutex<()>>,
     Arc<Mutex<BTreeMap<String, Child>>>,
 );
 impl AgentUiRuntime {
     fn agent_lock(&self, id: &str) -> Result<Arc<Mutex<()>>, String> {
         let mut locks = self.1.lock().map_err(|e| e.to_string())?;
         Ok(locks.entry(id.to_owned()).or_default().clone())
-    }
-
-    fn project_links_lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
-        self.3.lock().map_err(|e| e.to_string())
     }
 
     fn ensure_running(&self) -> Result<(), String> {
@@ -116,7 +111,7 @@ impl AgentUiRuntime {
     pub fn stop(&self) {
         self.2.store(true, Ordering::Release);
         let pending = self
-            .4
+            .3
             .lock()
             .map(|mut agents| std::mem::take(&mut *agents))
             .unwrap_or_default();
@@ -168,25 +163,6 @@ fn valid_id(id: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'.')
         && !id.starts_with('.')
         && !id.contains("..")
-}
-
-fn read_project_links(path: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
-    match fs::read(path) {
-        Ok(raw) => serde_json::from_slice(&raw).map_err(|e| format!("本地项目记录无效：{e}")),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-fn replace_file_atomically(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, bytes).map_err(|e| e.to_string())?;
-    fs::rename(temporary, path).map_err(|e| e.to_string())
-}
-
-fn write_project_links(path: &Path, projects: &BTreeMap<String, PathBuf>) -> Result<(), String> {
-    let bytes = serde_json::to_vec(projects).map_err(|e| e.to_string())?;
-    replace_file_atomically(path, &bytes)
 }
 
 fn read_agent_control_file(path: &Path, max_bytes: u64) -> Result<Option<String>, String> {
@@ -479,7 +455,7 @@ fn launch_inner(
     configure_python_agent_provider_env(&mut command, &provider_env);
     crate::process_tree::configure_command(&mut command);
     {
-        let mut pending = runtime.4.lock().map_err(|e| e.to_string())?;
+        let mut pending = runtime.3.lock().map_err(|e| e.to_string())?;
         runtime.ensure_running()?;
         let child = command.spawn().map_err(|e| e.to_string())?;
         pending.insert(id.to_string(), child);
@@ -500,7 +476,7 @@ fn launch_inner(
             Err(error) => break Err(format!("无法读取 Agent 启动进度: {error}")),
         }
         let child_exited = {
-            let mut pending = runtime.4.lock().map_err(|e| e.to_string())?;
+            let mut pending = runtime.3.lock().map_err(|e| e.to_string())?;
             match pending.get_mut(id) {
                 Some(child) => child.try_wait().map_err(|e| e.to_string())?,
                 None => break Err("Agent 启动已被终止".to_string()),
@@ -539,7 +515,7 @@ fn launch_inner(
         }
         std::thread::sleep(Duration::from_millis(100));
     };
-    let child = runtime.4.lock().map_err(|e| e.to_string())?.remove(id);
+    let child = runtime.3.lock().map_err(|e| e.to_string())?.remove(id);
     if let Ok(session) = &result {
         let child = child.ok_or("Agent 启动已被终止")?;
         insert_warm_agent(
@@ -567,40 +543,18 @@ pub async fn agent_ui_open(
         return Err("Agent ID 无效".into());
     }
     let root = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let provider_env = crate::harness::python_agent_provider_env(&app, &id)?;
+    let provider = read_installed(&root)?
+        .into_iter()
+        .find(|agent| agent.id == id)
+        .and_then(|agent| agent.provider);
+    let provider_env = crate::harness::python_agent_provider_env(&app, provider.as_deref())?;
     let state = runtime.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-        let project = {
-            let _links_guard = state.project_links_lock()?;
-            let links = root.join("agent-project-links.json");
-            let mut projects = read_project_links(&links)?;
-            match projects
-                .get(&id)
-                .filter(|path| path.join("agent_ui.py").is_file())
-            {
-                Some(path) => path.clone(),
-                None => {
-                    let selected = app
-                        .dialog()
-                        .file()
-                        .set_title("选择此 Agent 的本地项目目录")
-                        .blocking_pick_folder()
-                        .ok_or("已取消打开 Agent")?;
-                    let path = selected
-                        .into_path()
-                        .map_err(|e| e.to_string())?
-                        .canonicalize()
-                        .map_err(|e| e.to_string())?;
-                    if !path.join("agent_ui.py").is_file() {
-                        return Err("项目根目录缺少 agent_ui.py".into());
-                    }
-                    projects.insert(id.clone(), path.clone());
-                    write_project_links(&links, &projects)?;
-                    path
-                }
-            }
-        };
+        let project = root.join("agent-projects").join(&id);
+        if !project.join("agent_ui.py").is_file() {
+            return Err("Agent 尚未安装；请先在 Agent 目录中安装。".into());
+        }
         launch(&root, &project, &id, state, false, provider_env, &app)
     })
     .await
@@ -658,13 +612,6 @@ mod tests {
         let runtime = super::AgentUiRuntime::default();
         runtime.stop();
         assert!(runtime.ensure_running().is_err());
-    }
-
-    #[test]
-    fn project_link_registry_operations_are_serialized() {
-        let runtime = super::AgentUiRuntime::default();
-        let _held = runtime.project_links_lock().expect("lock project links");
-        assert!(runtime.3.try_lock().is_err());
     }
 
     use super::*;
@@ -763,14 +710,14 @@ mod tests {
         let (child, root_pid, descendant_pid, descendant_path) = spawn_process_tree("pending");
         let runtime = AgentUiRuntime::default();
         runtime
-            .4
+            .3
             .lock()
             .expect("register pending agent")
             .insert("test-agent".to_string(), child);
 
         runtime.stop();
 
-        assert!(runtime.4.lock().expect("read pending agents").is_empty());
+        assert!(runtime.3.lock().expect("read pending agents").is_empty());
         assert_process_tree_stopped(root_pid, descendant_pid);
         fs::remove_file(descendant_path).expect("remove descendant PID file");
     }
@@ -897,25 +844,6 @@ mod tests {
     }
 
     #[test]
-    fn project_links_are_saved_atomically() {
-        let root =
-            std::env::temp_dir().join(format!("toolkits-agent-links-test-{}", std::process::id()));
-        fs::create_dir_all(&root).expect("create project-link directory");
-        let path = root.join("agent-project-links.json");
-        let mut projects = BTreeMap::new();
-        projects.insert("test-agent".to_string(), PathBuf::from("/tmp/test-agent"));
-
-        write_project_links(&path, &projects).expect("save project links");
-
-        assert_eq!(
-            read_project_links(&path).expect("load project links"),
-            projects
-        );
-        assert!(!path.with_extension("tmp").exists());
-        fs::remove_dir_all(root).expect("remove project-link directory");
-    }
-
-    #[test]
     fn control_file_reader_rejects_oversized_files() {
         let path = std::env::temp_dir().join(format!(
             "toolkits-agent-control-file-test-{}",
@@ -1000,6 +928,8 @@ pub struct InstalledAgent {
     revision: Option<String>,
     id: String,
     title: String,
+    #[serde(default)]
+    provider: Option<String>,
 }
 
 #[tauri::command]
@@ -1046,33 +976,9 @@ pub async fn agent_ui_install(
     {
         return Ok(record);
     }
-    let base = crate::agent_server::server_url(
-        &std::env::var("QWEN_AUDIO_AGENT_SERVER_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:8787".into()),
-    )?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| e.to_string())?;
-    let mut response = client
-        .get(
-            base.join(&format!("v1/agents/{id}/download"))
-                .map_err(|e| e.to_string())?,
-        )
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .error_for_status()
-        .map_err(|e| e.to_string())?;
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
-        if bytes.len() + chunk.len() > 20 * 1024 * 1024 {
-            return Err("Agent 项目包超过大小限制".into());
-        }
-        bytes.extend_from_slice(&chunk);
-    }
-    let provider_env = crate::harness::python_agent_provider_env(&app, &id)?;
+    let (catalog_entry, bytes) = crate::agent_catalog::download_agent_package(&app, &id).await?;
+    let provider_env =
+        crate::harness::python_agent_provider_env(&app, catalog_entry.provider.as_deref())?;
     let state = runtime.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let operation = state.agent_lock(&id)?;
@@ -1169,22 +1075,16 @@ pub async fn agent_ui_install(
                 terminate_agent_process(&mut agent.child);
             }
         }
-        let _links_guard = state.project_links_lock()?;
-        let links_path = root.join("agent-project-links.json");
-        let previous_links = fs::read(&links_path).ok();
         let save = (|| -> Result<InstalledAgent, String> {
-            let mut links = read_project_links(&links_path)?;
-            links.insert(id.clone(), project.clone());
-            write_project_links(&links_path, &links)?;
             let record = InstalledAgent {
-                revision: Some(
-                    Sha256::digest(&bytes)
-                        .iter()
-                        .map(|byte| format!("{byte:02x}"))
-                        .collect::<String>(),
-                ),
+                revision: Some(catalog_entry.sha256),
                 id,
-                title: session.title,
+                title: if session.title.trim().is_empty() {
+                    catalog_entry.name
+                } else {
+                    session.title
+                },
+                provider: catalog_entry.provider,
             };
             installed.retain(|agent| agent.id != record.id);
             installed.push(record.clone());
@@ -1201,11 +1101,6 @@ pub async fn agent_ui_install(
         let record = match save {
             Ok(record) => record,
             Err(error) => {
-                if let Some(raw) = previous_links {
-                    let _ = replace_file_atomically(&links_path, &raw);
-                } else {
-                    let _ = fs::remove_file(&links_path);
-                }
                 let _ = fs::remove_dir_all(&project);
                 let _ = fs::remove_dir_all(&environment);
                 if backup.exists() {
@@ -1318,13 +1213,6 @@ pub async fn agent_ui_uninstall(
             if directory.exists() {
                 fs::remove_dir_all(directory).map_err(|e| e.to_string())?;
             }
-        }
-        let _links_guard = state.project_links_lock()?;
-        let links_path = root.join("agent-project-links.json");
-        if links_path.exists() {
-            let mut links = read_project_links(&links_path)?;
-            links.remove(&id);
-            write_project_links(&links_path, &links)?;
         }
         installed.retain(|agent| agent.id != id);
         let path = root.join("installed-python-agents.json");

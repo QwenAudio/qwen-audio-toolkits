@@ -2,7 +2,6 @@ import {
   agentInstallRegistry,
   type AgentInstallationState,
 } from './services/agentInstallState'
-import type { AgentServerCatalogActions } from './services/agentServerCatalogBridge'
 import {
   buildPythonAgentSidebarGroups,
   reconcilePythonAgentSelection,
@@ -37,6 +36,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   ArrowLeft,
   AudioLines,
+  Bot,
   Check,
   Download,
   GitBranch,
@@ -68,7 +68,6 @@ import {
   cleanupDownloadCache,
   executeHarnessTask,
   deleteHarnessRun,
-  getAgentServerStatus,
   getHarnessCatalog,
   getModelDependencyBindings,
   installAgentUi,
@@ -76,6 +75,7 @@ import {
   installRecommendedModelDependency,
   isTauriRuntime,
   listApiModelCatalog,
+  listAgentCatalog,
   listHarnessRuns,
   listInstalledAgentUi,
   listModelPlugins,
@@ -88,6 +88,7 @@ import {
   subscribeHarnessRuns,
   uninstallAgentUi,
   uninstallModelPlugin,
+  type AgentCatalogEntry,
 } from './services/harness'
 import {
   getModelBinding,
@@ -123,20 +124,14 @@ import type {
 import type { WorkflowChatTurn } from './views/WorkflowChatView'
 import './App.css'
 
-const agentServerCatalogActions: AgentServerCatalogActions = {
-  installAgentUi,
-  uninstallAgentUi,
-  listInstalledAgentUi,
-}
-
 const ModelWorkspaceView = lazy(() =>
   import('./views/ModelWorkspaceView').then((module) => ({
     default: module.ModelWorkspaceView,
   })),
 )
-const PluginsView = lazy(() =>
-  import('./views/PluginsView').then((module) => ({
-    default: module.PluginsView,
+const AgentCatalogView = lazy(() =>
+  import('./views/AgentCatalogView').then((module) => ({
+    default: module.AgentCatalogView,
   })),
 )
 const ExtensionWorkbenchView = lazy(() =>
@@ -509,6 +504,7 @@ function summarizeRun(run: HarnessRun): HarnessRun {
 type ShellPage =
   | 'workspace'
   | 'extensions'
+  | 'agent-catalog'
   | 'extension-workbench'
   | 'settings'
 type SettingsSection = 'general' | 'appearance' | 'storage' | 'accounts'
@@ -554,19 +550,42 @@ function App() {
   const [agentCategory, setAgentCategory] = useState('all')
   const [expandedAgentCategory, setExpandedAgentCategory] = useState<string | null>(null)
   const [agentSecondary, setAgentSecondary] = useState('all')
+  const [agentCatalog, setAgentCatalog] = useState<readonly AgentCatalogEntry[]>([])
+  const [agentCatalogRefreshing, setAgentCatalogRefreshing] = useState(false)
+  const [agentCatalogError, setAgentCatalogError] = useState<string | null>(null)
   const [pythonAgents, setPythonAgents] = useState<readonly AgentInstallationState[]>(
     () => agentInstallRegistry.snapshot(),
   )
+  const refreshAgentCatalog = useCallback(async () => {
+    if (!isTauriRuntime()) return
+    setAgentCatalogRefreshing(true)
+    setAgentCatalogError(null)
+    try {
+      const catalog = await listAgentCatalog()
+      const entries = catalog.agents.map((entry) => ({
+        id: entry.id,
+        title: entry.name,
+        description: entry.description,
+        version: entry.version,
+        category: entry.category,
+      }))
+      agentInstallRegistry.replaceCatalog(entries)
+      setAgentCatalog(catalog.agents)
+      await listInstalledAgentUi()
+    } catch (error) {
+      setAgentCatalogError(String(error))
+    } finally {
+      setAgentCatalogRefreshing(false)
+    }
+  }, [])
   useEffect(() => {
     const unsubscribe = agentInstallRegistry.subscribe(setPythonAgents)
     setPythonAgents(agentInstallRegistry.snapshot())
     if (isTauriRuntime()) {
-      void listInstalledAgentUi().then(setPythonAgents).catch(() => {
-        // Keep the trusted local snapshot while native rehydration is unavailable.
-      })
+      void refreshAgentCatalog()
     }
     return unsubscribe
-  }, [])
+  }, [refreshAgentCatalog])
   const visiblePythonAgents = useMemo(
     () => pythonAgents.filter((agent) => agent.status !== 'uninstalled'),
     [pythonAgents],
@@ -643,6 +662,7 @@ function App() {
     string | null
   >(null)
   const extensionsTriggerRef = useRef<HTMLButtonElement>(null)
+  const agentCatalogTriggerRef = useRef<HTMLButtonElement>(null)
   const extensionWorkbenchTriggerRef = useRef<HTMLButtonElement>(null)
   const extensionsReturnFocusRef = useRef<HTMLElement | null>(null)
   const settingsTriggerRef = useRef<HTMLButtonElement>(null)
@@ -701,6 +721,8 @@ function App() {
       const trigger =
         leaving === 'settings'
           ? settingsTriggerRef.current
+          : leaving === 'agent-catalog'
+            ? agentCatalogTriggerRef.current
           : leaving === 'extension-workbench'
             ? extensionWorkbenchTriggerRef.current
             : extensionsTriggerRef.current
@@ -1571,6 +1593,7 @@ function App() {
     setSidebarOpen(false)
   }
   const openExtensions = () => openShellPage('extensions')
+  const openAgentCatalog = () => openShellPage('agent-catalog')
   const openExtensionWorkbench = () => {
     const resolvedPage = resolveExtensionWorkbenchPage(
       extensionWorkbenchEnabled,
@@ -2529,13 +2552,12 @@ function App() {
               <ArrowLeft size={15} />
               <span>返回</span>
             </button>
-            {shellPage === 'extensions' ? (
+            {shellPage === 'agent-catalog' ? (
               <nav className="sidebar-page-nav-body settings-nav" aria-label="Agent 分类">
-                {[['all', '全部'], ['Audio', '音频'], ['Text', '文本'], ['Vision', '视觉'], ['Multimodal', '多模态']].map(([id, label]) => {
+                {[['all', '全部'], ...[...new Set(agentCatalog.map((agent) => agent.category))].sort().map((category) => [category, category])].map(([id, label]) => {
                   const selected = agentCategory === id
                   const expanded = expandedAgentCategory === id
-                  const models = [...new Map([...plugins, ...cloudModelsFromCatalog(catalog, installedCloudModelIds, apiModelCatalog, customApiModels)].map(p => [p.id, p])).values()]
-                  const children = [...new Set(models.filter(p => modelTaxonomy(p).primaryCategory === id.toLowerCase()).map(p => modelTaxonomy(p).secondaryCategory))].sort()
+                  const children: string[] = []
                   return <div key={id}>
                     <button className={selected ? 'active' : ''} aria-expanded={id === 'all' ? undefined : expanded} onClick={() => { setExpandedAgentCategory(current => id === 'all' || current === id ? null : id); setAgentCategory(id); setAgentSecondary('all') }} aria-current={selected && agentSecondary === 'all' ? 'page' : undefined}><span aria-hidden="true">{id === 'all' ? '' : expanded ? '⌄' : '›'}</span><span>{label}</span></button>
                     {expanded && id !== 'all' && <div className="taxonomy-secondary-group">{children.map(child => <button key={child} className={agentSecondary === child ? 'active' : ''} aria-current={agentSecondary === child ? 'page' : undefined} onClick={() => setAgentSecondary(child)}>{child}</button>)}</div>}
@@ -2596,11 +2618,11 @@ function App() {
                 {!collapsed && (
                   <div className="sidebar-model-group-items">
                     {models.map(renderPluginSidebarEntry)}
-                    {group.agents.map(agent => <div key={agent.uiId} className="installed-model-entry python-agent-entry">
-                      <button className={`installed-model-button${activePythonAgent === agent.uiId ? ' active' : ''}`} title={agent.error ?? agent.title} disabled={agent.status === 'installing' || agent.status === 'uninstalling'} aria-current={activePythonAgent === agent.uiId ? 'page' : undefined} onClick={() => { if (agent.status === 'error') { openExtensions(); return }; setSelectedPythonAgent(agent.uiId); setView('workspace'); setWorkflowSelected(false) }}><span className="activity-model-name"><span className="activity-model-name-text">{agent.title}</span></span></button>
+                    {group.agents.map(agent => <div key={agent.id} className="installed-model-entry python-agent-entry">
+                      <button className={`installed-model-button${activePythonAgent === agent.id ? ' active' : ''}`} title={agent.error ?? agent.title} disabled={agent.status === 'installing' || agent.status === 'uninstalling'} aria-current={activePythonAgent === agent.id ? 'page' : undefined} onClick={() => { if (agent.status === 'error') { openAgentCatalog(); return }; setSelectedPythonAgent(agent.id); setView('workspace'); setWorkflowSelected(false) }}><span className="activity-model-name"><span className="activity-model-name-text">{agent.title}</span></span></button>
                       <span className="python-agent-action">{agent.status === 'installing' ? <span className="python-agent-progress" title="安装中"><LoaderCircle size={14} className="model-spin" /><span className="agent-install-label">安装中</span></span> : agent.status === 'error' ? <span className="agent-install-label" title={agent.error}>安装失败</span> : <button className="installed-model-pin" aria-label={`卸载 ${agent.title}`} title="卸载" disabled={agent.status === 'uninstalling'} onClick={() => {
-                        void uninstallAgentUi(agent.uiId).then(() => {
-                          if (selectedPythonAgent === agent.uiId) setSelectedPythonAgent(null)
+                        void uninstallAgentUi(agent.id).then(() => {
+                          if (selectedPythonAgent === agent.id) setSelectedPythonAgent(null)
                           notify(`${agent.title} 已卸载`)
                         }).catch(error => notify(`卸载失败：${String(error)}`))
                       }}>{agent.status === 'uninstalling' ? <LoaderCircle size={14} className="model-spin" /> : <Trash2 size={14} />}</button>}</span>
@@ -2620,12 +2642,23 @@ function App() {
             ref={extensionsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'extensions' ? ' active' : ''}`}
             type="button"
-            aria-label="Agents"
+            aria-label="模型商店"
             aria-pressed={shellPage === 'extensions'}
-            data-tooltip="Agents"
+            data-tooltip="模型商店"
             onClick={shellPage === 'extensions' ? leaveShellPage : openExtensions}
           >
             <ShoppingBag size={18} />
+          </button>
+          <button
+            ref={agentCatalogTriggerRef}
+            className={`sidebar-dock-button${shellPage === 'agent-catalog' ? ' active' : ''}`}
+            type="button"
+            aria-label="Agents"
+            aria-pressed={shellPage === 'agent-catalog'}
+            data-tooltip="Agents"
+            onClick={shellPage === 'agent-catalog' ? leaveShellPage : openAgentCatalog}
+          >
+            <Bot size={18} />
           </button>
           {extensionWorkbenchEnabled && (
             <button
@@ -2773,7 +2806,9 @@ function App() {
           <div className="topbar-title">
             <span>
               {shellPage === 'extensions'
-                ? 'Agents'
+                ? '模型商店'
+                : shellPage === 'agent-catalog'
+                  ? 'Agents'
                 : shellPage === 'extension-workbench'
                   ? t(extensionWorkbenchPageLabels[extensionWorkbenchPage])
                   : shellPage === 'settings'
@@ -2783,7 +2818,7 @@ function App() {
                   ? workflows.find(
                       (workflow) => workflow.id === selectedWorkflowId,
                     )?.name ?? '虚拟模型'
-                  : pythonAgents.find(agent => agent.uiId === activePythonAgent)?.title ?? selectedPlugin.name
+                  : pythonAgents.find(agent => agent.id === activePythonAgent)?.title ?? selectedPlugin.name
                 : '流程编排'}
             </span>
           </div>
@@ -2806,13 +2841,37 @@ function App() {
             }
           >
           {shellPage === 'extensions' && (
-            <PluginsView
-              agentRegistry={agentInstallRegistry}
-              installationState={pythonAgents}
-              getAgentServerStatus={getAgentServerStatus}
-              catalogActions={agentServerCatalogActions}
+            <ExtensionModelStoreView
+              catalogKind="models"
+              plugins={plugins}
+              modelBindings={modelBindings}
+              runtime={runtime}
+              catalog={catalog}
+              apiModelCatalog={apiModelCatalog}
+              customApiModels={customApiModels}
+              installedCloudModelIds={installedCloudModelIds}
+              onConfigureProvider={notifyModelStoreProviderConfiguration}
+              onRefreshModels={refreshModelStore}
+              onInstallModel={installModelStoreModel}
+              onInstallModelDependency={installModelStoreDependency}
+              onRestoreModel={restoreModelStoreModel}
+              onUninstallModel={uninstallModelStoreModel}
+              onSetModelBinding={saveModelDependencyBinding}
+              onCloudModelInstalled={setCloudModelInstalled}
+              onAction={notify}
+            />
+          )}
+          {shellPage === 'agent-catalog' && (
+            <AgentCatalogView
+              agents={agentCatalog}
+              installations={pythonAgents}
               category={agentCategory}
               secondary={agentSecondary}
+              refreshing={agentCatalogRefreshing}
+              error={agentCatalogError}
+              onRefresh={() => { void refreshAgentCatalog() }}
+              onInstall={(id, update) => { void installAgentUi(id, update).catch((error) => notify(`安装失败：${String(error)}`)) }}
+              onUninstall={(id) => { void uninstallAgentUi(id).catch((error) => notify(`卸载失败：${String(error)}`)) }}
             />
           )}
           {extensionWorkbenchEnabled && shellPage === 'extension-workbench' && !workbenchWorkspaceReady && (
@@ -2869,7 +2928,7 @@ function App() {
             </section>
           )}
           {shellPage === 'workspace' && view === 'workspace' && (
-            activePythonAgent ? <PythonAgentWorkspace key={activePythonAgent} id={activePythonAgent} title={pythonAgents.find(agent => agent.uiId === activePythonAgent)?.title ?? activePythonAgent} onConfigureAccount={() => openProviderSettings("api.bailian")} /> : WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
+            activePythonAgent ? <PythonAgentWorkspace key={activePythonAgent} id={activePythonAgent} title={pythonAgents.find(agent => agent.id === activePythonAgent)?.title ?? activePythonAgent} /> : WORKFLOWS_ENABLED && workflowSelected && selectedWorkflowId ? (
               <WorkflowChatView
                 workflowId={selectedWorkflowId}
                 turns={workflowTurns[selectedWorkflowId] ?? []}

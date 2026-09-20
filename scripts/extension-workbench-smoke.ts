@@ -84,9 +84,8 @@ assert.doesNotMatch(
   /(?:^|\n)\s*import[\s\S]*?(?:ModelWorkspaceView|PluginsView|PythonAgentWorkspace|WorkflowChatView|WorkflowsView)/,
 )
 
-assert.match(readFileSync('src/views/PluginsView.tsx', 'utf8'), /agent-server:install/u)
+assert.match(readFileSync('src/views/AgentCatalogView.tsx', 'utf8'), /安装后可离线运行/u)
 assert.match(readFileSync('src/views/ExtensionModelStoreView.tsx', 'utf8'), /catalogKind/u)
-assert.doesNotMatch(readFileSync('src/views/PluginsView.tsx', 'utf8'), /catalogKind="models"/u)
 assert.match(
   appSource,
   /const ExtensionModelStoreView = lazy\(\(\) =>\s*import\('\.\/views\/ExtensionModelStoreView'\)/,
@@ -95,11 +94,16 @@ assert.match(
   appSource,
   /extensionWorkbenchEnabled && shellPage === 'extension-workbench'[\s\S]{0,900}extensionWorkbenchPage === 'models'[\s\S]{0,500}<ExtensionModelStoreView/,
 )
-const extensionsRoute = appSource.match(
-  /\{shellPage === 'extensions' && \(([\s\S]*?)\n\s*\)\}\n\s*\{extensionWorkbenchEnabled/,
+const modelStoreRoute = appSource.match(
+  /\{shellPage === 'extensions' && \(([\s\S]*?)\n\s*\)\}\n\s*\{shellPage === 'agent-catalog'/,
 )?.[1] ?? ''
-assert.match(extensionsRoute, /<PluginsView/)
-assert.doesNotMatch(extensionsRoute, /ExtensionModelStoreView/)
+assert.match(modelStoreRoute, /<ExtensionModelStoreView/)
+assert.doesNotMatch(modelStoreRoute, /AgentCatalogView/)
+const agentCatalogRoute = appSource.match(
+  /\{shellPage === 'agent-catalog' && \(([\s\S]*?)\n\s*\)\}\n\s*\{extensionWorkbenchEnabled/,
+)?.[1] ?? ''
+assert.match(agentCatalogRoute, /<AgentCatalogView/)
+assert.doesNotMatch(agentCatalogRoute, /ExtensionModelStoreView/)
 assert.match(
   appSource,
   /const notifyModelStoreProviderConfiguration = \(providerId: string\) => \{[\s\S]{0,240}notify\(/,

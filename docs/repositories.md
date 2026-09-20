@@ -1,50 +1,41 @@
-# 两个基础仓库
+# 两个发布边界
 
 ## Toolkits
 
-当前仓库同时提供桌面应用与 Python SDK。根目录的 `toolkits/` 是唯一的 Python 实现；
-桌面应用从这里内置组件和运行时，pip 包从这里打包，不存在独立 SDK 仓库。
+当前仓库同时提供桌面应用与 Python SDK。根目录的 `toolkits/` 是唯一的 Python 实现；桌面应用从这里内置组件和运行时，pip 包也从这里打包。
 
 ```sh
-# 在 Toolkits 仓库根目录
 python -m pip install .
 python -c "import toolkits as tk; print(tk.Interface)"
 toolkits /path/to/agent
 ```
 
-开发时使用 `pip install -e .`。构建 wheel 使用 `python -m build`。
-Python 包只包含 Python 运行时与界面资源，不需要 Node、Rust 或桌面编译工具。
-发行名为 `qwenaudio-toolkits`，导入名为 `toolkits`；此整理不包含向 PyPI 发布。
-
 - `toolkits/`：组件、界面协议、动态预览服务和前端资源。
 - `tests/`：Python SDK 测试。
 - `src/`、`src-tauri/`：桌面应用。
-- `src-tauri/tests/fixtures/`：兼容性测试样本，不是可安装 Agent。
 
-## agent-server
+## QwenAudio-Toolkits ModelScope 仓库
 
-位于相邻的独立 Git 仓库 `../agent-server`，包含网站、API 和 `agents/` Agent 项目。
-独立安装和运行，不读取 Toolkits 源码。Agent 项目只通过 `import toolkits` 使用公共接口，
-各自维护依赖、模型/API 与任务代码。Agent 可以独立成各自的 Git 仓库。
-
-本地协作时目录如下：
+模型、平台运行时和正式 Agent 都发布在同一个 ModelScope 仓库 `funaudio_public/QwenAudio-Toolkits`。它是桌面应用唯一的远程资源来源，不需要独立 Agent Server。
 
 ```text
-workspace/
-├── qwen-audio-toolkits/   # Toolkits Git 仓库，pip install .
-│   ├── pyproject.toml
-│   ├── toolkits/
-│   ├── tests/
-│   ├── src/
-│   └── src-tauri/
-└── agent-server/          # 独立 Git 仓库，pip install .
-    ├── pyproject.toml
-    ├── agent_server/
-    ├── tests/
-    ├── agents/            # 正式 Agent 项目
-    └── examples/          # 最小教学示例
+QwenAudio-Toolkits/
+├── model-catalog.json
+├── models/                 # 模型权重
+├── runtimes/               # 共享本地运行时
+└── agents/
+    ├── catalog.json        # Agent 目录
+    └── <agent-id>.tar      # 固定内容的 Agent 项目包
 ```
 
-两个仓库通过 HTTP 和 Agent 项目下载协议协作，不通过相对路径导入。
-需要更新初始目录时，在 Toolkits 运行
-`npm run agents:export -- /path/to/agent-server/agent_server/builtin-agents.json`。
+每个目录条目声明 Agent ID、名称、版本、分类、归档路径和 SHA-256。桌面刷新目录时读取 `agents/catalog.json`；安装时下载相应归档、校验摘要、创建独立 Python 环境并运行 `prepare()`。已安装项目保存在应用数据目录，之后可以离线启动。
+
+更新是显式操作：目录中的 SHA-256 改变时提示更新，更新失败会保留旧版本。Agent 项目仅通过 `import toolkits` 使用 SDK，不从 Toolkits 源码作相对路径导入。
+
+发布前在本仓库更新 `catalog/agent-catalog.json`，并执行：
+
+```sh
+npm run agents:repository -- /path/to/QwenAudio-Toolkits
+```
+
+该命令会校验每个 `.tar` 的 SHA-256，再写入资源仓库的 `agents/catalog.json`。

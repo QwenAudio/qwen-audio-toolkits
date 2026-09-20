@@ -11,7 +11,7 @@ python -m pip install .
 toolkits /path/to/agent
 ```
 
-也可安装构建好的 `qwenaudio_toolkits_sdk-0.2.0-py3-none-any.whl`。业务依赖由项目自行提供。SDK 运行时没有第三方 Python 依赖，也不依赖 Agent Server。
+也可安装构建好的 `qwenaudio_toolkits_sdk-0.2.0-py3-none-any.whl`。业务依赖由项目自行提供。SDK 运行时没有第三方 Python 依赖，也不依赖常驻网络服务。
 
 ## 一个完整 Agent
 
@@ -99,7 +99,7 @@ Select 支持字符串列表，或 `{实际值: 显示名称}` 字典，例如 `
 
 ### 在 Toolkits 中安装
 
-Agent Server 提供已提交项目的下载包。用户点击「安装」后，Toolkits 下载项目到应用管理的本地目录，创建独立 Python 环境并安装项目依赖；安装成功后，Agent 出现在首页，界面由 `agent_ui.py` 动态加载，无需重新编译 Toolkits。
+ModelScope 资源仓库通过 `agents/catalog.json` 提供固定内容的项目包和 SHA-256。用户点击「安装」后，Toolkits 下载并校验项目到应用管理的本地目录，创建独立 Python 环境并安装项目依赖；安装成功后，Agent 出现在首页，界面由 `agent_ui.py` 动态加载，无需重新编译 Toolkits。
 
 如果项目需要预先下载模型或运行时，可在同一个 `agent_ui.py` 中提供可选的 `prepare()` 函数（支持 async）。它在安装期间运行；应可重复调用、校验已有资源并复用缓存。普通 UI 打开不会重复调用它。没有额外资源的 API Agent 不需要实现此函数。
 
