@@ -8152,31 +8152,6 @@ fn configured_bailian_provider(app: &AppHandle) -> Result<BailianProviderConfig,
     }
 }
 
-fn bailian_video_translation_env_from_config(
-    config: &BailianProviderConfig,
-) -> Result<Vec<(String, String)>, String> {
-    if !config.configured() {
-        return Err("阿里云百炼尚未配置或未启用".to_string());
-    }
-    let base_url = config.base_url.trim().trim_end_matches('/');
-    if base_url.is_empty() {
-        return Err("阿里云百炼服务地址未配置".to_string());
-    }
-    Ok(vec![
-        (
-            "DASHSCOPE_API_KEY".to_string(),
-            config.api_key.trim().to_string(),
-        ),
-        ("DASHSCOPE_HTTP_BASE_URL".to_string(), base_url.to_string()),
-    ])
-}
-
-pub(crate) fn bailian_video_translation_env(
-    app: &AppHandle,
-) -> Result<Vec<(String, String)>, String> {
-    bailian_video_translation_env_from_config(&configured_bailian_provider(app)?)
-}
-
 fn decode_data_url_bytes(data_url: &str) -> Result<Vec<u8>, String> {
     let encoded = data_url
         .split_once(',')
