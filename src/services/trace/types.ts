@@ -45,9 +45,6 @@ export interface TraceConversationSeed {
   title: string
   prompt: string
   sourcePath: string
-  videoDubbingMode?: string
-  videoDubbingLanguages?: { source: string; target: string }
-  videoDubbingStyle?: string
 }
 
 export interface TraceGeneralTaskSeed {

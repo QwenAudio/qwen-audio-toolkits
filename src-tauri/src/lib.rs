@@ -13,14 +13,11 @@ mod harness;
 mod macos_window_smoke;
 mod onnx_audio;
 mod plugins;
-mod podcast_audio;
 mod process_tree;
 mod system_audio;
 mod tts;
 mod vad;
-mod video_translation;
 mod wetext;
-mod workspace_storage;
 
 use asr::AsrRuntime;
 use audio_io::MAX_AUDIO_BYTES;
@@ -55,7 +52,6 @@ use plugins::{
     plugin_set_download_paused, plugin_set_sidebar_visible, plugin_uninstall, DependencyBindings,
     PluginDescriptor, PluginInstallRequest,
 };
-use podcast_audio::compose_podcast_audio;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -76,9 +72,6 @@ use system_audio::{
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
-use video_translation::{
-    cancel_video_translation, start_video_translation, VideoTranslationRuntime,
-};
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
 
@@ -728,19 +721,6 @@ pub fn run() {
         .manage(CloseBehavior(AtomicBool::new(false)))
         .manage(SystemAudioRuntime::new())
         .manage(agent_ui::AgentUiRuntime::default())
-        .manage(VideoTranslationRuntime::default())
-        .manage(workspace_storage::WorkspaceStorageRuntime::default())
-        .on_page_load(|webview, payload| {
-            if webview.label() == "main"
-                && matches!(payload.event(), tauri::webview::PageLoadEvent::Started)
-            {
-                // A reload discards JavaScript listeners before React cleanup
-                // can run. Closing keeps its native behavior until reattached.
-                webview
-                    .state::<workspace_storage::WorkspaceStorageRuntime>()
-                    .clear_close_guard();
-            }
-        })
         .setup(|app| {
             if let Err(error) = downloads::clear_completed_downloads(app.handle()) {
                 log::warn!("could not clear completed model downloads: {error}");
@@ -786,20 +766,6 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == "main" {
-                let storage = window.state::<workspace_storage::WorkspaceStorageRuntime>();
-                if let WindowEvent::Destroyed = event {
-                    storage.clear_close_guard();
-                }
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    if storage.close_guard_ready()
-                        && window.emit("workspace-close-requested", false).is_ok()
-                    {
-                        api.prevent_close();
-                        return;
-                    }
-                }
-            }
             #[cfg(target_os = "macos")]
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
@@ -831,11 +797,6 @@ pub fn run() {
             agent_ui::agent_ui_uninstall,
             agent_ui::agent_ui_stop,
             runtime_status,
-            workspace_storage::workspace_load,
-            workspace_storage::workspace_save,
-            workspace_storage::workspace_restore_media,
-            workspace_storage::workspace_set_close_guard,
-            workspace_storage::workspace_finish_close,
             set_close_behavior,
             app_data_directory,
             reveal_in_file_manager,
@@ -843,9 +804,6 @@ pub fn run() {
             read_dropped_audio_file,
             read_source_document,
             export_audio_file,
-            compose_podcast_audio,
-            start_video_translation,
-            cancel_video_translation,
             plugin_runtime_catalog,
             audio_processor_status,
             process_audio,
@@ -905,7 +863,6 @@ pub fn run() {
     app.run(|app, event| {
         if let RunEvent::Exit = event {
             app.state::<agent_ui::AgentUiRuntime>().stop();
-            app.state::<VideoTranslationRuntime>().stop();
             tauri::async_runtime::block_on(acp::acp_shutdown_all(app));
         }
         #[cfg(target_os = "macos")]
