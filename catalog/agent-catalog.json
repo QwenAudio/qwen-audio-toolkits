@@ -1,4 +1,15 @@
 {
   "schemaVersion": 1,
-  "agents": []
+  "agents": [
+    {
+      "id": "video-editor",
+      "name": "视频剪辑",
+      "version": "1.0.0",
+      "publisher": "QwenAudio",
+      "description": "本地剪辑视频，支持明确时间段截取、Whisper 字幕生成和 MP4 预览导出。",
+      "category": "Video",
+      "archive": "agents/video-editor.tar",
+      "sha256": "9bfbf545995a593e5bee98931a77c9d3383454bdc44b7d7691067eb9ecc68f78"
+    }
+  ]
 }
