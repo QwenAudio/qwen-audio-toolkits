@@ -36,6 +36,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import {
   ArrowLeft,
   AudioLines,
+  Bot,
   Check,
   Download,
   GitBranch,
@@ -503,6 +504,7 @@ function summarizeRun(run: HarnessRun): HarnessRun {
 type ShellPage =
   | 'workspace'
   | 'extensions'
+  | 'agent-catalog'
   | 'extension-workbench'
   | 'settings'
 type SettingsSection = 'general' | 'appearance' | 'storage' | 'accounts'
@@ -660,6 +662,7 @@ function App() {
     string | null
   >(null)
   const extensionsTriggerRef = useRef<HTMLButtonElement>(null)
+  const agentCatalogTriggerRef = useRef<HTMLButtonElement>(null)
   const extensionWorkbenchTriggerRef = useRef<HTMLButtonElement>(null)
   const extensionsReturnFocusRef = useRef<HTMLElement | null>(null)
   const settingsTriggerRef = useRef<HTMLButtonElement>(null)
@@ -718,6 +721,8 @@ function App() {
       const trigger =
         leaving === 'settings'
           ? settingsTriggerRef.current
+          : leaving === 'agent-catalog'
+            ? agentCatalogTriggerRef.current
           : leaving === 'extension-workbench'
             ? extensionWorkbenchTriggerRef.current
             : extensionsTriggerRef.current
@@ -1588,6 +1593,7 @@ function App() {
     setSidebarOpen(false)
   }
   const openExtensions = () => openShellPage('extensions')
+  const openAgentCatalog = () => openShellPage('agent-catalog')
   const openExtensionWorkbench = () => {
     const resolvedPage = resolveExtensionWorkbenchPage(
       extensionWorkbenchEnabled,
@@ -2546,7 +2552,7 @@ function App() {
               <ArrowLeft size={15} />
               <span>返回</span>
             </button>
-            {shellPage === 'extensions' ? (
+            {shellPage === 'agent-catalog' ? (
               <nav className="sidebar-page-nav-body settings-nav" aria-label="Agent 分类">
                 {[['all', '全部'], ...[...new Set(agentCatalog.map((agent) => agent.category))].sort().map((category) => [category, category])].map(([id, label]) => {
                   const selected = agentCategory === id
@@ -2613,7 +2619,7 @@ function App() {
                   <div className="sidebar-model-group-items">
                     {models.map(renderPluginSidebarEntry)}
                     {group.agents.map(agent => <div key={agent.id} className="installed-model-entry python-agent-entry">
-                      <button className={`installed-model-button${activePythonAgent === agent.id ? ' active' : ''}`} title={agent.error ?? agent.title} disabled={agent.status === 'installing' || agent.status === 'uninstalling'} aria-current={activePythonAgent === agent.id ? 'page' : undefined} onClick={() => { if (agent.status === 'error') { openExtensions(); return }; setSelectedPythonAgent(agent.id); setView('workspace'); setWorkflowSelected(false) }}><span className="activity-model-name"><span className="activity-model-name-text">{agent.title}</span></span></button>
+                      <button className={`installed-model-button${activePythonAgent === agent.id ? ' active' : ''}`} title={agent.error ?? agent.title} disabled={agent.status === 'installing' || agent.status === 'uninstalling'} aria-current={activePythonAgent === agent.id ? 'page' : undefined} onClick={() => { if (agent.status === 'error') { openAgentCatalog(); return }; setSelectedPythonAgent(agent.id); setView('workspace'); setWorkflowSelected(false) }}><span className="activity-model-name"><span className="activity-model-name-text">{agent.title}</span></span></button>
                       <span className="python-agent-action">{agent.status === 'installing' ? <span className="python-agent-progress" title="安装中"><LoaderCircle size={14} className="model-spin" /><span className="agent-install-label">安装中</span></span> : agent.status === 'error' ? <span className="agent-install-label" title={agent.error}>安装失败</span> : <button className="installed-model-pin" aria-label={`卸载 ${agent.title}`} title="卸载" disabled={agent.status === 'uninstalling'} onClick={() => {
                         void uninstallAgentUi(agent.id).then(() => {
                           if (selectedPythonAgent === agent.id) setSelectedPythonAgent(null)
@@ -2636,12 +2642,23 @@ function App() {
             ref={extensionsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'extensions' ? ' active' : ''}`}
             type="button"
-            aria-label="Agents"
+            aria-label="模型商店"
             aria-pressed={shellPage === 'extensions'}
-            data-tooltip="Agents"
+            data-tooltip="模型商店"
             onClick={shellPage === 'extensions' ? leaveShellPage : openExtensions}
           >
             <ShoppingBag size={18} />
+          </button>
+          <button
+            ref={agentCatalogTriggerRef}
+            className={`sidebar-dock-button${shellPage === 'agent-catalog' ? ' active' : ''}`}
+            type="button"
+            aria-label="Agents"
+            aria-pressed={shellPage === 'agent-catalog'}
+            data-tooltip="Agents"
+            onClick={shellPage === 'agent-catalog' ? leaveShellPage : openAgentCatalog}
+          >
+            <Bot size={18} />
           </button>
           {extensionWorkbenchEnabled && (
             <button
@@ -2789,7 +2806,9 @@ function App() {
           <div className="topbar-title">
             <span>
               {shellPage === 'extensions'
-                ? 'Agents'
+                ? '模型商店'
+                : shellPage === 'agent-catalog'
+                  ? 'Agents'
                 : shellPage === 'extension-workbench'
                   ? t(extensionWorkbenchPageLabels[extensionWorkbenchPage])
                   : shellPage === 'settings'
@@ -2822,6 +2841,27 @@ function App() {
             }
           >
           {shellPage === 'extensions' && (
+            <ExtensionModelStoreView
+              catalogKind="models"
+              plugins={plugins}
+              modelBindings={modelBindings}
+              runtime={runtime}
+              catalog={catalog}
+              apiModelCatalog={apiModelCatalog}
+              customApiModels={customApiModels}
+              installedCloudModelIds={installedCloudModelIds}
+              onConfigureProvider={notifyModelStoreProviderConfiguration}
+              onRefreshModels={refreshModelStore}
+              onInstallModel={installModelStoreModel}
+              onInstallModelDependency={installModelStoreDependency}
+              onRestoreModel={restoreModelStoreModel}
+              onUninstallModel={uninstallModelStoreModel}
+              onSetModelBinding={saveModelDependencyBinding}
+              onCloudModelInstalled={setCloudModelInstalled}
+              onAction={notify}
+            />
+          )}
+          {shellPage === 'agent-catalog' && (
             <AgentCatalogView
               agents={agentCatalog}
               installations={pythonAgents}
