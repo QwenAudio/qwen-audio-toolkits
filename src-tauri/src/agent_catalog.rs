@@ -35,7 +35,9 @@ pub struct AgentCatalogEntry {
 fn valid_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 100
-        && id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'.')
+        && id
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'.')
         && !id.starts_with('.')
         && !id.contains("..")
 }
@@ -45,10 +47,7 @@ fn safe_repository_path(path: &str) -> bool {
         && path.starts_with("agents/")
         && path.ends_with(".tar")
         && path.split('/').all(|segment| {
-            !segment.is_empty()
-                && segment != "."
-                && segment != ".."
-                && !segment.contains('\\')
+            !segment.is_empty() && segment != "." && segment != ".." && !segment.contains('\\')
         })
 }
 
@@ -92,7 +91,9 @@ fn validate_catalog(mut catalog: AgentCatalog) -> Result<AgentCatalog, String> {
             return Err("Agent 目录包含无效条目".into());
         }
     }
-    catalog.agents.sort_by(|left, right| left.name.cmp(&right.name));
+    catalog
+        .agents
+        .sort_by(|left, right| left.name.cmp(&right.name));
     Ok(catalog)
 }
 
@@ -132,7 +133,10 @@ async fn download_limited(url: reqwest::Url, limit: u64) -> Result<Vec<u8>, Stri
         .map_err(|error| format!("无法读取 ModelScope Agent 文件: {error}"))?
         .error_for_status()
         .map_err(|error| format!("ModelScope Agent 请求失败: {error}"))?;
-    if response.content_length().is_some_and(|length| length > limit) {
+    if response
+        .content_length()
+        .is_some_and(|length| length > limit)
+    {
         return Err("Agent 文件超过大小限制".into());
     }
     let mut bytes = Vec::new();
@@ -181,8 +185,11 @@ fn cache_catalog(app: &AppHandle, catalog: &AgentCatalog) -> Result<(), String> 
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
     let temporary = path.with_extension("tmp");
-    fs::write(&temporary, serde_json::to_vec(catalog).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())?;
+    fs::write(
+        &temporary,
+        serde_json::to_vec(catalog).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
     fs::rename(temporary, path).map_err(|error| error.to_string())
 }
 
@@ -219,7 +226,10 @@ pub async fn download_agent_package(
         .ok_or("该 Agent 不在受信任的 ModelScope 目录中")?;
     let bytes = download_limited(repository_url(&entry.archive)?, MAX_PACKAGE_BYTES).await?;
     let digest = Sha256::digest(&bytes);
-    let actual = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let actual = digest
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
     if actual != entry.sha256 {
         return Err("Agent 包校验失败，下载内容与目录声明不一致".into());
     }

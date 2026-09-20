@@ -977,7 +977,8 @@ pub async fn agent_ui_install(
         return Ok(record);
     }
     let (catalog_entry, bytes) = crate::agent_catalog::download_agent_package(&app, &id).await?;
-    let provider_env = crate::harness::python_agent_provider_env(&app, catalog_entry.provider.as_deref())?;
+    let provider_env =
+        crate::harness::python_agent_provider_env(&app, catalog_entry.provider.as_deref())?;
     let state = runtime.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let operation = state.agent_lock(&id)?;
