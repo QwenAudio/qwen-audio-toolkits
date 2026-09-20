@@ -8230,30 +8230,13 @@ fn timestamp_millis() -> u64 {
         .unwrap_or(0)
 }
 
-// Share the configured provider only with the built-in independent Bailian projects.
+// An Agent receives cloud credentials only when its verified catalog entry declares
+// the matching provider. Local-only projects never inherit account secrets.
 pub(crate) fn python_agent_provider_env(
     app: &AppHandle,
-    id: &str,
+    provider: Option<&str>,
 ) -> Result<Vec<(String, String)>, String> {
-    if !matches!(
-        id,
-        "bailian-cosyvoice-v2"
-            | "bailian-cosyvoice-v3-plus"
-            | "bailian-cosyvoice-v35-flash"
-            | "bailian-cosyvoice-v35-plus"
-            | "bailian-fun-audio-denoising"
-            | "bailian-funasr-8k-realtime"
-            | "bailian-funasr-realtime"
-            | "bailian-paraformer-8k-realtime-v2"
-            | "bailian-paraformer-realtime-v2"
-            | "bailian-qwen-audio-asr-filetrans"
-            | "bailian-qwen-audio-asr-flash"
-            | "bailian-qwen-audio-tts"
-            | "bailian-qwen-audio-tts-plus"
-            | "bailian-qwen3-asr"
-            | "bailian-qwen36-plus"
-            | "bailian-qwen37-plus"
-    ) {
+    if provider != Some("bailian") {
         return Ok(vec![]);
     }
     let config = read_bailian_provider_config(app)?;

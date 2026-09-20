@@ -1,6 +1,6 @@
 mod acp;
 mod advanced_models;
-mod agent_server;
+mod agent_catalog;
 mod agent_ui;
 mod agents;
 mod asr;
@@ -820,7 +820,6 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            agent_server::agent_server_status,
             acp::acp_list_providers,
             acp::acp_start_session,
             acp::acp_send_prompt,
@@ -829,6 +828,7 @@ pub fn run() {
             acp::acp_respond_question,
             acp::acp_respond_plan_approval,
             acp::acp_finish_session,
+            agent_catalog::agent_catalog_list,
             agent_ui::agent_ui_open,
             agent_ui::agent_ui_install,
             agent_ui::agent_ui_installed,
