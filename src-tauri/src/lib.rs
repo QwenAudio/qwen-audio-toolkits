@@ -76,8 +76,12 @@ use system_audio::{
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
-use video_editor::{analyze_cut_boundaries, export_smart_cut, prepare_video_media, video_editor_status};
-use video_translation::{cancel_video_translation, start_video_translation, VideoTranslationRuntime};
+use video_editor::{
+    analyze_cut_boundaries, export_smart_cut, prepare_video_media, video_editor_status,
+};
+use video_translation::{
+    cancel_video_translation, start_video_translation, VideoTranslationRuntime,
+};
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
 
