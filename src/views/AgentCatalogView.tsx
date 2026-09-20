@@ -40,7 +40,7 @@ export function AgentCatalogView({
     <header className="agent-catalog-heading">
       <div>
         <h1 id="agent-catalog-title">Agent 目录</h1>
-        <p>从 QwenAudio ModelScope 仓库安装。已安装的 Agent 可离线运行。</p>
+        <p>安装后可离线运行，并会出现在左侧栏，随时继续对话。</p>
       </div>
       <button className="secondary-action" type="button" disabled={refreshing} onClick={onRefresh}>
         {refreshing ? '正在刷新…' : '刷新目录'}
@@ -51,7 +51,7 @@ export function AgentCatalogView({
     </div>}
     {visible.length === 0 ? <div className="model-empty-conversation">
       <h2>{refreshing ? '正在读取 Agent 目录…' : '暂时没有可安装的 Agent'}</h2>
-      <p>发布 Agent 后，将其打包到同一 ModelScope 仓库的 agents/ 目录并更新 catalog.json。</p>
+      <p>新的 Agent 发布后会出现在这里。</p>
     </div> : <div className="agent-catalog-grid">
       {visible.map((entry) => {
         const installation = stateFor(entry, installations)

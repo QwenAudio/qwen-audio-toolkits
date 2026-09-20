@@ -125,8 +125,13 @@ assert.match(
 )
 assert.match(
   appSource,
-  /shellPage === 'extensions' && \(\s*<AgentCatalogView\s+agents=\{agentCatalog\}/u,
-  'the ModelScope Agent catalog route must remain available from the boss shell',
+  /shellPage === 'extensions' && \(\s*<ExtensionModelStoreView\s+catalogKind="models"/u,
+  'the model store must remain available as its own shell page',
+)
+assert.match(
+  appSource,
+  /shellPage === 'agent-catalog' && \(\s*<AgentCatalogView\s+agents=\{agentCatalog\}/u,
+  'the ModelScope Agent catalog must remain separate from the model store',
 )
 assert.match(
   appSource,

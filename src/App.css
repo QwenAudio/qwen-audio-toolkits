@@ -9878,32 +9878,6 @@ body.detail-resizing .model-workspace {
   height: 26px;
   min-height: 26px;
 }
-/* Agent projects share the extension catalog's layout and theme. */
-.agent-catalog-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 20px 20px 8px;
-}
-.agent-catalog-heading h1 { margin: 0 0 6px; font-size: 22px; }
-.agent-catalog-heading p { margin: 0; font-size: 12px; opacity: .65; line-height: 1.6; }
-.agent-catalog-heading button { flex-shrink: 0; }
-.agent-project-card { margin: 16px 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
-.agent-project-card header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.agent-project-card header span { font-size: 11px; opacity: .6; }
-.agent-project-card p { font-size: 12px; line-height: 1.7; }
-.agent-project-card dl { margin: 14px 0; font-size: 12px; }
-.agent-project-card dl > div { display: grid; grid-template-columns: 82px minmax(0, 1fr); gap: 8px; padding: 5px 0; }
-.agent-project-card dt { opacity: .6; }
-.agent-project-card dd { margin: 0; overflow-wrap: anywhere; }
-.agent-project-boundary { opacity: .65; }
-.agent-usage h3 { margin: 14px 0 6px; font-size: 12px; }
-.agent-usage ul { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.8; }
-
-.agent-import-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-
-
 .native-titlebar-enabled .agent-browser-toolbar { padding-top: 48px; }
 .agent-browser { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
 .agent-browser-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; border-bottom: 1px solid var(--line); }
@@ -10053,6 +10027,10 @@ body.detail-resizing .model-workspace {
 }
 
 .model-view-container.page-settings { background: var(--surface-soft); }
+.model-view-container.page-agent-catalog {
+  overflow: auto;
+  background: var(--surface-raised);
+}
 .settings-page { margin: 0; padding-top: 30px; }
 .settings-page .settings-card .settings-row + .settings-row { border-top-style: dashed; }
 .settings-page .settings-card { border-color: color-mix(in srgb, var(--line) 75%, transparent); }
@@ -10073,6 +10051,7 @@ body.detail-resizing .model-workspace {
 .agent-catalog-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
 .agent-catalog-heading h1 { margin: 0 0 7px; font-size: 24px; }
 .agent-catalog-heading p { margin: 0; color: var(--muted-text, #77808d); font-size: 13px; }
+.agent-catalog-heading button { flex: 0 0 auto; }
 .agent-catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .agent-catalog-card { display: flex; min-height: 190px; flex-direction: column; justify-content: space-between; border: 1px solid var(--border, #e2e5ea); border-radius: 14px; background: var(--surface, #fff); padding: 18px; }
 .agent-catalog-card h2 { margin: 9px 0 7px; font-size: 16px; }
@@ -10082,3 +10061,11 @@ body.detail-resizing .model-workspace {
 .agent-catalog-meta span { border-radius: 999px; background: var(--sidebar-hover, #f3f4f6); padding: 3px 7px; }
 .agent-catalog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .agent-catalog-notice { display: flex; gap: 10px; margin-bottom: 16px; border: 1px solid #ecdcae; border-radius: 10px; background: #fff9e6; padding: 11px 13px; color: #745a0b; font-size: 13px; }
+@media (max-width: 560px) {
+  .agent-catalog { width: 100%; padding: 22px 18px 36px; }
+  .agent-catalog-heading { flex-wrap: wrap; gap: 12px; margin-bottom: 18px; }
+  .agent-catalog-heading h1 { font-size: 21px; }
+  .agent-catalog-grid { grid-template-columns: 1fr; }
+  .agent-catalog-card { min-height: 0; padding: 15px; }
+  .agent-catalog-notice { flex-direction: column; gap: 4px; }
+}
