@@ -3,7 +3,7 @@ import { registerWorkspaceController, getWorkspaceController, type WorkspaceEdit
 import { exactWorkspaceCommand, parseWorkspaceAgentPlan, runWorkspaceAgentRequest, validateWorkspaceArguments, workspacePlannerPrompt } from '../src/services/workspaceAgent'
 
 const state: WorkspaceEditorState = {
-  mode: 'smart-cut', revision: '0', busy: false, context: { includeSubtitles: true, text: 'source data' },
+  mode: 'ai-podcast', revision: '0', busy: false, context: { includeSubtitles: true, text: 'source data' },
   actions: [
     { name: 'cut.configure', description: 'Configure captions', parameters: { type: 'object', properties: { includeSubtitles: { type: 'boolean' } }, required: ['includeSubtitles'], additionalProperties: false }, quickCommands: [{ text: '关闭字幕', args: { includeSubtitles: false } }] },
     { name: 'cut.fail', description: 'Fail', parameters: { type: 'object', properties: {}, additionalProperties: false } },

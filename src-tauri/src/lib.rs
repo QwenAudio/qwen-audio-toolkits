@@ -18,7 +18,6 @@ mod process_tree;
 mod system_audio;
 mod tts;
 mod vad;
-mod video_editor;
 mod video_translation;
 mod wetext;
 mod workspace_storage;
@@ -77,9 +76,6 @@ use system_audio::{
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
-use video_editor::{
-    analyze_cut_boundaries, export_smart_cut, prepare_video_media, video_editor_status,
-};
 use video_translation::{
     cancel_video_translation, start_video_translation, VideoTranslationRuntime,
 };
@@ -848,10 +844,6 @@ pub fn run() {
             read_source_document,
             export_audio_file,
             compose_podcast_audio,
-            video_editor_status,
-            prepare_video_media,
-            analyze_cut_boundaries,
-            export_smart_cut,
             start_video_translation,
             cancel_video_translation,
             plugin_runtime_catalog,

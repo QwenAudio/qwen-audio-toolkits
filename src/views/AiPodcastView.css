@@ -17,20 +17,20 @@
   min-width: 0;
 }
 
-.podcast-composer-options > label:not(.smart-cut-planner-model) {
+.podcast-composer-options > label:not(.podcast-planner-model) {
   display: inline-flex;
   min-width: 0;
   height: 28px;
   align-items: center;
-  color: var(--cut-muted);
+  color: var(--podcast-muted);
 }
 
-.podcast-composer-options > label:not(.smart-cut-planner-model) select {
+.podcast-composer-options > label:not(.podcast-planner-model) select {
   max-width: 110px;
   height: 28px;
   padding: 0 19px 0 2px;
   overflow: hidden;
-  color: var(--cut-muted);
+  color: var(--podcast-muted);
   background: transparent;
   border: 0;
   outline: 0;
@@ -364,3 +364,33 @@
 .ai-podcast-view.panel-mode .podcast-hero { margin-bottom: 18px; }
 .ai-podcast-view.panel-mode .podcast-hero h1 { font-size: 23px; }
 .ai-podcast-view.panel-mode .podcast-composer-options { flex-wrap: wrap; }
+
+
+/* Entry screen used by the podcast project. Kept here so it does not depend on
+   the removed legacy editor stylesheet. */
+.podcast-entry-view {
+  width: 100%; min-width: 0; min-height: 100%; color: var(--text-primary, #202422);
+  background: radial-gradient(circle at 22% -10%, color-mix(in srgb, var(--podcast-accent) 10%, transparent), transparent 32rem), var(--surface-base, #f7f7f5);
+}
+.podcast-entry-view.empty { display: flex; flex-direction: column; align-items: center; justify-content: safe center; min-height: 100%; gap: 14px; padding: 44px 52px; overflow-y: auto; }
+.podcast-entry-view button, .podcast-entry-view select, .podcast-entry-view textarea, .podcast-entry-view input { font: inherit; }
+.podcast-hero { width: min(650px, 100%); text-align: center; }
+.podcast-hero-icon { display: grid; place-items: center; width: 58px; height: 58px; margin: 0 auto 18px; border: 1px solid color-mix(in srgb, var(--podcast-accent) 32%, transparent); border-radius: 19px; color: var(--podcast-accent); background: color-mix(in srgb, var(--podcast-accent) 10%, transparent); box-shadow: 0 14px 34px color-mix(in srgb, var(--podcast-accent) 12%, transparent); }
+.podcast-kicker { display: block; margin-bottom: 7px; color: var(--podcast-accent); font-size: 10px; font-weight: 750; letter-spacing: .13em; }
+.podcast-hero h1 { margin: 0; font-size: clamp(30px, 4vw, 46px); font-weight: 650; letter-spacing: -.025em; }
+.podcast-hero > p { max-width: 590px; margin: 12px auto 8px; color: var(--podcast-muted); font-size: 15px; line-height: 1.75; }
+.editor-setup { display: grid; width: min(760px, 100%); gap: 11px; padding: 12px 14px; border: 1px solid var(--podcast-border); border-radius: 15px; background: var(--surface-raised, #fff); box-shadow: 0 4px 12px rgba(0, 0, 0, .045), 0 18px 48px rgba(28, 36, 32, .065); }
+.editor-setup-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 9px; }
+.editor-setup-fields > label { display: grid; min-width: 130px; gap: 5px; color: var(--podcast-muted); font-size: 11px; }
+.editor-setup-fields select { min-width: 0; height: 34px; padding: 0 8px; border: 1px solid var(--podcast-border); border-radius: 8px; color: var(--text-primary); background: var(--surface-base); }
+.podcast-document-chip { display: flex; align-items: center; width: fit-content; max-width: 100%; gap: 9px; padding: 7px 9px; border: 1px solid var(--podcast-border); border-radius: 9px; color: var(--podcast-muted); background: color-mix(in srgb, var(--podcast-accent) 6%, var(--surface-raised)); }
+.podcast-document-chip > span { display: grid; min-width: 0; gap: 1px; }
+.podcast-document-chip strong { overflow: hidden; color: var(--text-primary); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.podcast-document-chip small { font-size: 10px; }
+.podcast-document-chip button { display: grid; place-items: center; width: 24px; height: 24px; margin-left: 3px; padding: 0; border: 0; border-radius: 6px; color: var(--podcast-muted); background: transparent; cursor: pointer; }
+.podcast-document-chip button:hover { color: var(--text-primary); background: color-mix(in srgb, var(--podcast-accent) 12%, transparent); }
+.podcast-attach { display: inline-flex; min-height: 34px; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid var(--podcast-border); border-radius: 8px; color: var(--podcast-accent); background: color-mix(in srgb, var(--podcast-accent) 7%, transparent); font-size: 12px; font-weight: 650; cursor: pointer; }
+.podcast-attach:disabled { opacity: .5; cursor: default; }
+.podcast-planner-model { display: grid; min-width: 155px; gap: 5px; color: var(--podcast-muted); font-size: 11px; }
+.podcast-entry-status { width: min(760px, 100%); text-align: center; }
+@media (max-width: 680px) { .podcast-entry-view.empty { padding: 30px 18px; } .editor-setup-fields { align-items: stretch; } .editor-setup-fields > label, .podcast-planner-model { flex: 1 1 130px; } }

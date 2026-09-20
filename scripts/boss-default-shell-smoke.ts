@@ -65,7 +65,6 @@ assert.equal(
 )
 const expectedExtensionWorkbenchPages = [
   'models',
-  'smart-cut',
   'podcast',
   'meeting-notes',
   'video-dubbing',
@@ -150,7 +149,6 @@ assert.doesNotMatch(
 )
 
 for (const productView of [
-  'SmartCutView',
   'AiPodcastView',
   'MeetingNotesView',
   'VideoDubbingView',
@@ -340,7 +338,6 @@ const requiredTestStages = [
   [
     'product',
     [
-      'scripts/smart-cut-smoke.ts',
       'scripts/podcast-smoke.ts',
       'scripts/podcast-audio-smoke.ts',
       'scripts/meeting-commands-smoke.ts',

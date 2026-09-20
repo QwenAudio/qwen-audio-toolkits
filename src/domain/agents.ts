@@ -1,5 +1,4 @@
 export type AgentCreationMode =
-  | 'smart-cut'
   | 'ai-podcast'
   | 'video-dubbing'
   | 'meeting-notes'

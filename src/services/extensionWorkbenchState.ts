@@ -3,7 +3,6 @@ export const EXTENSION_WORKBENCH_STORAGE_KEY =
 
 export type ExtensionWorkbenchPage =
   | 'models'
-  | 'smart-cut'
   | 'podcast'
   | 'meeting-notes'
   | 'video-dubbing'
@@ -12,7 +11,6 @@ export const extensionWorkbenchPageLabels: Readonly<
   Record<ExtensionWorkbenchPage, string>
 > = {
   models: '模型',
-  'smart-cut': '智能剪辑',
   podcast: '播客',
   'meeting-notes': '会议纪要',
   'video-dubbing': '视频配音',
@@ -20,7 +18,6 @@ export const extensionWorkbenchPageLabels: Readonly<
 
 const ENABLED_EXTENSION_WORKBENCH_PAGES: readonly ExtensionWorkbenchPage[] = [
   'models',
-  'smart-cut',
   'podcast',
   'meeting-notes',
   'video-dubbing',

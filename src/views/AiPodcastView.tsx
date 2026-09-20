@@ -52,7 +52,6 @@ import type {
   TextGenerateResult,
   TtsGenerateResult,
 } from '../types'
-import './SmartCutView.css'
 import './AiPodcastView.css'
 
 type PodcastStage =
@@ -751,16 +750,16 @@ export function AiPodcastView({
       )
     }
     return (
-      <main className={`smart-cut-view ai-podcast-view empty${panelMode ? ' panel-mode' : ''}`}>
-        <section className="smart-cut-hero podcast-hero">
-          <div className="smart-cut-hero-icon podcast-hero-icon"><Radio size={27} strokeWidth={1.55} /></div>
-          <span className="smart-cut-kicker podcast-kicker">AI PODCAST</span>
+      <main className={`ai-podcast-view podcast-entry-view empty${panelMode ? ' panel-mode' : ''}`}>
+        <section className="podcast-hero">
+          <div className="podcast-hero-icon"><Radio size={27} strokeWidth={1.55} /></div>
+          <span className="podcast-kicker">AI PODCAST</span>
           <h1>{t('AI 播客')}</h1>
           <p>{t('上传论文或文档，先生成可以复核的主持人与嘉宾对话，再用两种音色合成为完整音频。')}</p>
         </section>
         <section className="editor-setup">
           {source && (
-            <div className="smart-cut-video-attachment podcast-document-chip">
+            <div className="podcast-document-chip">
               <FileText size={18} />
               <span>
                 <strong>{source.fileName}</strong>
@@ -772,10 +771,10 @@ export function AiPodcastView({
             </div>
           )}
           <div className="editor-setup-fields">
-            <button className="smart-cut-attach-button podcast-attach" type="button" disabled={busy} onClick={() => void chooseDocument()}>
+            <button className="podcast-attach" type="button" disabled={busy} onClick={() => void chooseDocument()}>
               <Paperclip size={15} /> <span>{source ? t('替换文档') : t('上传文档')}</span>
             </button>
-            {!onGenerateText && (<label className="smart-cut-planner-model">
+            {!onGenerateText && (<label className="podcast-planner-model">
               <span>{t('文本生成模型')}</span>
               <select value={selectedLlmId} disabled={busy} onChange={(event) => setSelectedLlmId(event.target.value)}>
                 {selectedLlmId && !selectedLlm && <option value={selectedLlmId}>{t('已保存的模型暂不可用')}</option>}
@@ -812,7 +811,7 @@ export function AiPodcastView({
           </div>
         </section>
 
-        <section className="smart-cut-entry-status podcast-entry-status">
+        <section className="podcast-entry-status">
           {busy && <p className="podcast-status">{stageMessage(stage, progress.completed, progress.total)}</p>}
           {!onGenerateText && !llmModels.length && (
             <button className="podcast-store-link" type="button" onClick={onOpenStore}>{t('前往模型商店安装或配置 LLM')}</button>

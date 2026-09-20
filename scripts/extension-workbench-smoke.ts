@@ -39,7 +39,6 @@ assert.deepEqual(writes, [
 assert.deepEqual(extensionWorkbenchPages(false), [])
 assert.deepEqual(extensionWorkbenchPages(true), [
   'models',
-  'smart-cut',
   'podcast',
   'meeting-notes',
   'video-dubbing',
@@ -49,7 +48,6 @@ assert.equal(resolveExtensionWorkbenchPage(false, null), null)
 assert.equal(resolveExtensionWorkbenchPage(true, 'unknown'), 'models')
 assert.equal(resolveExtensionWorkbenchPage(true, null), 'models')
 assert.equal(resolveExtensionWorkbenchPage(true, 'models'), 'models')
-assert.equal(resolveExtensionWorkbenchPage(true, 'smart-cut'), 'smart-cut')
 assert.equal(resolveExtensionWorkbenchPage(true, 'podcast'), 'podcast')
 assert.equal(resolveExtensionWorkbenchPage(true, 'meeting-notes'), 'meeting-notes')
 assert.equal(resolveExtensionWorkbenchPage(true, 'video-dubbing'), 'video-dubbing')
@@ -147,7 +145,6 @@ assert.match(
 )
 
 for (const [viewName, projectId] of [
-  ['SmartCutView', 'extension-smart-cut'],
   ['AiPodcastView', 'extension-ai-podcast'],
   ['MeetingNotesView', 'extension-meeting-notes'],
   ['VideoDubbingView', 'extension-video-dubbing'],

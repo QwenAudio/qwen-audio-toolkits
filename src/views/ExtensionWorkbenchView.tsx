@@ -2,7 +2,6 @@ import { ArrowLeft } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { AiPodcastView } from './AiPodcastView'
 import { MeetingNotesView } from './MeetingNotesView'
-import { SmartCutView } from './SmartCutView'
 import { VideoDubbingView } from './VideoDubbingView'
 import { t } from '../i18n'
 import {
@@ -97,17 +96,6 @@ export function ExtensionWorkbenchView({
   const content =
     page === 'models' ? (
       children
-    ) : page === 'smart-cut' ? (
-      <SmartCutView
-        projectId="extension-smart-cut"
-        initialInstruction=""
-        models={context.models}
-        catalog={context.catalog}
-        onRunAudio={context.runAudio}
-        onRunText={context.runText}
-        onOpenStore={context.openModelStore}
-        onAction={context.notify}
-      />
     ) : page === 'podcast' ? (
       <AiPodcastView
         projectId="extension-ai-podcast"

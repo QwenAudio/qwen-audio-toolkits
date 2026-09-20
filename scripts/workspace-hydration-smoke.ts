@@ -31,7 +31,6 @@ assert.match(
 )
 
 for (const [viewName, projectId] of [
-  ['SmartCutView', 'extension-smart-cut'],
   ['AiPodcastView', 'extension-ai-podcast'],
   ['MeetingNotesView', 'extension-meeting-notes'],
   ['VideoDubbingView', 'extension-video-dubbing'],

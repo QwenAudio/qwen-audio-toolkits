@@ -693,9 +693,6 @@ async function setup() {
     }
   });
 
-  function render(parent, c, v, context = "message") {
-    return ToolkitsContent.render(parent, ToolkitsContent.content(c, v), context);
-  }
   const resizeHandle = $("detail-resize");
   const detailPanel = $("result-detail");
   const workspace = document.querySelector(".agent-workspace");
@@ -748,7 +745,6 @@ async function setup() {
     button.setAttribute("aria-label", "打开实时字幕");
     button.onclick = () => { captionTarget = reply; sendCaption("open", reply); };
   }
-  let selectedReply;
   const completedTurns = new Map();
   let historySave = Promise.resolve();
   function saveHistory() {
@@ -787,7 +783,6 @@ async function setup() {
     if (!record.outputs) element("p", content, record.error || "上次处理已中断，请重新提交").className = "error";
   }
   function showDetail(block, section) {
-    selectedReply = section;
     document.querySelector(".agent-workspace").classList.add("detail-open");
     $("result-detail").hidden = false;
     $("detail-content").replaceChildren();
@@ -806,7 +801,6 @@ async function setup() {
     }
   }
   $("close-detail").onclick = () => {
-    selectedReply = null;
     $("result-detail").hidden = true;
     document.querySelector(".agent-workspace").classList.remove("detail-open");
     document.querySelectorAll(".result.selected").forEach(item => item.classList.remove("selected"));

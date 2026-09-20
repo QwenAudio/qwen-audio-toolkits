@@ -38,7 +38,7 @@ const repaired = ensureWorkspaceTaskLink({ ...workspace, sourceTaskId: 'missing-
 assert.equal(repaired.conversation.sourceTaskId, seed.taskId, 'A deleted or missing source conversation needs a new usable link')
 assert.equal(ensureWorkspaceTaskLink({ ...workspace, mode: 'agent-chat' }, [], seed)?.task.messages[0]?.content, workspace.prompt)
 
-for (const mode of ['smart-cut', 'ai-podcast', 'video-dubbing'] as const) {
+for (const mode of ['ai-podcast', 'video-dubbing'] as const) {
   const project: AgentConversation = {
     ...workspace, mode, sourcePath: '/素材/访谈.mp4',
     videoDubbingMode: 'rewrite', videoDubbingLanguages: { source: 'zh', target: 'en' }, videoDubbingStyle: 'casual',
