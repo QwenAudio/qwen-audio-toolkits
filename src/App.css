@@ -6527,15 +6527,15 @@ never clipped by the sidebar. */
   background: #3b82f6;
 }
 .model-app-frame {
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: 48px minmax(0, 1fr);
 }
 .model-app-frame {
   margin-left: var(--model-content-offset, 0px);
   transition: margin-left 320ms ease;
 }
 .model-topbar {
-  display: none;
-  min-height: 45px;
+  display: flex;
+  min-height: 48px;
   background: var(--surface);
 }
 .model-topbar .topbar-title {
