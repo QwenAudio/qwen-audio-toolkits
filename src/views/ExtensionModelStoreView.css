@@ -1,5 +1,11 @@
 .extension-model-store {
+  display: grid;
+  height: 100%;
   min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 22px 28px 26px;
+  overflow: hidden;
   color: var(--ink, #1f2925);
 }
 
@@ -11,19 +17,10 @@
 
 .extension-model-store__heading {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 4px 2px 18px;
-}
-
-.extension-model-store__eyebrow {
-  margin: 0 0 4px;
-  color: var(--primary, #4c7e6c);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  padding: 0 2px;
 }
 
 .extension-model-store__heading h2,
@@ -54,7 +51,7 @@
 
 .extension-model-store__layout {
   display: grid;
-  min-height: 530px;
+  min-height: 0;
   grid-template-columns: minmax(340px, 1fr) minmax(300px, 0.72fr);
   overflow: hidden;
   background: var(--surface, #fff);
@@ -65,11 +62,13 @@
 .extension-model-store__catalog,
 .extension-model-store__details {
   min-width: 0;
+  min-height: 0;
   padding: 16px;
 }
 
 .extension-model-store__catalog {
   display: flex;
+  min-height: 0;
   flex-direction: column;
   gap: 12px;
   border-right: 1px solid var(--line, #dce5df);
@@ -164,6 +163,7 @@
 
 .extension-model-store__list {
   display: grid;
+  flex: 1;
   min-height: 0;
   overflow: auto;
   border-top: 1px solid var(--line, #dce5df);
@@ -353,7 +353,14 @@
 }
 
 @media (max-width: 840px) {
+  .extension-model-store {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
   .extension-model-store__layout {
+    min-height: 0;
     grid-template-columns: 1fr;
   }
 
@@ -368,6 +375,10 @@
 }
 
 @media (max-width: 560px) {
+  .extension-model-store {
+    padding: 18px;
+  }
+
   .extension-model-store__heading,
   .extension-model-store__model {
     display: flex;

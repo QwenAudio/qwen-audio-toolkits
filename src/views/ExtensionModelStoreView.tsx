@@ -427,8 +427,7 @@ export function ExtensionModelStoreView({
     <section className="extension-model-store" data-catalog-kind={catalogKind}>
       <header className="extension-model-store__heading">
         <div>
-          <p className="extension-model-store__eyebrow">{t('扩展工作台')}</p>
-          <h2>{t('模型商店')}</h2>
+          <h2>{t('模型与运行环境')}</h2>
           <p>{t('识别、合成、降噪、声纹和云端 API，组成技能可调用的基础能力。')}</p>
         </div>
         <span className="extension-model-store__count" role="status">
