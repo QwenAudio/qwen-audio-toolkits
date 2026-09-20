@@ -679,3 +679,13 @@ footer { background: linear-gradient(0deg, #fff 85%, #ffffff00); }
 .caption-output-button { position:absolute; right:30px; top:0; width:24px; height:24px; padding:0; display:grid; place-items:center; border:0; border-radius:6px; background:transparent; color:var(--muted); }
 .caption-output-button svg { width:15px; height:15px; }
 .caption-output-button:hover { background:#e4eee8; }
+
+.video-input-card > label { display: none; }
+.video-input-card video, .result[data-kind="video"] video { display: block; width: min(100%, 640px); max-height: 360px; border-radius: 12px; background: #101614; }
+.video-input-card { display: grid; gap: 10px; }
+.video-actions { display: flex; align-items: center; gap: 8px; }
+.video-upload-button, .video-remove { font-size: 13px; padding: 7px 11px; }
+.video-empty-hint, .video-empty, .video-error { margin: 0; color: var(--muted); font-size: 13px; }
+.video-input-card small, .result[data-kind="video"] small { color: var(--muted); overflow-wrap: anywhere; }
+.message.user:has(.video-message-row) { width: min(640px, 88%); }
+.video-message-row .result-inspect { flex: 0 0 auto; white-space: nowrap; }
