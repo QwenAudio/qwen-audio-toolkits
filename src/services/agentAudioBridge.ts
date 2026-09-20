@@ -5,15 +5,15 @@ import { pcm16ChunksToWavFile } from '../utils/audio'
 
 /** Restrict capture requests to the registry-bound local Agent frame. */
 export function attachAgentAudioBridge({
-  uiId,
+  id,
   session,
   frame,
 }: {
-  uiId: string
+  id: string
   session: AgentUiSession
   frame: HTMLIFrameElement
 }) {
-  agentInstallRegistry.assertSession(uiId, session)
+  agentInstallRegistry.assertSession(id, session)
   const origin = new URL(session.url).origin
   frame.contentWindow?.postMessage({ type: 'toolkits-host-ready' }, origin)
   let sessionId: string | null = null

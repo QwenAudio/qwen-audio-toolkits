@@ -42,15 +42,15 @@ SDK 不要求业务函数继承任何基类，不要求顶层 `app` 变量。函
 
 `AudioValue.path` 是请求期间的临时文件，另有 `name` 和 `mime_type`。回调结束并序列化输出后会删除临时文件；需要长期保存时由业务代码自行复制。每个音频最大 32 MiB，HTTP 请求最大 48 MiB（包括 base64 开销）。当前 UI 一次只运行一个请求，回调异常显示为错误文本。
 
-## 桌面 Agents 页面
+## 桌面 Agent 目录
 
-Agents 页面直接嵌入 Agent Server 网站。在独立 Python 项目页点击“安装”，Toolkits 下载 Git 提交中的项目文件到应用管理的本地目录，自动创建独立 Python 环境、安装 requirements.txt / pyproject.toml 依赖、注入内置 SDK，并调用可选的 prepare() 下载模型和运行时。成功后在首页选择 Agent，动态调用 agent_ui.py:create_ui() 展示界面。用户不需要选择项目文件夹，开发者无需再编写桌面接入代码。
+桌面应用直接读取 QwenAudio-Toolkits ModelScope 仓库中的 `agents/catalog.json`。目录条目包含项目包路径、版本和 SHA-256；点击“安装”后，Toolkits 下载并校验归档，再写入应用管理的本地目录，创建独立 Python 环境、安装 requirements.txt / pyproject.toml、注入内置 SDK，并调用可选的 prepare() 下载模型和运行时。成功后在首页选择 Agent，动态调用 `agent_ui.py:create_ui()` 展示界面。
 
-SDK 随桌面应用内置。当前环境准备使用本机 uv（macOS 支持 PATH、~/.local/bin、Homebrew 安装）；uv 可自动准备 Python 3.12。项目依赖变更后，下次打开会重新安装。pyproject.toml 项目以 editable 方式安装，因此支持 src 等自由目录布局。当前支持下载 Agent Server 已挂载 Git 项目的提交快照；仅登记仓库地址、尚未提供项目源码包的条目暂不可安装。
+SDK 随桌面应用内置。当前环境准备使用本机 uv（macOS 支持 PATH、~/.local/bin、Homebrew 安装）；uv 可自动准备 Python 3.12。项目依赖变更后，下次打开会重新安装。pyproject.toml 项目以 editable 方式安装，因此支持 src 等自由目录布局。
 
-桌面默认连接 http://127.0.0.1:8787，可通过 QWEN_AUDIO_AGENT_SERVER_URL 指定 HTTPS 站点。网站仅传入 Agent ID，桌面校验消息来源与窗口，不接受网页提供的文件路径或命令。首次项目选择通过原生文件夹对话框完成。
+远程目录只用于浏览、安装和更新。Agent 包安装完成后从本地项目目录启动，离线时仍可处理本地文件。目录出现不同 SHA-256 时提示用户显式更新；更新失败保留旧版本。远程页面不参与桌面安装或本地能力调用。
 
-SDK 独立启动默认禁止 iframe 嵌入；由桌面启动时通过 --desktop 仅允许 Tauri 和本机开发来源。Agent UI 在独立的本机来源中展示，不获得 Tauri API 权限。关闭 Agent 界面、离开 Agents 页面或退出应用时，Toolkits 回收启动的 Python 进程。启动与依赖错误记录在应用数据目录 agent-environments/<id>/runtime.log。
+SDK 独立启动默认禁止 iframe 嵌入；由桌面启动时通过 --desktop 仅允许 Tauri 和本机开发来源。Agent UI 在独立的本机来源中展示，不获得 Tauri API 权限。关闭 Agent 界面、离开页面或退出应用时，Toolkits 回收启动的 Python 进程。启动与依赖错误记录在应用数据目录 `agent-environments/<id>/runtime.log`。
 
 当前不包含 IDE、在线代码编辑、任意远程仓库克隆、热重载、流式输出或 Python 代码沙箱。运行的 Agent 具有当前用户的 Python 进程权限。
 

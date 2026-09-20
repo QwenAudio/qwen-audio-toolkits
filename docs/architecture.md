@@ -25,8 +25,7 @@ The React frontend lives in `src/`:
   state.
 - `views/ModelWorkspaceView.tsx` renders the conversation and capability-aware
   input controls.
-- `views/PluginsView.tsx` renders the model catalog, installation state, model
-  variants, and dependency bindings.
+- `views/AgentCatalogView.tsx` renders Agent entries from the ModelScope resource catalog and their local installation state.
 - `components/` contains shared waveform, spectrogram, recording, drop-zone,
   and playback controls.
 - `services/harness.ts` is the typed boundary for frontend-to-Rust calls.

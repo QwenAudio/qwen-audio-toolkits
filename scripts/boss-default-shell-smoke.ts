@@ -125,8 +125,8 @@ assert.match(
 )
 assert.match(
   appSource,
-  /shellPage === 'extensions' && \(\s*<PluginsView\s+agentRegistry=\{agentInstallRegistry\}/u,
-  'the existing Agent catalog route must remain available from the boss shell',
+  /shellPage === 'extensions' && \(\s*<AgentCatalogView\s+agents=\{agentCatalog\}/u,
+  'the ModelScope Agent catalog route must remain available from the boss shell',
 )
 assert.match(
   appSource,
@@ -322,7 +322,7 @@ function positionOfRequiredCheck(check: string): number {
 }
 
 const requiredTestStages = [
-  ['catalog', ['scripts/agent-server-catalog-smoke.ts']],
+  ['catalog', ['scripts/agent-catalog-smoke.ts']],
   ['boss shell', ['scripts/boss-default-shell-smoke.ts']],
   [
     'workbench/model',
