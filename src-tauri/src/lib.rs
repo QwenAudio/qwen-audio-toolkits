@@ -13,10 +13,13 @@ mod harness;
 mod macos_window_smoke;
 mod onnx_audio;
 mod plugins;
+mod podcast_audio;
 mod process_tree;
 mod system_audio;
 mod tts;
 mod vad;
+mod video_editor;
+mod video_translation;
 mod wetext;
 
 use asr::AsrRuntime;
@@ -52,6 +55,7 @@ use plugins::{
     plugin_set_download_paused, plugin_set_sidebar_visible, plugin_uninstall, DependencyBindings,
     PluginDescriptor, PluginInstallRequest,
 };
+use podcast_audio::compose_podcast_audio;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -72,6 +76,8 @@ use system_audio::{
 use tauri::menu::{Menu, MenuItem, MenuItemKind, PredefinedMenuItem};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tts::{generate_speech, tts_model_status, TtsRuntime};
+use video_editor::{analyze_cut_boundaries, export_smart_cut, prepare_video_media, video_editor_status};
+use video_translation::{cancel_video_translation, start_video_translation, VideoTranslationRuntime};
 
 const API_ADDRESS: &str = "127.0.0.1:3847";
 
@@ -721,6 +727,7 @@ pub fn run() {
         .manage(CloseBehavior(AtomicBool::new(false)))
         .manage(SystemAudioRuntime::new())
         .manage(agent_ui::AgentUiRuntime::default())
+        .manage(VideoTranslationRuntime::default())
         .setup(|app| {
             if let Err(error) = downloads::clear_completed_downloads(app.handle()) {
                 log::warn!("could not clear completed model downloads: {error}");
@@ -797,6 +804,13 @@ pub fn run() {
             agent_ui::agent_ui_uninstall,
             agent_ui::agent_ui_stop,
             runtime_status,
+            video_editor_status,
+            prepare_video_media,
+            analyze_cut_boundaries,
+            export_smart_cut,
+            compose_podcast_audio,
+            start_video_translation,
+            cancel_video_translation,
             set_close_behavior,
             app_data_directory,
             reveal_in_file_manager,
@@ -863,6 +877,7 @@ pub fn run() {
     app.run(|app, event| {
         if let RunEvent::Exit = event {
             app.state::<agent_ui::AgentUiRuntime>().stop();
+            app.state::<VideoTranslationRuntime>().stop();
             tauri::async_runtime::block_on(acp::acp_shutdown_all(app));
         }
         #[cfg(target_os = "macos")]
