@@ -147,10 +147,10 @@ async function setup() {
               : typeof v === "object"
                 ? v.name || "已添加"
                 : (c.labels?.[v] ?? String(v));
-        if (c.kind === "audio") {
+        if (c.kind === "audio" || c.kind === "file") {
           name.textContent = v?.name
-            ? c.label || "音频"
-            : "添加" + (c.label || "音频");
+            ? c.label || (c.kind === "audio" ? "音频" : "文件")
+            : "添加" + (c.label || (c.kind === "audio" ? "音频" : "文件"));
           chip.classList.toggle("has-audio", !!v?.name);
           value.hidden = !v?.name;
         }
@@ -371,6 +371,47 @@ async function setup() {
         inputValues[i].push(c.columns.map(() => ""));
         pillUpdates.get(i)?.(inputValues[i]);
         draw();
+      };
+      return;
+    }
+    if (c.kind === "file") {
+      inputValues[i] = null;
+      s.classList.add("file-input-card");
+      const hint = element("p", s, c.required === false ? "可先在对话中说明需求；需要时再上传文件。" : "上传要交给 Agent 处理的文件。");
+      hint.className = "file-empty-hint";
+      const actions = element("div", s);
+      actions.className = "file-actions";
+      const upload = element("input", actions);
+      upload.type = "file";
+      upload.accept = c.accept || "*/*";
+      upload.hidden = true;
+      upload.setAttribute("aria-label", c.label || "上传文件");
+      const pick = element("button", actions, "上传文件");
+      pick.type = "button";
+      pick.className = "file-upload-button";
+      pick.onclick = () => upload.click();
+      const info = element("small", s);
+      const remove = element("button", s, "移除文件");
+      remove.type = "button";
+      remove.className = "file-remove";
+      remove.hidden = true;
+      const clear = () => {
+        hint.hidden = false; info.textContent = ""; remove.hidden = true; inputValues[i] = null; upload.value = "";
+      };
+      remove.onclick = clear;
+      upload.onchange = async () => {
+        const file = upload.files?.[0];
+        if (!file) return;
+        try {
+          if (file.size > 32 * 1024 * 1024) throw Error("文件不能超过 32 MiB");
+          const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file);
+          });
+          inputValues[i] = {name: file.name, mimeType: file.type || "application/octet-stream", data: String(data).split(",")[1]};
+          hint.hidden = true; remove.hidden = false;
+          info.textContent = `${file.name} · ${(file.size / 1024).toFixed(1)} KiB`;
+          pillUpdates.get(i)?.(inputValues[i]);
+        } catch (error) { clear(); status(error.message); }
       };
       return;
     }
@@ -757,7 +798,7 @@ async function setup() {
   }
   function renderInspectable(parent, block, context = "message") {
     const section = ToolkitsContent.render(parent, block, context);
-    if (context === "parameter" && block.kind !== "audio" && block.kind !== "video") return section;
+    if (context === "parameter" && block.kind !== "audio" && block.kind !== "video" && block.kind !== "file") return section;
     if (section.hidden) return section;
     if (block.kind === "audio") section.classList.add("audio-message-row");
     if (block.kind === "video") section.classList.add("video-message-row");

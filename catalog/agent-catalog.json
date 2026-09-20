@@ -10,6 +10,38 @@
       "category": "Video",
       "archive": "agents/video-editor.tar",
       "sha256": "9bfbf545995a593e5bee98931a77c9d3383454bdc44b7d7691067eb9ecc68f78"
+    },
+    {
+      "id": "video-dubbing",
+      "name": "视频配音",
+      "version": "1.0.0",
+      "publisher": "QwenAudio",
+      "description": "转写视频对白、使用百炼改写或翻译，并在本机渲染配音预览。",
+      "category": "Video",
+      "provider": "bailian",
+      "archive": "agents/video-dubbing.tar",
+      "sha256": "d4c05aed2b6ae8991a5c7050db12368969b8e0b59220ff9b1effd3fb3e880baf"
+    },
+    {
+      "id": "meeting-notes",
+      "name": "会议纪要",
+      "version": "1.0.0",
+      "publisher": "QwenAudio",
+      "description": "本地转写会议录音，并生成可核对的摘要、待办和时间线。",
+      "category": "Audio",
+      "archive": "agents/meeting-notes.tar",
+      "sha256": "e36abcd4ece32b9181ad8b8d67cecbbb42e8b4dfbd0d0825bf68bd2032d41bf5"
+    },
+    {
+      "id": "ai-podcast",
+      "name": "AI 播客",
+      "version": "1.0.0",
+      "publisher": "QwenAudio",
+      "description": "把资料转换为双人播客脚本，并在本机生成可播放音频。",
+      "category": "Audio",
+      "provider": "bailian",
+      "archive": "agents/ai-podcast.tar",
+      "sha256": "253d81bcba19a5a75f8ffec9b6b7d7acc1b1ce165bb71399ae05a59400bef446"
     }
   ]
 }

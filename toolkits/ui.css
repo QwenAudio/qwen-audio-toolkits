@@ -687,5 +687,13 @@ footer { background: linear-gradient(0deg, #fff 85%, #ffffff00); }
 .video-upload-button, .video-remove { font-size: 13px; padding: 7px 11px; }
 .video-empty-hint, .video-empty, .video-error { margin: 0; color: var(--muted); font-size: 13px; }
 .video-input-card small, .result[data-kind="video"] small { color: var(--muted); overflow-wrap: anywhere; }
+.file-input-card { display: grid; gap: 10px; padding: 14px; border: 1px dashed #cbd7c5; border-radius: 12px; background: #f8faf6; }
+.file-input-card > label { display: none; }
+.file-empty-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.file-actions { display: flex; gap: 8px; }
+.file-upload-button { border: 1px solid #d9e3d2; border-radius: 8px; padding: 8px 12px; background: #f0f5ec; color: #395133; font-size: 12px; cursor: pointer; }
+.file-remove { justify-self: start; border: 0; background: transparent; color: #6d756a; padding: 0; font-size: 12px; cursor: pointer; }
+.file-content { display: flex; align-items: center; gap: 8px; color: #4d5b47; font-size: 13px; }
+.file-content span { color: var(--muted); font-size: 12px; }
 .message.user:has(.video-message-row) { width: min(640px, 88%); }
 .video-message-row .result-inspect { flex: 0 0 auto; white-space: nowrap; }

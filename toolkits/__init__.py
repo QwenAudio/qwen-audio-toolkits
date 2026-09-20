@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 __version__ = "0.2.0"
-__all__ = ["Interface", "Audio", "StreamingAudio", "AudioStream", "Video", "Text", "Number", "Select", "Table", "AudioValue", "VideoValue", "Input", "InputGroup", "InputValue", "AudioInfo", "VideoInfo", "report_progress"]
+__all__ = ["Interface", "Audio", "StreamingAudio", "AudioStream", "Video", "File", "Text", "Number", "Select", "Table", "AudioValue", "VideoValue", "FileValue", "Input", "InputGroup", "InputValue", "AudioInfo", "VideoInfo", "report_progress"]
 
 
 @dataclass(frozen=True)
@@ -84,6 +84,29 @@ class Video(Component):
 
     def schema(self):
         return {**super().schema(), "sources": self.sources, "required": self.required}
+
+
+@dataclass(frozen=True)
+class FileValue:
+    """A request-scoped document or data file. Copy it for persistent storage."""
+    path: Path
+    name: str
+    mime_type: str
+
+
+class File(Component):
+    """A generic local file input for Agent-owned document processing."""
+    kind = "file"
+
+    def __init__(self, label="文件", *, accept="", required=True):
+        super().__init__(label)
+        if not isinstance(accept, str):
+            raise TypeError("File accept must be a string")
+        self.accept = accept
+        self.required = bool(required)
+
+    def schema(self):
+        return {**super().schema(), "accept": self.accept, "required": self.required}
 
 
 class StreamingAudio(Audio):
@@ -296,9 +319,9 @@ class Interface:
             values = flattened
         args = []
         for i, (component, value) in enumerate(zip(self._components, values)):
-            if isinstance(component, (Audio, Video)):
-                media_name = "audio" if isinstance(component, Audio) else "video"
-                if value is None and isinstance(component, Video) and not component.required:
+            if isinstance(component, (Audio, Video, File)):
+                media_name = "audio" if isinstance(component, Audio) else "video" if isinstance(component, Video) else "file"
+                if value is None and isinstance(component, (Video, File)) and not component.required:
                     args.append(None)
                     continue
                 if not isinstance(value, dict):
@@ -320,8 +343,10 @@ class Interface:
                     if not isinstance(transcript, str):
                         raise ValueError("Audio transcript must be text")
                     args.append(AudioValue(file, name, mime_type, transcript))
-                else:
+                elif isinstance(component, Video):
                     args.append(VideoValue(file, name, mime_type))
+                else:
+                    args.append(FileValue(file, name, mime_type))
             elif isinstance(component, (Number, Select, Table)):
                 args.append(component.validate(value))
             else:
