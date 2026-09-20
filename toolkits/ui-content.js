@@ -224,6 +224,11 @@
       if (block.value?.name) node('small', parent, block.value.name);
       video(parent, block.value, context);
     },
+    file(parent, block) {
+      const row = node('div', parent); row.className = 'file-content';
+      node('span', row, '文件');
+      node('strong', row, block.value?.name || '已附加文件');
+    },
     text(parent, block) { node('pre', parent, block.value ?? ''); },
     number(parent, block) { node('output', parent, block.value); },
     select(parent, block) {
@@ -260,7 +265,7 @@
     },
   };
   function render(parent, block, context = 'message') {
-    if (context === 'parameter' && block.kind !== 'audio' && block.kind !== 'video') {
+    if (context === 'parameter' && block.kind !== 'audio' && block.kind !== 'video' && block.kind !== 'file') {
       const values = Array.isArray(block.value) ? block.value : [block.value];
       const value = values.map(v => block.labels[v] ?? v ?? '').join('、');
       const tag = node('span', parent, value ? `${block.label}：${value}` : '');

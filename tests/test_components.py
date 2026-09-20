@@ -50,3 +50,15 @@ class AtomicComponentsTests(unittest.TestCase):
             self.assertEqual(ui.invoke([{'main': value}], directory), ['参考文本'])
             value['transcript'] = 123
             with self.assertRaises(ValueError): ui.invoke([{'main': value}], directory)
+
+    def test_file_roundtrip_and_optional_file(self):
+        import base64
+        import tempfile
+        ui = tk.Interface(lambda request: (request['main'].name, request['main'].path.read_text()),
+                          [{'main': tk.File('资料', accept='.txt')}], [tk.Text(), tk.Text()])
+        with tempfile.TemporaryDirectory() as directory:
+            value = {'name': '../notes.txt', 'mimeType': 'text/plain', 'data': base64.b64encode('内容'.encode()).decode()}
+            self.assertEqual(ui.invoke([{'main': value}], directory), ['notes.txt', '内容'])
+        optional = tk.Interface(lambda request: 'empty' if request['main'] is None else 'present',
+                                [{'main': tk.File(required=False)}], tk.Text())
+        self.assertEqual(optional.invoke([{'main': None}], '.'), ['empty'])

@@ -66,6 +66,13 @@ npm run tauri -- build --debug --bundles app --config src-tauri/tauri.agent-prev
 
 预览使用独立应用标识、数据目录与 `127.0.0.1:3848`，不自动更新为正式发行版本。
 
-## 发布视频剪辑 Agent
+## 发布内置媒体 Agent
 
-源码位于 `agents/video-editor/`。发布到 ModelScope 资源仓库时，将该目录归档为 `agents/video-editor.tar`，计算归档的 SHA-256 后写入本仓库的 `catalog/agent-catalog.json`，再运行 `npm run agents:repository -- /path/to/QwenAudio-Toolkits`。不要把临时归档或未经校验的摘要提交到桌面仓库。
+源码位于 `agents/`，当前发布的独立项目包括：
+
+- `video-editor`：视频剪辑与字幕；
+- `video-dubbing`：视频转写、文案改写/翻译和配音；
+- `meeting-notes`：会议音频转写、摘要与时间线；
+- `ai-podcast`：资料到双人播客脚本和音频。
+
+发布时将每个项目目录归档为 `agents/<id>.tar`，计算归档的 SHA-256 后写入本仓库的 `catalog/agent-catalog.json`，再运行 `npm run agents:repository -- /path/to/QwenAudio-Toolkits`。不要把临时归档或未经校验的摘要提交到桌面仓库。需要百炼文本能力的项目在目录条目中声明 `provider: "bailian"`；桌面只在该声明存在且用户已配置凭据时才把凭据传给 Agent。

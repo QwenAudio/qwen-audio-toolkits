@@ -53,12 +53,13 @@ inputs=[
 
 主输入按组件类型呈现；音频主输入不会出现禁用的文本框。Text 附加输入、音色等参数在发送后保留，主文本输入成功发送后清空。Ctrl/Cmd+Enter 发送。
 
-## 五个基础组件
+## 六个基础组件
 
 | 组件 | 用途与 Python 值 |
 | --- | --- |
 | `Text(label, placeholder="", value="")` | 文本；输入为 str，输出转为纯文本 |
 | `Audio(label, sources=("upload", "microphone"))` | 上传或录音；输入为 AudioValue，输出为文件路径或 AudioValue |
+| `File(label, accept=".txt,.md", required=False)` | 上传由 Agent 自己解析的文档或数据文件；输入为 FileValue |
 | `Number(label, minimum=None, maximum=None, value=None)` | 有限数值与范围校验 |
 | `Select(label, choices=[...], multiple=False, value=None)` | 单选字符串或多选字符串列表 |
 | `Table(label, columns=[...])` | 标量单元格组成的二维列表 |
@@ -69,7 +70,7 @@ inputs=[
 
 ## 文件、配置与限制
 
-AudioValue 包含 path、name、mime_type；输入文件仅在回调期间有效，长期保存需自行复制。单个音频最大 32 MiB，请求最大 48 MiB。上传不转码；录音为单声道 PCM WAV，最长五分钟。不要把 API Key 声明成普通输入，因为输入会出现在对话中；由 Agent 的运行环境提供凭据。
+AudioValue、VideoValue 和 FileValue 都包含 path、name、mime_type；输入文件仅在回调期间有效，长期保存需自行复制。单个文件最大 32 MiB，请求最大 48 MiB。上传不转码；录音为单声道 PCM WAV，最长五分钟。不要把 API Key 声明成普通输入，因为输入会出现在对话中；由 Agent 的运行环境提供凭据。
 
 SDK 绑定随机本机端口。`toolkits . --no-browser --port 9000` 可显式设置端口；`create_ui().run()` 也可启动。Toolkits 桌面自动准备项目环境并注入 SDK，开发者不用写适配器。桌面的 `--desktop` 模式仅允许指定桌面来源嵌入。
 
