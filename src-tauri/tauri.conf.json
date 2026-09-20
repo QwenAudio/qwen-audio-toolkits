@@ -77,8 +77,7 @@
           "$APPDATA/harness/source-audio/**",
           "$APPDATA/generated/**",
           "$APPDATA/processed/**",
-          "$APPDATA/recordings/**",
-          "$APPDATA/video-translations/**"
+          "$APPDATA/recordings/**"
         ]
       }
     }
@@ -87,10 +86,6 @@
     "active": true,
     "createUpdaterArtifacts": true,
     "targets": "all",
-    "resources": {
-      "../scripts/video-translation-demo.mjs": "scripts/video-translation-demo.mjs",
-      "../scripts/lib/video-dubbing": "scripts/lib/video-dubbing"
-    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
