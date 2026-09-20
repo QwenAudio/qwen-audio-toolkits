@@ -196,10 +196,33 @@
     }
     return player;
   }
+  function video(parent, value, context = 'message') {
+    if (!value) {
+      const empty = node('p', parent, context === 'detail' ? '当前还没有可预览的视频结果。' : '等待视频结果…');
+      empty.className = 'video-empty';
+      return null;
+    }
+    const player = node('video', parent);
+    player.controls = true;
+    player.preload = 'metadata';
+    player.playsInline = true;
+    const url = value.dataUrl || `data:${value.mimeType || 'video/mp4'};base64,${value.data}`;
+    if (!/^(data:video\/|blob:|https?:\/\/|\/)/i.test(url)) throw Error('Unsupported video URL');
+    player.src = url;
+    player.addEventListener('error', () => {
+      const message = node('small', parent, '无法在当前浏览器预览此视频格式。');
+      message.className = 'video-error';
+    }, {once: true});
+    return player;
+  }
   const renderers = {
     audio(parent, block, context) {
       if (context === 'detail' && block.value?.name) node('small', parent, block.value.name);
       audio(parent, block.value, context);
+    },
+    video(parent, block, context) {
+      if (block.value?.name) node('small', parent, block.value.name);
+      video(parent, block.value, context);
     },
     text(parent, block) { node('pre', parent, block.value ?? ''); },
     number(parent, block) { node('output', parent, block.value); },
@@ -228,9 +251,16 @@
         node('dd', list, typeof value === 'object' ? JSON.stringify(value) : value);
       });
     },
+    'video-info'(parent, block) {
+      const list = node('dl', parent); list.className = 'content-properties';
+      Object.entries(block.value || {}).forEach(([key, value]) => {
+        node('dt', list, key);
+        node('dd', list, typeof value === 'object' ? JSON.stringify(value) : value);
+      });
+    },
   };
   function render(parent, block, context = 'message') {
-    if (context === 'parameter' && block.kind !== 'audio') {
+    if (context === 'parameter' && block.kind !== 'audio' && block.kind !== 'video') {
       const values = Array.isArray(block.value) ? block.value : [block.value];
       const value = values.map(v => block.labels[v] ?? v ?? '').join('、');
       const tag = node('span', parent, value ? `${block.label}：${value}` : '');
@@ -246,5 +276,5 @@
     else node('pre', section, typeof block.value === 'string' ? block.value : JSON.stringify(block.value, null, 2));
     return section;
   }
-  globalThis.ToolkitsContent = { content, message, audio, render, waveformPeaks, spectrum, audioBytes };
+  globalThis.ToolkitsContent = { content, message, audio, video, render, waveformPeaks, spectrum, audioBytes };
 })();

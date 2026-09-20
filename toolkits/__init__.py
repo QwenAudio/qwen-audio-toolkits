@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 __version__ = "0.2.0"
-__all__ = ["Interface", "Audio", "StreamingAudio", "AudioStream", "Text", "Number", "Select", "Table", "AudioValue", "Input", "InputGroup", "InputValue", "AudioInfo", "report_progress"]
+__all__ = ["Interface", "Audio", "StreamingAudio", "AudioStream", "Video", "Text", "Number", "Select", "Table", "AudioValue", "VideoValue", "Input", "InputGroup", "InputValue", "AudioInfo", "VideoInfo", "report_progress"]
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,33 @@ class Audio(Component):
 
     def schema(self):
         return {**super().schema(), "sources": self.sources, "transcript": self.transcript}
+
+
+@dataclass(frozen=True)
+class VideoValue:
+    """A request-scoped video file. Copy it if it must outlive the callback."""
+    path: Path
+    name: str
+    mime_type: str
+
+
+class Video(Component):
+    """A local video input or previewable video output.
+
+    Use ``required=False`` when the Agent should ask for the video in the
+    conversation before it can create a result.
+    """
+    kind = "video"
+
+    def __init__(self, label="视频", sources=("upload",), *, required=True):
+        super().__init__(label)
+        if not sources or set(sources) - {"upload"}:
+            raise ValueError("Video sources must contain upload")
+        self.sources = list(sources)
+        self.required = bool(required)
+
+    def schema(self):
+        return {**super().schema(), "sources": self.sources, "required": self.required}
 
 
 class StreamingAudio(Audio):
@@ -161,6 +188,11 @@ class AudioInfo(Component):
     kind = "audio-info"
 
 
+class VideoInfo(Component):
+    """Display a JSON-serializable dictionary of video measurements."""
+    kind = "video-info"
+
+
 class _MainInput(TypedDict):
     main: Component
 
@@ -209,8 +241,8 @@ class Interface:
             raise ValueError("Interface requires a callable and at least one output")
         if any(not isinstance(c, Component) for c in [*self._components, *self.outputs]):
             raise TypeError("Inputs and outputs must be SDK components")
-        if any(isinstance(c, AudioInfo) for c in self._components):
-            raise ValueError("AudioInfo is an output component")
+        if any(isinstance(c, (AudioInfo, VideoInfo)) for c in self._components):
+            raise ValueError("AudioInfo and VideoInfo are output components")
 
         self.streaming = any(isinstance(c, StreamingAudio) for c in self._components)
         if self.streaming and (len(self._components) != 1 or not isinstance(self.inputs[0]["main"], StreamingAudio)):
@@ -264,21 +296,32 @@ class Interface:
             values = flattened
         args = []
         for i, (component, value) in enumerate(zip(self._components, values)):
-            if isinstance(component, Audio):
+            if isinstance(component, (Audio, Video)):
+                media_name = "audio" if isinstance(component, Audio) else "video"
+                if value is None and isinstance(component, Video) and not component.required:
+                    args.append(None)
+                    continue
                 if not isinstance(value, dict):
-                    raise ValueError("Choose or record audio first")
-                name = Path(str(value.get("name", "audio.wav"))).name
-                raw = base64.b64decode(value["data"], validate=True)
+                    raise ValueError(f"Choose {media_name} first")
+                name = Path(str(value.get("name", f"{media_name}.bin"))).name
+                try:
+                    raw = base64.b64decode(value["data"], validate=True)
+                except (KeyError, ValueError) as error:
+                    raise ValueError(f"Invalid {media_name} data") from error
                 if not raw:
-                    raise ValueError("Audio is empty")
+                    raise ValueError(f"{media_name.capitalize()} is empty")
                 if len(raw) > 32 * 1024 * 1024:
-                    raise ValueError("Audio input exceeds 32 MiB")
+                    raise ValueError(f"{media_name.capitalize()} input exceeds 32 MiB")
                 file = Path(directory) / f"{i}{Path(name).suffix}"
                 file.write_bytes(raw)
-                transcript = value.get("transcript", "") if component.transcript else ""
-                if not isinstance(transcript, str):
-                    raise ValueError("Audio transcript must be text")
-                args.append(AudioValue(file, name, str(value.get("mimeType", "application/octet-stream")), transcript))
+                mime_type = str(value.get("mimeType", "application/octet-stream"))
+                if isinstance(component, Audio):
+                    transcript = value.get("transcript", "") if component.transcript else ""
+                    if not isinstance(transcript, str):
+                        raise ValueError("Audio transcript must be text")
+                    args.append(AudioValue(file, name, mime_type, transcript))
+                else:
+                    args.append(VideoValue(file, name, mime_type))
             elif isinstance(component, (Number, Select, Table)):
                 args.append(component.validate(value))
             else:
@@ -304,17 +347,22 @@ class Interface:
             raise ValueError("Callback output count does not match the UI")
         encoded = []
         for component, value in zip(self.outputs, results):
-            if isinstance(component, Audio):
-                file = value.path if isinstance(value, AudioValue) else Path(value)
+            if isinstance(component, (Audio, Video)):
+                if value is None and isinstance(component, Video):
+                    encoded.append(None)
+                    continue
+                file = value.path if isinstance(value, (AudioValue, VideoValue)) else Path(value)
+                media_name = "Audio" if isinstance(component, Audio) else "Video"
                 if file.stat().st_size > 32 * 1024 * 1024:
-                    raise ValueError("Audio output exceeds 32 MiB")
-                mime = mimetypes.guess_type(str(file))[0] or "audio/wav"
-                encoded.append({"dataUrl": f"data:{mime};base64," + base64.b64encode(file.read_bytes()).decode()})
+                    raise ValueError(f"{media_name} output exceeds 32 MiB")
+                default_mime = "audio/wav" if isinstance(component, Audio) else "video/mp4"
+                mime = mimetypes.guess_type(str(file))[0] or default_mime
+                encoded.append({"dataUrl": f"data:{mime};base64," + base64.b64encode(file.read_bytes()).decode(), "name": file.name})
             elif isinstance(component, (Number, Select, Table)):
                 encoded.append(component.validate(value))
-            elif isinstance(component, AudioInfo):
+            elif isinstance(component, (AudioInfo, VideoInfo)):
                 if not isinstance(value, dict):
-                    raise ValueError("AudioInfo requires a dictionary")
+                    raise ValueError(f"{component.__class__.__name__} requires a dictionary")
                 encoded.append(value)
             else:
                 encoded.append(str(value))

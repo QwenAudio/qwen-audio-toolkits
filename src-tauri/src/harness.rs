@@ -7692,30 +7692,6 @@ mod tests {
     }
 
     #[test]
-    fn video_translation_bailian_environment_requires_enabled_credentials() {
-        let mut config = BailianProviderConfig {
-            api_key: " secret ".to_string(),
-            base_url: "https://bailian.example.test/".to_string(),
-            enabled: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            bailian_video_translation_env_from_config(&config)
-                .expect("configured provider environment"),
-            vec![
-                ("DASHSCOPE_API_KEY".to_string(), "secret".to_string()),
-                (
-                    "DASHSCOPE_HTTP_BASE_URL".to_string(),
-                    "https://bailian.example.test".to_string(),
-                ),
-            ],
-        );
-
-        config.enabled = false;
-        assert!(bailian_video_translation_env_from_config(&config).is_err());
-    }
-
-    #[test]
     fn bailian_error_uses_service_message() {
         let raw = json!({ "code": "InvalidApiKey", "message": "key is invalid" });
         assert_eq!(
@@ -8174,31 +8150,6 @@ fn configured_bailian_provider(app: &AppHandle) -> Result<BailianProviderConfig,
     } else {
         Err("阿里云百炼尚未配置或未启用".to_string())
     }
-}
-
-fn bailian_video_translation_env_from_config(
-    config: &BailianProviderConfig,
-) -> Result<Vec<(String, String)>, String> {
-    if !config.configured() {
-        return Err("阿里云百炼尚未配置或未启用".to_string());
-    }
-    let base_url = config.base_url.trim().trim_end_matches('/');
-    if base_url.is_empty() {
-        return Err("阿里云百炼服务地址未配置".to_string());
-    }
-    Ok(vec![
-        (
-            "DASHSCOPE_API_KEY".to_string(),
-            config.api_key.trim().to_string(),
-        ),
-        ("DASHSCOPE_HTTP_BASE_URL".to_string(), base_url.to_string()),
-    ])
-}
-
-pub(crate) fn bailian_video_translation_env(
-    app: &AppHandle,
-) -> Result<Vec<(String, String)>, String> {
-    bailian_video_translation_env_from_config(&configured_bailian_provider(app)?)
 }
 
 fn decode_data_url_bytes(data_url: &str) -> Result<Vec<u8>, String> {

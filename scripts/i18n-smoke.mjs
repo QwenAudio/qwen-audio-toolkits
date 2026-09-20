@@ -85,41 +85,7 @@ const storeSource = readFileSync(
   'utf8',
 )
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8')
-const workbenchSource = readFileSync(
-  new URL('../src/views/ExtensionWorkbenchView.tsx', import.meta.url),
-  'utf8',
-)
-for (const source of [
-  '扩展工作台',
-  '启用后可从程序坞访问扩展工具',
-  '返回工作区',
-  '扩展工作台页面',
-  '模型',
-  '智能剪辑',
-  '播客',
-  '会议纪要',
-  '视频配音',
-  '扩展功能将在后续版本提供。',
-]) {
-  assert.ok(
-    Object.hasOwn(en, source),
-    `Missing extension-workbench English translation: ${source}`,
-  )
-}
-assert.match(appSource, /t\('扩展工作台'\)/u)
-assert.match(appSource, /t\('启用后可从程序坞访问扩展工具'\)/u)
-assert.match(
-  appSource,
-  /t\(extensionWorkbenchPageLabels\[extensionWorkbenchPage\]\)/u,
-)
-assert.match(workbenchSource, /t\('扩展工作台'\)/u)
 assert.match(storeSource, /t\('模型与运行环境'\)/u)
-assert.match(workbenchSource, /t\('返回工作区'\)/u)
-assert.match(workbenchSource, /t\('扩展工作台页面'\)/u)
-assert.match(
-  workbenchSource,
-  /t\(extensionWorkbenchPageLabels\[pageId\]\)/u,
-)
 assert.match(appSource, /setLocale/u)
 assert.match(appSource, /useLocale/u)
 assert.match(appSource, /strong>界面语言<\/strong>/u)

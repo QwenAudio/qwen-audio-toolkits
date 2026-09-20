@@ -6,17 +6,8 @@ import {
   buildPythonAgentSidebarGroups,
   reconcilePythonAgentSelection,
 } from './services/agentSidebarState'
-import {
-  extensionWorkbenchPageLabels,
-  readExtensionWorkbenchEnabled,
-  resolveExtensionWorkbenchPage,
-  writeExtensionWorkbenchEnabled,
-  type ExtensionWorkbenchPage,
-} from './services/extensionWorkbenchState'
 import { refreshThenPersistCloudModelState } from './services/extensionModelStoreLifecycle'
-import { useWorkspaceCloseFlush, useWorkspaceReady } from './hooks/useProjectAutosave'
 import { PythonAgentWorkspace } from './views/PythonAgentWorkspace'
-import type { ExtensionExecutionContext } from './views/ExtensionWorkbenchView'
 import {
   lazy,
   Suspense,
@@ -132,11 +123,6 @@ const ModelWorkspaceView = lazy(() =>
 const AgentCatalogView = lazy(() =>
   import('./views/AgentCatalogView').then((module) => ({
     default: module.AgentCatalogView,
-  })),
-)
-const ExtensionWorkbenchView = lazy(() =>
-  import('./views/ExtensionWorkbenchView').then((module) => ({
-    default: module.ExtensionWorkbenchView,
   })),
 )
 const ExtensionModelStoreView = lazy(() =>
@@ -265,15 +251,6 @@ function getInitialAutoUpdate(): boolean {
     return window.localStorage.getItem(AUTO_UPDATE_STORAGE_KEY) !== 'off'
   } catch {
     return true
-  }
-}
-
-function getInitialExtensionWorkbenchEnabled(): boolean {
-  if (typeof window === 'undefined') return false
-  try {
-    return readExtensionWorkbenchEnabled(window.localStorage)
-  } catch {
-    return false
   }
 }
 
@@ -505,7 +482,6 @@ type ShellPage =
   | 'workspace'
   | 'extensions'
   | 'agent-catalog'
-  | 'extension-workbench'
   | 'settings'
 type SettingsSection = 'general' | 'appearance' | 'storage' | 'accounts'
 
@@ -663,8 +639,6 @@ function App() {
   >(null)
   const extensionsTriggerRef = useRef<HTMLButtonElement>(null)
   const agentCatalogTriggerRef = useRef<HTMLButtonElement>(null)
-  const extensionWorkbenchTriggerRef = useRef<HTMLButtonElement>(null)
-  const extensionsReturnFocusRef = useRef<HTMLElement | null>(null)
   const settingsTriggerRef = useRef<HTMLButtonElement>(null)
   const [settingsSection, setSettingsSection] =
     useState<SettingsSection | 'all'>('all')
@@ -685,18 +659,6 @@ function App() {
   const [autoUpdateCheck, setAutoUpdateCheck] = useState<boolean>(
     getInitialAutoUpdate,
   )
-  const [extensionWorkbenchEnabled, setExtensionWorkbenchEnabled] =
-    useState(getInitialExtensionWorkbenchEnabled)
-  const [extensionWorkbenchPage, setExtensionWorkbenchPage] =
-    useState<ExtensionWorkbenchPage>(
-      () =>
-        resolveExtensionWorkbenchPage(
-          getInitialExtensionWorkbenchEnabled(),
-          null,
-        ) ?? 'models',
-    )
-  const workbenchWorkspaceReady = useWorkspaceReady(extensionWorkbenchEnabled)
-  useWorkspaceCloseFlush(extensionWorkbenchEnabled)
   const [dataDirectory, setDataDirectory] = useState<string | null>(null)
   const [cleaningCache, setCleaningCache] = useState(false)
   const [systemDark, setSystemDark] = useState(() =>
@@ -716,18 +678,9 @@ function App() {
   const leaveShellPage = useCallback(() => {
     const leaving = shellPage
     setShellPage('workspace')
-    const returnTarget = extensionsReturnFocusRef.current
     window.requestAnimationFrame(() => {
-      const trigger =
-        leaving === 'settings'
-          ? settingsTriggerRef.current
-          : leaving === 'agent-catalog'
-            ? agentCatalogTriggerRef.current
-          : leaving === 'extension-workbench'
-            ? extensionWorkbenchTriggerRef.current
-            : extensionsTriggerRef.current
-      const target = returnTarget?.isConnected ? returnTarget : trigger
-      target?.focus()
+      const trigger = leaving === 'settings' ? settingsTriggerRef.current : leaving === 'agent-catalog' ? agentCatalogTriggerRef.current : extensionsTriggerRef.current
+      trigger?.focus()
     })
   }, [shellPage])
 
@@ -819,32 +772,6 @@ function App() {
     } catch {
       // Keep the preference for the current session when storage is unavailable.
     }
-  }
-
-  const selectExtensionWorkbenchEnabled = (enabled: boolean) => {
-    setExtensionWorkbenchEnabled(enabled)
-    const resolvedPage = resolveExtensionWorkbenchPage(
-      enabled,
-      extensionWorkbenchPage,
-    )
-    if (resolvedPage) setExtensionWorkbenchPage(resolvedPage)
-    try {
-      writeExtensionWorkbenchEnabled(window.localStorage, enabled)
-    } catch {
-      // Keep the preference for the current session when storage is unavailable.
-    }
-    if (!enabled && shellPage === 'extension-workbench') {
-      setShellPage('workspace')
-      setView('workspace')
-    }
-  }
-
-  const changeExtensionWorkbenchPage = (page: ExtensionWorkbenchPage) => {
-    const resolvedPage = resolveExtensionWorkbenchPage(
-      extensionWorkbenchEnabled,
-      page,
-    )
-    if (resolvedPage) setExtensionWorkbenchPage(resolvedPage)
   }
 
   const revealDataDirectory = async () => {
@@ -1586,30 +1513,11 @@ function App() {
     }
   }, [syncExtensionsState])
   const openShellPage = (page: Exclude<ShellPage, 'workspace'>) => {
-    if (shellPage === 'workspace' && document.activeElement instanceof HTMLElement) {
-      extensionsReturnFocusRef.current = document.activeElement
-    }
     setShellPage(page)
     setSidebarOpen(false)
   }
   const openExtensions = () => openShellPage('extensions')
   const openAgentCatalog = () => openShellPage('agent-catalog')
-  const openExtensionWorkbench = () => {
-    const resolvedPage = resolveExtensionWorkbenchPage(
-      extensionWorkbenchEnabled,
-      extensionWorkbenchPage,
-    )
-    if (!resolvedPage) return
-    setExtensionWorkbenchPage(resolvedPage)
-    openShellPage('extension-workbench')
-  }
-  const openExtensionModelStore = () => {
-    if (!extensionWorkbenchEnabled) return
-    setExtensionWorkbenchPage('models')
-    if (shellPage !== 'extension-workbench') {
-      openShellPage('extension-workbench')
-    }
-  }
   const openSettings = () => {
     setSettingsSection('all')
     openShellPage('settings')
@@ -1969,56 +1877,6 @@ function App() {
     return execution
   }
 
-  const runWorkbenchText: ExtensionExecutionContext['runText'] = (
-    text,
-    capability,
-    providerId,
-    modelId,
-    modelParameters,
-    dependencyRunIds,
-    conversationVisible,
-  ) =>
-    runText(
-      text,
-      capability,
-      providerId,
-      modelId,
-      modelParameters,
-      dependencyRunIds,
-      conversationVisible,
-      'workbench',
-    )
-  const runWorkbenchAudio: ExtensionExecutionContext['runAudio'] = (
-    clip,
-    capability,
-    providerId,
-    modelId,
-    modelParameters,
-    conversationVisible,
-    dependencyRunIds,
-    comparisonClip,
-  ) =>
-    runAudio(
-      clip,
-      capability,
-      providerId,
-      modelId,
-      modelParameters,
-      conversationVisible,
-      dependencyRunIds,
-      comparisonClip,
-      'workbench',
-    )
-
-  const extensionExecutionContext: ExtensionExecutionContext = {
-    models: orderedRunnablePlugins,
-    catalog,
-    runText: runWorkbenchText,
-    runAudio: runWorkbenchAudio,
-    openModelStore: openExtensionModelStore,
-    notify,
-  }
-
   const renderPluginSidebarEntry = (plugin: ModelPlugin) => {
     const active =
       view === 'workspace' &&
@@ -2270,22 +2128,6 @@ function App() {
             aria-checked={autoUpdateCheck}
             aria-label="自动检查更新"
             onClick={() => selectAutoUpdateCheck(!autoUpdateCheck)}
-          />
-        </div>
-        <div className="settings-row">
-          <span>
-            <strong>{t('扩展工作台')}</strong>
-            <small>{t('启用后可从程序坞访问扩展工具')}</small>
-          </span>
-          <button
-            className="settings-switch"
-            type="button"
-            role="switch"
-            aria-checked={extensionWorkbenchEnabled}
-            aria-label={t('扩展工作台')}
-            onClick={() =>
-              selectExtensionWorkbenchEnabled(!extensionWorkbenchEnabled)
-            }
           />
         </div>
         </div>
@@ -2660,25 +2502,6 @@ function App() {
           >
             <Bot size={18} />
           </button>
-          {extensionWorkbenchEnabled && (
-            <button
-              ref={extensionWorkbenchTriggerRef}
-              className={`sidebar-dock-button${
-                shellPage === 'extension-workbench' ? ' active' : ''
-              }`}
-              type="button"
-              aria-label={t('扩展工作台')}
-              aria-pressed={shellPage === 'extension-workbench'}
-              data-tooltip={t('扩展工作台')}
-              onClick={
-                shellPage === 'extension-workbench'
-                  ? leaveShellPage
-                  : openExtensionWorkbench
-              }
-            >
-              <Settings2 size={18} />
-            </button>
-          )}
           <button
             ref={settingsTriggerRef}
             className={`sidebar-dock-button${shellPage === 'settings' ? ' active' : ''}`}
@@ -2809,9 +2632,7 @@ function App() {
                 ? '模型商店'
                 : shellPage === 'agent-catalog'
                   ? 'Agents'
-                : shellPage === 'extension-workbench'
-                  ? t(extensionWorkbenchPageLabels[extensionWorkbenchPage])
-                  : shellPage === 'settings'
+                : shellPage === 'settings'
                     ? `设置 · ${activeSettingsSection.label}`
                     : view === 'workspace'
                 ? WORKFLOWS_ENABLED && workflowSelected
@@ -2873,41 +2694,6 @@ function App() {
               onInstall={(id, update) => { void installAgentUi(id, update).catch((error) => notify(`安装失败：${String(error)}`)) }}
               onUninstall={(id) => { void uninstallAgentUi(id).catch((error) => notify(`卸载失败：${String(error)}`)) }}
             />
-          )}
-          {extensionWorkbenchEnabled && shellPage === 'extension-workbench' && !workbenchWorkspaceReady && (
-            <div className="app-view-loading" role="status" aria-label={t('正在加载')}>
-              <LoaderCircle className="model-spin" size={19} />
-            </div>
-          )}
-          {extensionWorkbenchEnabled && shellPage === 'extension-workbench' && workbenchWorkspaceReady && (
-            <ExtensionWorkbenchView
-              page={extensionWorkbenchPage}
-              context={extensionExecutionContext}
-              onPageChange={changeExtensionWorkbenchPage}
-              onClose={leaveShellPage}
-            >
-              {extensionWorkbenchPage === 'models' ? (
-                <ExtensionModelStoreView
-                  catalogKind="models"
-                  plugins={plugins}
-                  modelBindings={modelBindings}
-                  runtime={runtime}
-                  catalog={catalog}
-                  apiModelCatalog={apiModelCatalog}
-                  customApiModels={customApiModels}
-                  installedCloudModelIds={installedCloudModelIds}
-                  onConfigureProvider={notifyModelStoreProviderConfiguration}
-                  onRefreshModels={refreshModelStore}
-                  onInstallModel={installModelStoreModel}
-                  onInstallModelDependency={installModelStoreDependency}
-                  onRestoreModel={restoreModelStoreModel}
-                  onUninstallModel={uninstallModelStoreModel}
-                  onSetModelBinding={saveModelDependencyBinding}
-                  onCloudModelInstalled={setCloudModelInstalled}
-                  onAction={notify}
-                />
-              ) : null}
-            </ExtensionWorkbenchView>
           )}
           {shellPage === 'settings' && (
             <section

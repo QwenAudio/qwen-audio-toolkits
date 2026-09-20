@@ -374,6 +374,58 @@ async function setup() {
       };
       return;
     }
+    if (c.kind === "video") {
+      inputValues[i] = null;
+      s.classList.add("video-input-card");
+      const preview = element("video", s);
+      preview.controls = true;
+      preview.preload = "metadata";
+      preview.playsInline = true;
+      preview.hidden = true;
+      const hint = element("p", s, c.required === false ? "可先说明想怎么剪；需要时再上传视频。" : "上传需要剪辑的视频文件。");
+      hint.className = "video-empty-hint";
+      const actions = element("div", s);
+      actions.className = "video-actions";
+      const upload = element("input", actions);
+      upload.type = "file";
+      upload.accept = "video/*";
+      upload.hidden = true;
+      upload.setAttribute("aria-label", c.label || "上传视频");
+      const pick = element("button", actions, "上传视频");
+      pick.type = "button";
+      pick.className = "video-upload-button";
+      pick.onclick = () => upload.click();
+      const info = element("small", s);
+      const remove = element("button", s, "移除视频");
+      remove.type = "button";
+      remove.className = "video-remove";
+      remove.hidden = true;
+      let objectUrl;
+      const clear = () => {
+        preview.pause(); preview.removeAttribute("src"); preview.load(); preview.hidden = true;
+        hint.hidden = false; info.textContent = ""; remove.hidden = true; inputValues[i] = null;
+        if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+        upload.value = "";
+      };
+      remove.onclick = clear;
+      upload.onchange = async () => {
+        const file = upload.files?.[0];
+        if (!file) return;
+        try {
+          if (file.size > 32 * 1024 * 1024) throw Error("视频不能超过 32 MiB");
+          const data = await new Promise((resolve, reject) => {
+            const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(file);
+          });
+          inputValues[i] = {name: file.name, mimeType: file.type || "video/mp4", data: String(data).split(",")[1]};
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          objectUrl = URL.createObjectURL(file);
+          preview.src = objectUrl; preview.hidden = false; hint.hidden = true; remove.hidden = false;
+          info.textContent = `${file.name} · ${(file.size / 1024 / 1024).toFixed(1)} MiB`;
+        } catch (error) { clear(); status(error.message); }
+      };
+      window.addEventListener("pagehide", () => { if (objectUrl) URL.revokeObjectURL(objectUrl); });
+      return;
+    }
     inputValues[i] = null;
     const player = ToolkitsContent.audio(s);
     player.hidden = true;
@@ -641,9 +693,6 @@ async function setup() {
     }
   });
 
-  function render(parent, c, v, context = "message") {
-    return ToolkitsContent.render(parent, ToolkitsContent.content(c, v), context);
-  }
   const resizeHandle = $("detail-resize");
   const detailPanel = $("result-detail");
   const workspace = document.querySelector(".agent-workspace");
@@ -696,7 +745,6 @@ async function setup() {
     button.setAttribute("aria-label", "打开实时字幕");
     button.onclick = () => { captionTarget = reply; sendCaption("open", reply); };
   }
-  let selectedReply;
   const completedTurns = new Map();
   let historySave = Promise.resolve();
   function saveHistory() {
@@ -709,9 +757,10 @@ async function setup() {
   }
   function renderInspectable(parent, block, context = "message") {
     const section = ToolkitsContent.render(parent, block, context);
-    if (context === "parameter" && block.kind !== "audio") return section;
+    if (context === "parameter" && block.kind !== "audio" && block.kind !== "video") return section;
     if (section.hidden) return section;
     if (block.kind === "audio") section.classList.add("audio-message-row");
+    if (block.kind === "video") section.classList.add("video-message-row");
     const inspect = element("button", section, block.kind === "table" ? (block.label || "查看数据") + " ↗" : "查看详情 ↗");
     inspect.className = "result-inspect";
     inspect.innerHTML = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h12"/></svg>';
@@ -727,18 +776,18 @@ async function setup() {
     let attachedCaption = false;
     blocks.forEach(block => {
       const section = renderInspectable(content, block);
+      if (block.kind === "video" && block.value) showDetail(block, section);
       if (block.kind === "text" && !attachedCaption) { captionButton(section, reply); attachedCaption = true; }
     });
     if (captionTarget === reply) sendCaption("update", reply);
     if (!record.outputs) element("p", content, record.error || "上次处理已中断，请重新提交").className = "error";
   }
   function showDetail(block, section) {
-    selectedReply = section;
     document.querySelector(".agent-workspace").classList.add("detail-open");
     $("result-detail").hidden = false;
     $("detail-content").replaceChildren();
     const heading = document.querySelector(".detail-heading strong");
-    if (heading) heading.textContent = ({audio:"音频详情", text:"文本详情", table:"数据详情", number:"数值详情"})[block.kind] || "内容详情";
+    if (heading) heading.textContent = ({audio:"音频详情", video:"视频预览", text:"文本详情", table:"数据详情", number:"数值详情", "video-info":"视频信息"})[block.kind] || "内容详情";
     document.querySelectorAll(".result.selected").forEach(item => item.classList.remove("selected"));
     section?.classList.add("selected");
     const rendered = ToolkitsContent.render($("detail-content"), block, "detail");
@@ -752,7 +801,6 @@ async function setup() {
     }
   }
   $("close-detail").onclick = () => {
-    selectedReply = null;
     $("result-detail").hidden = true;
     document.querySelector(".agent-workspace").classList.remove("detail-open");
     document.querySelectorAll(".result.selected").forEach(item => item.classList.remove("selected"));
@@ -808,7 +856,7 @@ async function setup() {
   async function submit(values, existing) {
     if (running) return;
     if (
-      components.some((c, i) => values[i] === null || values[i] === undefined)
+      components.some((c, i) => c.required !== false && (values[i] === null || values[i] === undefined))
     ) {
       status("请先补充输入内容");
       return;

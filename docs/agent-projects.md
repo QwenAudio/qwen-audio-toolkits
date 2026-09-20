@@ -37,7 +37,7 @@ def create_ui():
 ```
 
 每组输入有一个主输入，可选 `additional`；允许多组主输入。附加控件以胶囊呈现在输入框上方。
-`Select.choices` 的字典是「实际值 → 显示文字」。参考文本属于 `tk.Audio(..., transcript=True)`，无需独立文本胶囊。
+`Select.choices` 的字典是「实际值 → 显示文字」。参考文本属于 `tk.Audio(..., transcript=True)`，无需独立文本胶囊。`tk.Video(required=False)` 可让 Agent 先在对话中澄清剪辑意图，等用户上传素材后再生成右侧视频预览。
 
 在项目目录运行 `pip install -r requirements.txt`、`toolkits .` 即可动态预览。
 `prepare()` 可选：负责下载、校验项目资源，在安装阶段执行。函数内只使用本项目缓存，
@@ -65,3 +65,7 @@ npm run tauri -- build --debug --bundles app --config src-tauri/tauri.agent-prev
 ```
 
 预览使用独立应用标识、数据目录与 `127.0.0.1:3848`，不自动更新为正式发行版本。
+
+## 发布视频剪辑 Agent
+
+源码位于 `agents/video-editor/`。发布到 ModelScope 资源仓库时，将该目录归档为 `agents/video-editor.tar`，计算归档的 SHA-256 后写入本仓库的 `catalog/agent-catalog.json`，再运行 `npm run agents:repository -- /path/to/QwenAudio-Toolkits`。不要把临时归档或未经校验的摘要提交到桌面仓库。

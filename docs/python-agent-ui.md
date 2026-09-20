@@ -36,11 +36,12 @@ SDK 不要求业务函数继承任何基类，不要求顶层 `app` 变量。函
 | --- | --- |
 | `tk.Text(label)` | 输入为字符串；输出转为文本，不解释 HTML |
 | `tk.Audio(label, sources=["upload", "microphone"])` | 输入为 `AudioValue`；输出接受 `AudioValue`、文件路径字符串或 Path |
-| `tk.AudioInfo(label)` | 输出为可 JSON 序列化的字典 |
+| `tk.Video(label, required=False)` | 输入为 `VideoValue`，或在可选输入未上传时为 `None`；输出接受文件路径或 `VideoValue` |
+| `tk.AudioInfo(label)` / `tk.VideoInfo(label)` | 输出为可 JSON 序列化的媒体信息字典 |
 
 音频界面提供上传、录音、播放器、波形和浏览器解码的时长/采样率/声道信息。录音编码为单声道 PCM WAV，最长约 5 分钟；上传保留原文件格式，不自动转码。浏览器解码采样率可能不同于原文件采样率。示例的 Python WAV 信息给出原始文件参数。
 
-`AudioValue.path` 是请求期间的临时文件，另有 `name` 和 `mime_type`。回调结束并序列化输出后会删除临时文件；需要长期保存时由业务代码自行复制。每个音频最大 32 MiB，HTTP 请求最大 48 MiB（包括 base64 开销）。当前 UI 一次只运行一个请求，回调异常显示为错误文本。
+`AudioValue.path` 和 `VideoValue.path` 是请求期间的临时文件，另有 `name` 和 `mime_type`。回调结束并序列化输出后会删除临时文件；需要长期保存时由业务代码自行复制。每个媒体文件最大 32 MiB，HTTP 请求最大 48 MiB（包括 base64 开销）。当前 UI 一次只运行一个请求，回调异常显示为错误文本。
 
 ## 桌面 Agent 目录
 
@@ -76,7 +77,7 @@ ui = tk.Interface(
 )
 ```
 
-回调每组接收一个位置参数，顺序与 inputs 一致。每个参数固定包含 `main` 和 `additional`，后者始终是列表，包括未声明时的空列表。组件数据类型不变；SDK 负责将音频解码为请求期间的 AudioValue。业务模块不需要遵守任何目录或类继承约定。
+回调每组接收一个位置参数，顺序与 inputs 一致。每个参数固定包含 `main` 和 `additional`，后者始终是列表，包括未声明时的空列表。组件数据类型不变；SDK 负责将音频和视频解码为请求期间的 AudioValue / VideoValue。业务模块不需要遵守任何目录或类继承约定。
 
 界面按组排列主输入，每组附加输入位于自己的主输入上方；没有附加输入就不显示附加区域。纯音频组不显示无关的文本框。所有组共用发送按钮，一次提交整项任务。Text 可通过 placeholder 设置输入提示。
 
