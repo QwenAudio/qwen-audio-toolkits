@@ -3,6 +3,7 @@ import importlib.util
 import tempfile
 import unittest
 import sys
+from unittest.mock import patch
 from pathlib import Path
 
 import toolkits as tk
@@ -46,3 +47,50 @@ class VideoEditorPlanTests(unittest.TestCase):
         self.assertIsNone(result[0])
         self.assertIn("上传视频", result[1])
         self.assertEqual(result[2][0][2], "缺少素材")
+
+
+class VideoEditorCaptionTests(unittest.TestCase):
+    def test_parses_srt_and_detects_requested_language(self):
+        module = load_agent_module()
+        with tempfile.TemporaryDirectory() as directory:
+            srt = Path(directory) / "captions.srt"
+            srt.write_text(
+                "1\n00:00:00,250 --> 00:00:01,500\n第一句\n\n"
+                "2\n00:00:01,700 --> 00:00:02,800\nSecond line\n",
+                encoding="utf-8",
+            )
+            cues = module._parse_srt(srt)
+        self.assertEqual([(cue.start, cue.end, cue.text) for cue in cues], [
+            (0.25, 1.5, "第一句"),
+            (1.7, 2.8, "Second line"),
+        ])
+        self.assertTrue(module._caption_requested("给视频加中文字幕"))
+        self.assertFalse(module._caption_requested("不要字幕"))
+        self.assertEqual(module._subtitle_language("生成英文字幕"), "en")
+
+    def test_caption_request_returns_burned_video_and_transcript(self):
+        module = load_agent_module()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.mp4"
+            source.write_bytes(b"source")
+            subtitle = root / "source.srt"
+            subtitle.write_text("1\n00:00:00,000 --> 00:00:01,000\n测试字幕\n", encoding="utf-8")
+            def burn(_, __, output, ___):
+                output.write_bytes(b"captioned")
+                return True
+
+            with patch.object(module, "_probe", return_value=module.VideoMetadata(2, 320, 180, True)), \
+                 patch.object(module, "_transcribe_srt", return_value=(subtitle, None)), \
+                 patch.object(module, "_burn_subtitles", side_effect=burn):
+                result = module.edit_video({
+                    "main": "给视频加中文字幕",
+                    "additional": [tk.VideoValue(source, "source.mp4", "video/mp4")],
+                })
+
+            self.assertEqual(result[0], root / "source-agent-captioned.mp4")
+            self.assertTrue(result[0].is_file())
+            self.assertIn("字幕已烧录", result[1])
+            self.assertEqual(result[2][0][2], "已生成 1 条")
+            self.assertIn("测试字幕", result[3])
+            self.assertEqual(result[4]["字幕"], "已烧录 1 条")
