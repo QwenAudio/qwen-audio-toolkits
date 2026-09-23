@@ -2618,23 +2618,20 @@ export function ModelWorkspaceView({
         } as CSSProperties
       }
     >
-      <header
-        className="model-workspace-heading"
-        data-tauri-drag-region
-        onMouseDown={(event) => {
-          if (
-            event.button !== 0 ||
-            (event.target as HTMLElement).closest('button, input, select, textarea')
-          ) {
-            return
-          }
-          void getCurrentWindow().startDragging().catch(() => undefined)
-        }}
-      >
-        <div data-tauri-drag-region>
-          <h1 data-tauri-drag-region>{plugin.name}</h1>
-        </div>
-        {selectedRun && (
+      {selectedRun && (
+        <header
+          className="model-workspace-heading"
+          data-tauri-drag-region
+          onMouseDown={(event) => {
+            if (
+              event.button !== 0 ||
+              (event.target as HTMLElement).closest('button, input, select, textarea')
+            ) {
+              return
+            }
+            void getCurrentWindow().startDragging().catch(() => undefined)
+          }}
+        >
           <button
             className="icon-button result-detail-close"
             type="button"
@@ -2645,8 +2642,8 @@ export function ModelWorkspaceView({
           >
             <SidebarCollapseIcon />
           </button>
-        )}
-      </header>
+        </header>
+      )}
 
       <section className="model-conversation">
 

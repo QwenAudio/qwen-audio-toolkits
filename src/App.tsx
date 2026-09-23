@@ -2643,12 +2643,6 @@ function App() {
                 : '流程编排'}
             </span>
           </div>
-          <div className="topbar-actions">
-            <span className="model-runtime-state">
-              <i />
-              {isTauriRuntime() ? '本地运行' : '界面预览'}
-            </span>
-          </div>
         </header>
 
         <div

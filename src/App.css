@@ -1159,12 +1159,6 @@ input[type="range"]:disabled {
   height: 13px;
   background: var(--line);
 }
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-}
 .view-container {
   min-width: 0;
   min-height: 0;
@@ -6543,7 +6537,6 @@ never clipped by the sidebar. */
   font-size: 14px;
   font-weight: 700;
 }
-.model-runtime-state,
 .model-ready-state {
   display: inline-flex;
   align-items: center;
@@ -6552,7 +6545,6 @@ never clipped by the sidebar. */
   font-size: 12px;
   font-weight: 600;
 }
-.model-runtime-state i,
 .model-ready-state i {
   width: 7px;
   height: 7px;
@@ -8352,6 +8344,9 @@ body.detail-resizing .model-workspace {
   border-radius: 5px;
   -webkit-app-region: no-drag;
   transition: color 100ms ease, background-color 100ms ease;
+}
+.model-workspace-heading .result-detail-close {
+  margin-left: auto;
 }
 .native-titlebar-enabled .result-detail-close {
   align-self: flex-start;
