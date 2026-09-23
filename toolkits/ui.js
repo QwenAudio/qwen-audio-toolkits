@@ -9,11 +9,16 @@ const $ = (id) => document.getElementById(id),
   });
 let running = false;
 let leaving = false;
+const conversationId = (() => {
+  const value = new URLSearchParams(location.search).get("c") || "default";
+  return /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : "default";
+})();
 const toolkitsHost = (() => {
   let origin;
   window.addEventListener("message", event => {
     if (event.source !== window.parent || event.data?.type !== "toolkits-host-ready" || !event.origin || event.origin === "null") return;
     origin = event.origin;
+    document.body.classList.add("hosted");
   });
   return {
     isHostEvent: event => event.source === window.parent && event.origin === origin,
@@ -24,6 +29,16 @@ const toolkitsHost = (() => {
   };
 })();
 window.ToolkitsHost = toolkitsHost;
+window.addEventListener("message", event => {
+  if (!toolkitsHost.isHostEvent(event) || event.data?.type !== "toolkits-conversations-request") return;
+  fetch("conversations")
+    .then(response => response.ok ? response.json() : { conversations: [] })
+    .then(data => toolkitsHost.post({
+      type: "toolkits-conversations",
+      conversations: Array.isArray(data.conversations) ? data.conversations : [],
+    }))
+    .catch(() => {});
+});
 window.addEventListener("pagehide", () => { leaving = true; });
 const status = (message) => {
   $("status").textContent = message;
@@ -791,8 +806,11 @@ async function setup() {
   function saveHistory() {
     const body = JSON.stringify({turns: Array.from(completedTurns.values())});
     historySave = historySave.catch(() => {}).then(async () => {
-      const response = await fetch("history", {method: "POST", headers: {"Content-Type": "application/json"}, body});
+      const response = await fetch(`history?c=${conversationId}`, {method: "POST", headers: {"Content-Type": "application/json"}, body});
       if (!response.ok) throw Error("对话保存失败，请勿关闭页面");
+      if (completedTurns.size && document.body.classList.contains("hosted")) {
+        try { toolkitsHost.post({ type: "toolkits-conversations-changed" }); } catch { /* 宿主尚未就绪 */ }
+      }
     });
     return historySave;
   }
@@ -980,7 +998,7 @@ async function setup() {
     }
   }
   try {
-    const response = await fetch("history");
+    const response = await fetch(`history?c=${conversationId}`);
     if (!response.ok) throw Error("历史记录读取失败");
     const saved = await response.json();
     for (const record of saved.turns || []) {
