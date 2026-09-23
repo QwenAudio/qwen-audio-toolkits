@@ -5,6 +5,7 @@ import asyncio
 import inspect
 import importlib.util
 import json
+import re
 import secrets
 import sys
 import tempfile
@@ -13,6 +14,7 @@ import traceback
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from . import Interface, report_progress
 
 
@@ -124,8 +126,49 @@ def make_server(ui, port=0, desktop=False):
     streams = StreamManager(ui)
     history_lock = threading.Lock()
     identity = str(Path(getattr(ui, "directory", Path.cwd())).resolve())
-    history_path = (Path.home() / ".qwenaudio-toolkits" / "history" /
-                    (hashlib.sha256(identity.encode()).hexdigest() + ".json"))
+    history_root = Path.home() / ".qwenaudio-toolkits" / "history"
+    agent_key = hashlib.sha256(identity.encode()).hexdigest()
+    history_dir = history_root / agent_key
+    legacy_history = history_root / (agent_key + ".json")
+    if legacy_history.is_file() and not history_dir.exists():
+        history_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        legacy_history.replace(history_dir / "default.json")
+    conversation_pattern = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+    def conversation_id(query):
+        values = parse_qs(query).get("c")
+        if not values:
+            return "default"
+        return values[0] if conversation_pattern.match(values[0]) else None
+
+    def conversation_path(query):
+        cid = conversation_id(query)
+        return None if cid is None else history_dir / f"{cid}.json"
+
+    def conversation_title(data):
+        turns = data.get("turns") if isinstance(data, dict) else None
+        if isinstance(turns, list) and turns:
+            messages = turns[0].get("messages") or []
+            if messages:
+                for block in messages[0].get("content") or []:
+                    if isinstance(block, dict) and block.get("kind") == "text":
+                        text = str(block.get("value") or "").strip()
+                        if text:
+                            return text[:40]
+        return "未命名对话"
+
+    def list_conversations():
+        items = []
+        if history_dir.is_dir():
+            for file in history_dir.glob("*.json"):
+                try:
+                    data = json.loads(file.read_text())
+                    updated = file.stat().st_mtime
+                except (OSError, ValueError):
+                    continue
+                items.append({"id": file.stem, "title": conversation_title(data), "updated": updated})
+        items.sort(key=lambda item: item["updated"], reverse=True)
+        return items
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -150,46 +193,58 @@ def make_server(ui, port=0, desktop=False):
         def do_GET(self):
             if not self.allowed():
                 return self.reply(403, {"error": "Invalid origin"})
-            if self.path == f"/{token}/":
+            route = urlsplit(self.path)
+            if route.path == f"/{token}/":
                 return self.reply(200, Path(__file__).with_name("ui.html").read_bytes(), "text/html; charset=utf-8")
             assets = {"ui-streaming.js": "text/javascript; charset=utf-8", "ui-content.js": "text/javascript; charset=utf-8", "ui.css": "text/css; charset=utf-8", "ui.js": "text/javascript; charset=utf-8"}
             for name, mime in assets.items():
-                if self.path == f"/{token}/{name}":
+                if route.path == f"/{token}/{name}":
                     return self.reply(200, Path(__file__).with_name(name).read_bytes(), mime)
-            if self.path == f"/{token}/history":
+            if route.path == f"/{token}/history":
+                path = conversation_path(route.query)
+                if path is None:
+                    return self.reply(400, {"error": "Invalid conversation id"})
                 with history_lock:
                     try:
-                        saved = json.loads(history_path.read_text())
+                        saved = json.loads(path.read_text())
                     except FileNotFoundError:
                         saved = {"turns": []}
                 return self.reply(200, saved)
-            if self.path == f"/{token}/schema":
+            if route.path == f"/{token}/conversations":
+                with history_lock:
+                    items = list_conversations()
+                return self.reply(200, {"conversations": items})
+            if route.path == f"/{token}/schema":
                 return self.reply(200, ui.schema())
             self.reply(404, {"error": "Not found"})
 
         def do_POST(self):
-            if not self.allowed() or self.path not in (f"/{token}/run", f"/{token}/refresh", f"/{token}/history", *(f"/{token}/stream/{action}" for action in ("start", "chunk", "poll", "finish", "cancel"))):
+            route = urlsplit(self.path)
+            if not self.allowed() or route.path not in (f"/{token}/run", f"/{token}/refresh", f"/{token}/history", *(f"/{token}/stream/{action}" for action in ("start", "chunk", "poll", "finish", "cancel"))):
                 return self.reply(403, {"error": "Invalid request"})
             if self.headers.get("Content-Type") != "application/json":
                 return self.reply(415, {"error": "Expected JSON"})
             try:
                 size = int(self.headers.get("Content-Length", "0"))
-                if self.path.startswith(f"/{token}/stream/"):
+                if route.path.startswith(f"/{token}/stream/"):
                     if not 0 < size <= 65536:
                         return self.reply(413, {"error": "Audio chunk too large"})
                     self.connection.settimeout(15)
                     body = json.loads(self.rfile.read(size))
-                    return self.reply(200, streams.handle(self.path.rsplit("/", 1)[-1], body))
-                if self.path == f"/{token}/history":
+                    return self.reply(200, streams.handle(route.path.rsplit("/", 1)[-1], body))
+                if route.path == f"/{token}/history":
                     if not 0 < size <= 256 * 1024 * 1024:
                         return self.reply(413, {"error": "History exceeds 256 MiB"})
+                    path = conversation_path(route.query)
+                    if path is None:
+                        return self.reply(400, {"error": "Invalid conversation id"})
                     self.connection.settimeout(30)
                     body = json.loads(self.rfile.read(size))
                     if not isinstance(body.get("turns"), list):
                         raise ValueError("Invalid history")
                     with history_lock:
-                        history_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                        with tempfile.NamedTemporaryFile(mode="w", dir=history_path.parent, delete=False) as file:
+                        history_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+                        with tempfile.NamedTemporaryFile(mode="w", dir=history_dir, delete=False) as file:
                             temporary = Path(file.name)
                             try:
                                 json.dump(body, file, ensure_ascii=False)
@@ -198,7 +253,7 @@ def make_server(ui, port=0, desktop=False):
                             except Exception:
                                 temporary.unlink(missing_ok=True)
                                 raise
-                        temporary.replace(history_path)
+                        temporary.replace(path)
                     return self.reply(200, {"ok": True})
                 if not 0 < size <= 48 * 1024 * 1024:
                     return self.reply(413, {"error": "Request exceeds 48 MiB or is empty"})
@@ -207,7 +262,7 @@ def make_server(ui, port=0, desktop=False):
                 try:
                     self.connection.settimeout(30)
                     body = json.loads(self.rfile.read(size))
-                    if self.path == f"/{token}/refresh":
+                    if route.path == f"/{token}/refresh":
                         return self.reply(200, ui.refresh_input(body['index']))
                     with tempfile.TemporaryDirectory(prefix="toolkits-audio-") as directory:
                         output = ui.invoke(body["inputs"], directory)

@@ -58,6 +58,9 @@ h1 {
   letter-spacing: -.35px;
   margin: 0;
 }
+body.hosted header {
+  display: none;
+}
 header p {
   font-size: 12px;
   line-height: 1.6;
